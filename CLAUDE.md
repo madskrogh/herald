@@ -1,0 +1,38 @@
+# Herald
+
+Herald delivers webhooks on behalf of SaaS products: signed, retried, and observable. It is a portfolio project built to production standards, and a working lab for agent-assisted development. How agents are used here is described in [docs/ai-workflow.md](docs/ai-workflow.md).
+
+## Read before changing code
+
+- [docs/design.md](docs/design.md): product spec, architecture, delivery semantics, milestones M1–M5.
+- [docs/adr/](docs/adr/): settled decisions. Don't reopen them in passing; propose a new ADR if one needs to change.
+- [GLOSSARY.md](GLOSSARY.md): domain language. Use these terms in code, tests, comments and docs, and avoid the listed alternatives.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `make up` | Start the local stack with `docker compose` (generates `.env` on first run) |
+| `make down` | Stop the stack and delete its volumes |
+| `make ci` | Everything CI runs on a PR: lint, tests with `-race`, buf checks, generated-code check *(added in M1)* |
+| `make worktree-rm NAME=x` | Stop a worktree's stack, remove the worktree and its branch |
+
+Run `make ci` before every push. It is exactly what CI runs.
+
+## Conventions
+
+- Go conventions are in `.claude/rules/`, loaded automatically by path: `go.md`, `go-testing.md`, `sql.md`.
+- Generated code (sqlc, buf) is committed. Never edit it by hand; change the source and regenerate.
+- Commit messages: short and imperative (`Add outbox relay`).
+
+## Workflow
+
+One GitHub issue = one branch = one worktree = one PR.
+
+1. Read the issue: `gh issue view <n>`.
+2. Build it test-first with the `tdd` skill. Agree the seams before writing tests.
+3. Tests green: run the `standards-review` skill against `main`, and refactor on its findings.
+4. Run the built-in `/code-review` on the final diff for bugs.
+5. `make ci`, push, and open a PR whose description says `Closes #<n>`.
+
+Worktrees: `claude -w <name>` creates `.claude/worktrees/<name>/` on branch `worktree-<name>` from `origin/main`. Each worktree gets its own compose project and ports through `.env` (see `scripts/worktree-env.sh`). Integration tests use testcontainers and need nothing from `.env`.

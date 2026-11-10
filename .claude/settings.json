@@ -26,5 +26,22 @@
         "*.githubusercontent.com"
       ]
     }
+  },
+  "worktree": {
+    "baseRef": "fresh"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/goimports.sh\"",
+            "statusMessage": "goimports"
+          }
+        ]
+      }
+    ]
   }
 }
