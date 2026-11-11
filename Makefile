@@ -18,14 +18,16 @@ generate:
 # Directories holding committed generated code, checked by check-generated.
 GENERATED_DIRS :=
 
-# Fails if go.mod/go.sum are untidy, or if regenerating changes any committed
-# generated code (including new files it would add).
+# Fails if go.mod/go.sum are untidy, or if regenerating changes any generated
+# code relative to the index (including new files it would add). Staged
+# generated code counts as up to date, so this passes before a commit too.
 check-generated: generate
 	go mod tidy -diff
 ifneq ($(strip $(GENERATED_DIRS)),)
-	@test -z "$$(git status --porcelain -- $(GENERATED_DIRS))" || { \
+	@git diff --exit-code --stat -- $(GENERATED_DIRS) && \
+	test -z "$$(git ls-files --others --exclude-standard -- $(GENERATED_DIRS))" || { \
 		git status --short -- $(GENERATED_DIRS); \
-		echo "generated code is out of date: run 'make generate' and commit the result"; \
+		echo "generated code is out of date: run 'make generate' and stage the result"; \
 		exit 1; }
 endif
 

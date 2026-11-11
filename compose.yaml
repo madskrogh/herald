@@ -14,7 +14,9 @@ services:
     volumes:
       - postgres:/var/lib/postgresql
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "herald", "-d", "herald"]
+      # Check over TCP: during first-run initialisation the image runs a
+      # temporary server on the Unix socket only, which must not count as ready.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "herald", "-d", "herald"]
       interval: 2s
       timeout: 5s
       retries: 15

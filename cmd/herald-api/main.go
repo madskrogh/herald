@@ -15,6 +15,9 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	// Once shutdown starts, restore default signal handling so a second
+	// signal kills a shutdown that hangs.
+	context.AfterFunc(ctx, stop)
 	err := run(ctx, os.Stdout)
 	stop()
 	if err != nil {
