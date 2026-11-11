@@ -24,6 +24,15 @@ const (
 
 var vectorTimestamp = time.Unix(1614265330, 0)
 
+// headers returns the three Standard Webhooks headers with the given values.
+func headers(webhookID, timestamp, signature string) http.Header {
+	return http.Header{
+		"Webhook-Id":        {webhookID},
+		"Webhook-Timestamp": {timestamp},
+		"Webhook-Signature": {signature},
+	}
+}
+
 func TestNewSecret(t *testing.T) {
 	t.Parallel()
 
@@ -53,11 +62,7 @@ func TestSignMatchesPublishedVector(t *testing.T) {
 		t.Fatalf("Sign: %v", err)
 	}
 
-	want := http.Header{
-		"Webhook-Id":        {vectorWebhookID},
-		"Webhook-Timestamp": {"1614265330"},
-		"Webhook-Signature": {vectorSignature},
-	}
+	want := headers(vectorWebhookID, "1614265330", vectorSignature)
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Sign headers mismatch (-want +got):\n%s", diff)
 	}
@@ -118,13 +123,19 @@ func TestSignRejectsBadSecrets(t *testing.T) {
 func TestVerifyAcceptsPublishedVector(t *testing.T) {
 	t.Parallel()
 
-	h := http.Header{
-		"Webhook-Id":        {vectorWebhookID},
-		"Webhook-Timestamp": {"1614265330"},
-		"Webhook-Signature": {vectorSignature},
-	}
+	h := headers(vectorWebhookID, "1614265330", vectorSignature)
 	if err := signing.Verify(vectorSecret, h, []byte(vectorPayload), vectorTimestamp); err != nil {
 		t.Errorf("Verify: %v", err)
+	}
+}
+
+func TestVerifyRejectsMissingWebhookID(t *testing.T) {
+	t.Parallel()
+
+	h := headers(vectorWebhookID, "1614265330", vectorSignature)
+	h.Del("webhook-id")
+	if err := signing.Verify(vectorSecret, h, []byte(vectorPayload), vectorTimestamp); err == nil {
+		t.Error("Verify = nil, want an error")
 	}
 }
 
@@ -178,41 +189,13 @@ func TestVerifyTimestamp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := http.Header{
-				"Webhook-Id":        {vectorWebhookID},
-				"Webhook-Timestamp": {tt.timestamp},
-				"Webhook-Signature": {vectorSignature},
-			}
+			h := headers(vectorWebhookID, tt.timestamp, vectorSignature)
 			err := signing.Verify(vectorSecret, h, []byte(vectorPayload), tt.now)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("Verify = %v, want %v", err, tt.wantErr)
 			}
 		})
 	}
-}
-
-// FuzzVerify checks that Verify accepts a webhook only when the
-// webhook-timestamp header is exactly the signed one and one of the
-// space-separated entries in webhook-signature is exactly the right
-// signature, and that no other header values make it panic or accept.
-// Seeds are in testdata/fuzz/FuzzVerify.
-func FuzzVerify(f *testing.F) {
-	f.Fuzz(func(t *testing.T, signature, timestamp string) {
-		h := http.Header{
-			"Webhook-Id":        {vectorWebhookID},
-			"Webhook-Timestamp": {timestamp},
-			"Webhook-Signature": {signature},
-		}
-		err := signing.Verify(vectorSecret, h, []byte(vectorPayload), vectorTimestamp)
-
-		valid := timestamp == "1614265330" && slices.Contains(strings.Split(signature, " "), vectorSignature)
-		if valid && err != nil {
-			t.Errorf("Verify(%q, %q) = %v, want nil", signature, timestamp, err)
-		}
-		if !valid && err == nil {
-			t.Errorf("Verify(%q, %q) = nil, want an error", signature, timestamp)
-		}
-	})
 }
 
 func TestVerifySignatureHeader(t *testing.T) {
@@ -299,11 +282,7 @@ func TestVerifySignatureHeader(t *testing.T) {
 			if tt.secret != "" {
 				secret = tt.secret
 			}
-			h := http.Header{
-				"Webhook-Id":        {webhookID},
-				"Webhook-Timestamp": {"1614265330"},
-				"Webhook-Signature": {tt.signature},
-			}
+			h := headers(webhookID, "1614265330", tt.signature)
 
 			err := signing.Verify(secret, h, []byte(payload), vectorTimestamp)
 			if !errors.Is(err, tt.wantErr) {
@@ -311,4 +290,24 @@ func TestVerifySignatureHeader(t *testing.T) {
 			}
 		})
 	}
+}
+
+// FuzzVerify checks that Verify accepts a webhook only when the
+// webhook-timestamp header is exactly the signed one and one of the
+// space-separated entries in webhook-signature is exactly the right
+// signature, and that no other header values make it panic or accept.
+// Seeds are in testdata/fuzz/FuzzVerify.
+func FuzzVerify(f *testing.F) {
+	f.Fuzz(func(t *testing.T, signature, timestamp string) {
+		h := headers(vectorWebhookID, timestamp, signature)
+		err := signing.Verify(vectorSecret, h, []byte(vectorPayload), vectorTimestamp)
+
+		valid := timestamp == "1614265330" && slices.Contains(strings.Split(signature, " "), vectorSignature)
+		if valid && err != nil {
+			t.Errorf("Verify(%q, %q) = %v, want nil", signature, timestamp, err)
+		}
+		if !valid && err == nil {
+			t.Errorf("Verify(%q, %q) = nil, want an error", signature, timestamp)
+		}
+	})
 }
