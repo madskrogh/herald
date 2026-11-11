@@ -57,8 +57,10 @@ Worktrees isolate files, not the machine. Ports, Docker containers and the NATS 
 Lifecycle:
 
 ```
-claude -w <name>  →  make up  →  work, commit  →  make ci, push, PR  →  merge  →  make worktree-rm NAME=<name>
+claude -w <name>  →  make up  →  work, commit  →  make ci, push, PR  →  merge  →  exit the session  →  make worktree-rm NAME=<name>
 ```
+
+A session locks its worktree while it runs, so `make worktree-rm` refuses a worktree whose session is still open. Run it from the main checkout once that session has exited, or choose "remove" when the session asks on exit.
 
 ## Carrying this over to a team
 

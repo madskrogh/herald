@@ -43,8 +43,17 @@ down:
 
 # Stop a worktree's stack, then remove the worktree and its branch.
 # Usage: make worktree-rm NAME=<name>   (the name given to `claude -w`)
+# A session working in the worktree locks it; this refuses to touch a locked
+# worktree, before stopping its stack.
 worktree-rm:
 	@test -n "$(NAME)" || { echo "usage: make worktree-rm NAME=<name>"; exit 1; }
 	@wt=.claude/worktrees/$(NAME); \
+	lock=$$(git worktree list --porcelain | awk -v wt="$(CURDIR)/$$wt" \
+		'$$1 == "worktree" { cur = $$2 } $$1 == "locked" && cur == wt { sub(/^locked ?/, ""); print; exit }'); \
+	if [ -n "$$lock" ]; then \
+		echo "worktree-rm: $$wt is locked ($$lock)."; \
+		echo "Exit the session using it, then run this again."; \
+		exit 1; \
+	fi; \
 	if [ -f "$$wt/.env" ]; then (cd "$$wt" && docker compose down -v); fi; \
 	git worktree remove "$$wt" && git branch -D "worktree-$(NAME)"
