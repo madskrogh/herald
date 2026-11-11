@@ -2,7 +2,31 @@
 # (written by scripts/worktree-env.sh); the defaults below apply without one.
 # Ports are published on localhost only.
 
+# herald-api's image and configuration, shared by its migrate step.
+x-herald-api: &herald-api
+  build:
+    context: .
+    args:
+      CMD: herald-api
+  environment:
+    HERALD_DATABASE_URL: postgres://herald:herald@postgres:5432/herald?sslmode=disable
+
 services:
+  # Applies the ingest schema's migrations and exits. herald-api starts only
+  # after it succeeds; the service never migrates on its own.
+  migrate:
+    <<: *herald-api
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  herald-api:
+    <<: *herald-api
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   postgres:
     image: postgres:18-alpine
     environment:
