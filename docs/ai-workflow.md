@@ -63,6 +63,6 @@ claude -w <name>  →  make up  →  work, commit  →  make ci, push, PR  →  
 ## Carrying this over to a team
 
 - Rules and skills are versioned with the code and reviewed in PRs like any other change, in PRs of their own so they are never buried in a feature diff. Agents propose setup changes; they don't make them in passing.
-- Review notes in each PR description keep the evidence: findings that keep coming up become rules, and procedures repeated across PRs become skills. Session transcripts are local and expire, so PRs are where the evidence lives.
+- Review notes in each PR description keep the evidence: findings that keep coming up become rules, and procedures repeated across PRs become skills. PRs are shared and permanent, so that's where the evidence lives.
 - Hooks and Make targets work for every agent session and for people too, so the guarantees don't depend on everyone's personal setup.
 - Personal working preferences (how a developer likes to be coached, which shortcuts they use) stay in their own `~/.claude/` and never land in the repo.

@@ -24,6 +24,7 @@ Run `make ci` before every push. It is exactly what CI runs.
 - Go conventions are in `.claude/rules/`, loaded automatically by path: `go.md`, `go-testing.md`, `sql.md`.
 - Generated code (sqlc, buf) is committed. Never edit it by hand; change the source and regenerate.
 - Commit messages: short and imperative (`Add outbox relay`).
+- Issues, PR descriptions, design docs, ADRs and code comments describe Herald, not the tools used to build it: no agent or tool specifics, and nothing about one machine's setup (local paths, defaults, sandbox behaviour). The agent-setup files (`CLAUDE.md`, `.claude/`, `docs/ai-workflow.md`) may name the tools, but still nothing about one machine's setup.
 
 ## Workflow
 
