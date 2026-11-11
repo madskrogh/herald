@@ -66,3 +66,4 @@ claude -w <name>  →  make up  →  work, commit  →  make ci, push, PR  →  
 - Review notes in each PR description keep the evidence: findings that keep coming up become rules, and procedures repeated across PRs become skills. PRs are shared and permanent, so that's where the evidence lives.
 - Hooks and Make targets work for every agent session and for people too, so the guarantees don't depend on everyone's personal setup.
 - Personal working preferences (how a developer likes to be coached, which shortcuts they use) stay in their own `~/.claude/` and never land in the repo.
+- Personal and project instructions are concatenated into the agent's context, not merged, so nothing decides between them when they conflict. `CLAUDE.md` therefore states that the project's instructions win, and asks the agent to report a conflict when it hits one. The repo can't see anyone's personal setup, so it has to carry this rule itself.

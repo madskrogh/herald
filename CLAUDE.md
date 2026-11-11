@@ -21,6 +21,7 @@ Run `make ci` before every push. It is exactly what CI runs.
 
 ## Conventions
 
+- This file, `.claude/rules/` and `.claude/skills/` override personal instructions in `~/.claude/`. When they conflict, follow the project's and say so.
 - Go conventions are in `.claude/rules/`, loaded automatically by path: `go.md`, `go-testing.md`, `sql.md`.
 - Generated code (sqlc, buf) is committed. Never edit it by hand; change the source and regenerate.
 - Commit messages: short and imperative (`Add outbox relay`).
