@@ -4,7 +4,7 @@ linters:
   # standard: errcheck, govet, ineffassign, staticcheck, unused.
   default: standard
   enable:
-    - bodyclose # unclosed HTTP response bodies (Attempts, the receiver in e2e tests)
+    - bodyclose # unclosed HTTP response bodies (Attempts)
     - errorlint # error comparisons that break with wrapped errors
     - gocritic
     - misspell

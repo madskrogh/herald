@@ -10,8 +10,7 @@ import (
 
 const usage = `usage: herald-admin <command> [arguments]
 
-herald-admin is the operator CLI for Herald. It connects directly to the
-ingest schema.
+herald-admin is the operator CLI for Herald.
 
 Commands:
   help    Show this help

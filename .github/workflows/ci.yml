@@ -10,9 +10,11 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR cancels that PR's older run. Every push to main has a
+# group of its own, so each merge is tested.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 jobs:
   ci:

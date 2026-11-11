@@ -1,5 +1,6 @@
 // Command herald-dispatcher stores the Deliveries handed off by herald-api
-// and makes their Attempts: signed, retried, and capped per Endpoint.
+// and makes signed Attempts for them, retrying each Delivery on a schedule
+// and capping the Attempts in flight per Endpoint.
 package main
 
 import (
