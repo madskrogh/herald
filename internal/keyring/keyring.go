@@ -29,6 +29,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -38,13 +39,14 @@ const keySize = 32 // AES-256
 // keyring, typically because the key was removed while still in use.
 var ErrUnknownKey = errors.New("unknown encryption key")
 
-var errTooShort = errors.New("decrypt: ciphertext too short")
+var errTooShort = errors.New("ciphertext too short")
 
 // Keyring holds the current key, which encrypts, and older keys, which only
 // decrypt. It is safe for concurrent use.
 type Keyring struct {
-	currentID string
-	keys      map[string]cipher.AEAD
+	current cipher.AEAD
+	header  []byte // ciphertext header for the current key: len(id) | id
+	keys    map[string]cipher.AEAD
 }
 
 // Parse reads a keyring from its config form, described in the package
@@ -54,31 +56,32 @@ func Parse(s string) (*Keyring, error) {
 	for i, entry := range strings.Split(s, ",") {
 		id, encoded, ok := strings.Cut(entry, ":")
 		if !ok {
-			return nil, fmt.Errorf("parse keyring entry %d: want <id>:<base64 key>", i)
+			return nil, fmt.Errorf("keyring entry %d: want <id>:<base64 key>", i)
 		}
 		if !validKeyID(id) {
-			return nil, fmt.Errorf("parse keyring entry %d: invalid key ID %q", i, id)
+			return nil, fmt.Errorf("keyring entry %d: invalid key ID %q", i, id)
 		}
 		if _, dup := k.keys[id]; dup {
-			return nil, fmt.Errorf("parse keyring entry %d: duplicate key ID %q", i, id)
+			return nil, fmt.Errorf("keyring entry %d: duplicate key ID %q", i, id)
 		}
 		key, err := base64.StdEncoding.DecodeString(encoded)
 		if err != nil {
-			return nil, fmt.Errorf("parse key %q: %w", id, err)
+			return nil, fmt.Errorf("keyring entry %d: key %q: %w", i, id, err)
 		}
 		if len(key) != keySize {
-			return nil, fmt.Errorf("parse key %q: got %d bytes, want %d", id, len(key), keySize)
+			return nil, fmt.Errorf("keyring entry %d: key %q has %d bytes, want %d", i, id, len(key), keySize)
 		}
 		block, err := aes.NewCipher(key)
 		if err != nil {
-			return nil, fmt.Errorf("parse key %q: %w", id, err)
+			return nil, fmt.Errorf("keyring entry %d: key %q: %w", i, id, err)
 		}
 		aead, err := cipher.NewGCM(block)
 		if err != nil {
-			return nil, fmt.Errorf("parse key %q: %w", id, err)
+			return nil, fmt.Errorf("keyring entry %d: key %q: %w", i, id, err)
 		}
 		if i == 0 {
-			k.currentID = id
+			k.current = aead
+			k.header = append([]byte{byte(len(id))}, id...)
 		}
 		k.keys[id] = aead
 	}
@@ -105,14 +108,12 @@ func validKeyID(id string) bool {
 // with the same associatedData, such as the ID of the Endpoint the signing
 // secret belongs to.
 func (k *Keyring) Encrypt(plaintext, associatedData []byte) ([]byte, error) {
-	aead := k.keys[k.currentID]
-	header := append([]byte{byte(len(k.currentID))}, k.currentID...)
-	nonce := make([]byte, aead.NonceSize())
+	nonce := make([]byte, k.current.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, fmt.Errorf("generate nonce: %w", err)
 	}
-	out := append(header, nonce...)
-	return aead.Seal(out, nonce, plaintext, authenticatedData(header, associatedData)), nil
+	out := slices.Concat(k.header, nonce)
+	return k.current.Seal(out, nonce, plaintext, slices.Concat(k.header, associatedData)), nil
 }
 
 // Decrypt decrypts a ciphertext made by Encrypt with the same associatedData.
@@ -125,23 +126,16 @@ func (k *Keyring) Decrypt(ciphertext, associatedData []byte) ([]byte, error) {
 	header := ciphertext[:1+int(ciphertext[0])]
 	aead, ok := k.keys[string(header[1:])]
 	if !ok {
-		return nil, fmt.Errorf("decrypt: key %q: %w", header[1:], ErrUnknownKey)
+		return nil, fmt.Errorf("key %q: %w", header[1:], ErrUnknownKey)
 	}
 	rest := ciphertext[len(header):]
 	if len(rest) < aead.NonceSize() {
 		return nil, errTooShort
 	}
 	nonce, sealed := rest[:aead.NonceSize()], rest[aead.NonceSize():]
-	plaintext, err := aead.Open(nil, nonce, sealed, authenticatedData(header, associatedData))
+	plaintext, err := aead.Open(nil, nonce, sealed, slices.Concat(header, associatedData))
 	if err != nil {
-		return nil, errors.New("decrypt: message authentication failed")
+		return nil, errors.New("message authentication failed")
 	}
 	return plaintext, nil
-}
-
-// authenticatedData is what GCM authenticates: the ciphertext header followed
-// by the caller's associated data. It copies into a new slice: appending to
-// header could overwrite the bytes that follow it in the ciphertext.
-func authenticatedData(header, associatedData []byte) []byte {
-	return append(append(make([]byte, 0, len(header)+len(associatedData)), header...), associatedData...)
 }

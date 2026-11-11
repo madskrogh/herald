@@ -78,6 +78,9 @@ func TestDecryptWithOlderKeyAfterRotation(t *testing.T) {
 	}
 }
 
+// TestDecryptRejectsTamperedCiphertext covers the bytes GCM itself
+// authenticates. Changes to the header are covered by
+// TestDecryptRejectsRewrittenKeyID and TestDecryptUnknownKey.
 func TestDecryptRejectsTamperedCiphertext(t *testing.T) {
 	t.Parallel()
 
@@ -89,8 +92,6 @@ func TestDecryptRejectsTamperedCiphertext(t *testing.T) {
 		name  string
 		index int
 	}{
-		{"key ID length", 0},
-		{"key ID", 1},
 		{"nonce", 3},
 		{"sealed secret", 15},
 		{"tag", len(ciphertext) - 1},
