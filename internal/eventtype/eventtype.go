@@ -8,16 +8,18 @@ import (
 	"strings"
 )
 
-var (
-	eventTypeRE = regexp.MustCompile(`^[a-z0-9_]+(\.[a-z0-9_]+)*$`)
-	tokenRE     = regexp.MustCompile(`^[a-z0-9_]+$`)
-)
+// tokenRE matches one token of an Event type. Event types and filter patterns
+// share it, so a filter can name every valid Event type.
+var tokenRE = regexp.MustCompile(`^[a-z0-9_]+$`)
 
 // Validate returns an error if t is not a valid Event type: dot-separated
-// tokens of lowercase letters, digits and underscores, such as "invoice.paid".
+// tokens of lowercase letters, digits and underscores, such as "invoice.paid"
+// (`^[a-z0-9_]+(\.[a-z0-9_]+)*$`).
 func Validate(t string) error {
-	if !eventTypeRE.MatchString(t) {
-		return fmt.Errorf("invalid event type %q: want dot-separated tokens of [a-z0-9_]", t)
+	for _, tok := range strings.Split(t, ".") {
+		if !tokenRE.MatchString(tok) {
+			return fmt.Errorf("invalid event type %q: want dot-separated tokens of [a-z0-9_]", t)
+		}
 	}
 	return nil
 }

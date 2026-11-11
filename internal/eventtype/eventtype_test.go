@@ -10,27 +10,29 @@ func TestValidate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		name      string
 		eventType string
 		valid     bool
 	}{
-		{"invoice", true},
-		{"invoice.paid", true},
-		{"invoice.paid.late", true},
-		{"user_2fa.enabled", true},
-		{"_", true},
-		{"", false},
-		{".", false},
-		{".invoice", false},
-		{"invoice.", false},
-		{"invoice..paid", false},
-		{"Invoice.paid", false},
-		{"invoice-paid", false},
-		{"invoice paid", false},
-		{"invoice.*", false},
-		{"invoice.>", false},
+		{"one token", "invoice", true},
+		{"two tokens", "invoice.paid", true},
+		{"three tokens", "invoice.paid.late", true},
+		{"digits and underscores", "user_2fa.enabled", true},
+		{"underscore only", "_", true},
+		{"empty", "", false},
+		{"dot only", ".", false},
+		{"leading dot", ".invoice", false},
+		{"trailing dot", "invoice.", false},
+		{"empty token", "invoice..paid", false},
+		{"trailing newline", "invoice\n", false},
+		{"uppercase", "Invoice.paid", false},
+		{"hyphen", "invoice-paid", false},
+		{"space", "invoice paid", false},
+		{"single-token wildcard", "invoice.*", false},
+		{"multi-token wildcard", "invoice.>", false},
 	}
 	for _, tt := range tests {
-		t.Run(tt.eventType, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := eventtype.Validate(tt.eventType)
 			if got := err == nil; got != tt.valid {
