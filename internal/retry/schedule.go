@@ -26,20 +26,25 @@ var delays = []time.Duration{
 // way, so Deliveries that failed together don't all retry at the same moment.
 const maxJitter = 0.1
 
-// Schedule is the retry schedule for Deliveries.
+// Schedule is the retry schedule for Deliveries. Build one with New; the zero
+// value is not usable.
 type Schedule struct {
 	scale  float64
 	random func() float64
 }
 
 // New returns the retry schedule with every delay multiplied by scale, which
-// is 1 in production and lets tests run the whole schedule in seconds. random
-// returns values in [0, 1) and drives the jitter. Delivery workers share one
-// Schedule, so random must be safe for concurrent use, as math/rand/v2's
-// Float64 is (a *rand.Rand is not).
+// is 1 in production and lets tests run the whole schedule in seconds. Scale
+// only ever shrinks the schedule, which also keeps every delay within
+// time.Duration's range.
+//
+// random returns values in [0, 1) and drives the jitter. Delivery workers
+// share one Schedule, so random must be safe for concurrent use, as
+// math/rand/v2's Float64 is (a *rand.Rand is not).
 func New(scale float64, random func() float64) (Schedule, error) {
-	if scale <= 0 {
-		return Schedule{}, fmt.Errorf("retry schedule scale must be positive, got %v", scale)
+	// Written so that NaN fails too.
+	if !(scale > 0 && scale <= 1) {
+		return Schedule{}, fmt.Errorf("retry schedule scale must be in (0, 1], got %v", scale)
 	}
 	if random == nil {
 		return Schedule{}, errors.New("retry schedule needs a random source")

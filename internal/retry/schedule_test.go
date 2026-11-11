@@ -127,6 +127,9 @@ func TestNewRejectsInvalidArguments(t *testing.T) {
 	}{
 		{"zero scale", 0, fixedRandom(0.5)},
 		{"negative scale", -1, fixedRandom(0.5)},
+		{"scale above 1", 2, fixedRandom(0.5)},
+		{"infinite scale", math.Inf(1), fixedRandom(0.5)},
+		{"NaN scale", math.NaN(), fixedRandom(0.5)},
 		{"nil random", 1, nil},
 	}
 	for _, tt := range tests {
