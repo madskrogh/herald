@@ -21,4 +21,7 @@ paths:
 
 - **Fuzz tests** (`FuzzXxx`) for anything that parses untrusted input, starting with webhook signature headers. Keep interesting inputs in `testdata/fuzz/`.
 - **Golden files** for API responses: `testdata/<name>.golden`, rewritten with an `-update` flag. Review golden diffs like code.
-- Use a fake clock or inject `time.Now` for retry-schedule and expiry logic; never `time.Sleep` to wait for a state change.
+- **Time.** Never `time.Sleep` to wait for a state change.
+  - Code that doesn't touch Postgres or NATS (Attempt timeouts, shutdown deadlines, backoff waits): test it inside `testing/synctest`. Time is fake there, and the test fails if goroutines are still blocked when it ends. Fake HTTP receivers with an in-process `http.RoundTripper`, because real sockets (including `httptest.Server`) stop fake time from advancing.
+  - Code that does touch them: the current time is a parameter (see `sql.md`). Polling loops expose a single round (`RunOnce(ctx, now)`) that tests call directly, and the loop around it stays thin.
+- **goleak** (`go.uber.org/goleak`) in packages that start goroutines that run in the background (the relay, the delivery workers): `goleak.VerifyTestMain(m)` in `TestMain`. Ignore third-party goroutines by name only, with a comment saying where each comes from.
