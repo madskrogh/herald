@@ -1,0 +1,35 @@
+version: "2"
+
+linters:
+  # standard: errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - bodyclose # unclosed HTTP response bodies (Attempts)
+    - errorlint # error comparisons that break with wrapped errors
+    - gocritic
+    - misspell
+    - noctx # HTTP requests and SQL calls without a context
+    - nolintlint # //nolint directives must name a linter and say why
+    - revive
+    - rowserrcheck # pgx rows.Err() not checked
+    - sloglint # consistent log/slog key-value usage
+    - sqlclosecheck # rows and statements not closed
+    - usestdlibvars # http.MethodPost, http.StatusOK instead of literals
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    sloglint:
+      kv-only: true
+      context: scope
+  exclusions:
+    presets:
+      - std-error-handling
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/madskrogh/herald

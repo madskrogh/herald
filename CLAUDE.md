@@ -14,7 +14,7 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 |---|---|
 | `make up` | Start the local stack with `docker compose` (generates `.env` on first run) |
 | `make down` | Stop the stack and delete its volumes |
-| `make ci` | Everything CI runs on a PR: lint, tests with `-race`, buf checks, generated-code check *(added in M1)* |
+| `make ci` | Everything CI runs on a PR: lint, tests with `-race`, buf checks, generated-code check |
 | `make worktree-rm NAME=x` | Stop a worktree's stack, remove the worktree and its branch |
 
 Run `make ci` before every push. It is exactly what CI runs.
