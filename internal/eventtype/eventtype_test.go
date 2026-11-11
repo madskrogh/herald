@@ -112,6 +112,10 @@ func TestFilterMatches(t *testing.T) {
 		{"* then >, nothing for >", []string{"*.paid.>"}, "invoice.paid", false},
 		{"any pattern is enough", []string{"user.*", "invoice.paid"}, "invoice.paid", true},
 		{"no pattern matches", []string{"user.*", "invoice.paid"}, "invoice.created", false},
+		{"invalid event type, empty filter", []string{}, "Invoice.paid", false},
+		{"invalid event type, empty", []string{"*"}, "", false},
+		{"invalid event type, trailing dot", []string{"invoice.*"}, "invoice.", false},
+		{"invalid event type, uppercase", []string{">"}, "INVOICE", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -128,19 +132,23 @@ func TestFilterMatches(t *testing.T) {
 }
 
 // FuzzFilter checks invariants that hold for any Tenant-supplied pattern and
-// Event type: nothing panics, every valid Event type is a pattern that matches
-// itself, and ">" matches every valid Event type.
+// Event type: nothing panics, an invalid Event type matches no filter, every
+// valid Event type is a pattern that matches itself, and ">" matches every
+// valid Event type.
 func FuzzFilter(f *testing.F) {
 	f.Add("invoice.*", "invoice.paid")
 	f.Add("invoice.>", "invoice")
 	f.Add("*.paid.>", "invoice.paid.late")
 	f.Add("invoice.>.late", "invoice.paid.late")
-	f.Add("", "")
+	f.Add("*", "")
 	f.Fuzz(func(t *testing.T, pattern, eventType string) {
+		valid := eventtype.Validate(eventType) == nil
 		if filter, err := eventtype.ParseFilter([]string{pattern}); err == nil {
-			filter.Matches(eventType)
+			if filter.Matches(eventType) && !valid {
+				t.Errorf("ParseFilter(%q).Matches(%q) = true for an invalid event type", pattern, eventType)
+			}
 		}
-		if eventtype.Validate(eventType) != nil {
+		if !valid {
 			return
 		}
 

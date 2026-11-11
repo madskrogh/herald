@@ -13,8 +13,8 @@ var (
 	tokenRE     = regexp.MustCompile(`^[a-z0-9_]+$`)
 )
 
-// Validate reports whether t is a valid Event type: dot-separated tokens of
-// lowercase letters, digits and underscores, such as "invoice.paid".
+// Validate returns an error if t is not a valid Event type: dot-separated
+// tokens of lowercase letters, digits and underscores, such as "invoice.paid".
 func Validate(t string) error {
 	if !eventTypeRE.MatchString(t) {
 		return fmt.Errorf("invalid event type %q: want dot-separated tokens of [a-z0-9_]", t)
@@ -38,9 +38,7 @@ func ParseFilter(patterns []string) (Filter, error) {
 	for _, p := range patterns {
 		tokens := strings.Split(p, ".")
 		for i, tok := range tokens {
-			switch {
-			case tok == "*", tok == ">" && i == len(tokens)-1, tokenRE.MatchString(tok):
-			default:
+			if !validPatternToken(tok, i == len(tokens)-1) {
 				return Filter{}, fmt.Errorf("invalid filter pattern %q: token %q", p, tok)
 			}
 		}
@@ -49,11 +47,25 @@ func ParseFilter(patterns []string) (Filter, error) {
 	return f, nil
 }
 
+func validPatternToken(tok string, last bool) bool {
+	switch tok {
+	case "*":
+		return true
+	case ">":
+		return last
+	default:
+		return tokenRE.MatchString(tok)
+	}
+}
+
 // Matches reports whether an Endpoint with this filter accepts Messages of
-// eventType, which must be a valid Event type. An empty filter, including the
-// zero Filter, matches every Event type; otherwise a match on any one pattern
-// is enough.
+// eventType. An invalid Event type matches no filter. An empty filter,
+// including the zero Filter, matches every valid Event type; otherwise a match
+// on any one pattern is enough.
 func (f Filter) Matches(eventType string) bool {
+	if Validate(eventType) != nil {
+		return false
+	}
 	if len(f.patterns) == 0 {
 		return true
 	}
