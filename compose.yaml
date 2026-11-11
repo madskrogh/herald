@@ -1,0 +1,35 @@
+# Local stack. Each checkout gets its own project name and ports from .env
+# (written by scripts/worktree-env.sh); the defaults below apply without one.
+# Ports are published on localhost only.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: herald
+      POSTGRES_PASSWORD: herald
+      POSTGRES_DB: herald
+    ports:
+      - "127.0.0.1:${HERALD_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "herald", "-d", "herald"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  nats:
+    image: nats:2.12-alpine
+    command: ["--http_port", "8222"]
+    ports:
+      - "127.0.0.1:${HERALD_NATS_PORT:-4222}:4222"
+      - "127.0.0.1:${HERALD_NATS_MONITOR_PORT:-8222}:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8222/healthz"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  postgres:

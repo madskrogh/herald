@@ -1,0 +1,34 @@
+name: CI
+
+# On every PR, and again on main after each merge: two PRs can each pass on
+# their own and still break main together.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Installs golangci-lint only; `make ci` runs it, so CI and a local
+      # `make ci` run the same commands.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          install-only: true
+
+      - run: make ci

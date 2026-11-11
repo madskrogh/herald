@@ -1,0 +1,35 @@
+// Command herald-api is Herald's Tenant-facing service. It authenticates
+// Tenants, manages Applications and Endpoints, accepts Messages and hands
+// their Deliveries off to herald-dispatcher.
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	err := run(ctx, os.Stdout)
+	stop()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "herald-api:", err)
+		os.Exit(1)
+	}
+}
+
+// run starts the service, logging JSON to stdout, and blocks until ctx is
+// cancelled.
+func run(ctx context.Context, stdout io.Writer) error {
+	logger := slog.New(slog.NewJSONHandler(stdout, nil)).With("service", "herald-api")
+
+	logger.InfoContext(ctx, "started")
+	<-ctx.Done()
+	logger.InfoContext(ctx, "stopped")
+	return nil
+}

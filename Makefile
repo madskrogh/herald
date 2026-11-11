@@ -1,14 +1,40 @@
-# Targets for building, testing and running Herald. `make ci` and the
-# compose stack arrive with M1; see docs/ai-workflow.md for the worktree flow.
+# Targets for building, testing and running Herald. See docs/ai-workflow.md
+# for the worktree flow.
 
-.PHONY: up down worktree-rm
+.PHONY: ci lint test generate check-generated up down worktree-rm
+
+# Everything CI runs on a PR. Run it before every push.
+ci: lint test check-generated
+
+lint:
+	golangci-lint run ./...
+
+test:
+	go test -race ./...
+
+# Regenerates all committed generated code. sqlc and buf add their steps here.
+generate:
+
+# Directories holding committed generated code, checked by check-generated.
+GENERATED_DIRS :=
+
+# Fails if go.mod/go.sum are untidy, or if regenerating changes any committed
+# generated code (including new files it would add).
+check-generated: generate
+	go mod tidy -diff
+ifneq ($(strip $(GENERATED_DIRS)),)
+	@test -z "$$(git status --porcelain -- $(GENERATED_DIRS))" || { \
+		git status --short -- $(GENERATED_DIRS); \
+		echo "generated code is out of date: run 'make generate' and commit the result"; \
+		exit 1; }
+endif
 
 # Per-checkout compose project name and ports. Generated on first use.
 .env:
 	./scripts/worktree-env.sh
 
 up: .env
-	docker compose up -d
+	docker compose up -d --wait
 
 down:
 	docker compose down -v
