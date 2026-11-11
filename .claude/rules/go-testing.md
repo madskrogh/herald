@@ -21,4 +21,9 @@ paths:
 
 - **Fuzz tests** (`FuzzXxx`) for anything that parses untrusted input, starting with webhook signature headers. Keep interesting inputs in `testdata/fuzz/`.
 - **Golden files** for API responses: `testdata/<name>.golden`, rewritten with an `-update` flag. Review golden diffs like code.
-- Use a fake clock or inject `time.Now` for retry-schedule and expiry logic; never `time.Sleep` to wait for a state change.
+- **Never `time.Sleep`** to wait for a state change.
+- **Concurrency and time without Postgres or NATS.** When a test involves goroutines, channels, timers or deadlines and the code under test touches no Postgres, NATS or real socket, run it inside `testing/synctest`. Time is fake there, and `synctest.Test` waits for every goroutine in the bubble to exit: one left durably blocked (on a bubble channel, `sync.WaitGroup`, `sync.Cond`, `time.Sleep`) fails the test as a deadlock, but one stuck on a mutex or I/O makes the test hang instead. Wait with `synctest.Wait()`, never by polling or sleeping.
+  - Fake the network as the synctest docs do: `net.Pipe` connections through `http.Transport.DialContext`, so the real HTTP client runs. Real sockets, including `httptest.Server`, keep the bubble from going idle, so fake time never advances.
+  - A concurrency component (a worker pool, a shutdown sequence) may take its source of work as a function, so its in-process logic can be tested this way. That isn't faking Postgres: SQL behaviour is still tested against real Postgres.
+- **Time with Postgres or NATS.** The current time is a parameter (see `sql.md`). Polling loops expose a single round (`RunOnce(ctx, now)`) that tests call directly, and the loop around it stays thin.
+- **goleak** (`go.uber.org/goleak`) in packages that start goroutines that run in the background (the relay, the delivery workers): `goleak.VerifyTestMain(m)` in `TestMain` (per-test `VerifyNone` doesn't work with `t.Parallel`). Ignore third-party goroutines with `goleak.IgnoreTopFunction("<fully qualified function>")`, with a comment saying where each comes from.
