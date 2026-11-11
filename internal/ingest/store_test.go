@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log/slog"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,9 +11,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/ingest/ingesttest"
 	"github.com/madskrogh/herald/internal/pgtest"
 )
 
@@ -28,7 +27,7 @@ func TestAPIKeyResolvesToItsTenant(t *testing.T) {
 		t.Skip("integration")
 	}
 	ctx := t.Context()
-	store, _ := newStore(t)
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
 
 	tenant, err := store.CreateTenant(ctx, "Acme")
 	if err != nil {
@@ -53,7 +52,7 @@ func TestNotFound(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	store, _ := newStore(t)
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
 
 	tests := []struct {
 		name string
@@ -90,7 +89,7 @@ func TestAPIKeys(t *testing.T) {
 		t.Skip("integration")
 	}
 	ctx := t.Context()
-	store, pool := newStore(t)
+	store, pool := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
 
 	tenant, err := store.CreateTenant(ctx, "Acme")
 	if err != nil {
@@ -153,20 +152,4 @@ func TestAPIKeys(t *testing.T) {
 			}
 		}
 	})
-}
-
-// newStore migrates a fresh database and returns a Store on it, and the pool
-// it uses.
-func newStore(t *testing.T) (*ingest.Store, *pgxpool.Pool) {
-	t.Helper()
-	dbURL := pgtest.NewDatabase(t)
-	if err := ingest.Migrate(t.Context(), dbURL, slog.New(slog.DiscardHandler)); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	pool, err := pgxpool.New(t.Context(), dbURL)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return ingest.NewStore(pool), pool
 }

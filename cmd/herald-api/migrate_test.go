@@ -5,9 +5,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/ingest/ingesttest"
 	"github.com/madskrogh/herald/internal/pgtest"
 )
 
@@ -44,12 +43,8 @@ func TestMigrate(t *testing.T) {
 		}
 	}
 
-	pool, err := pgxpool.New(t.Context(), dbURL)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	if _, err := ingest.NewStore(pool).CreateTenant(t.Context(), "Acme"); err != nil {
+	store, _ := ingesttest.NewStore(t, dbURL)
+	if _, err := store.CreateTenant(t.Context(), "Acme"); err != nil {
 		t.Errorf("CreateTenant after migrate: %v", err)
 	}
 }
@@ -79,8 +74,11 @@ func TestRunUsageErrors(t *testing.T) {
 			t.Parallel()
 			var stdout bytes.Buffer
 			err := run(t.Context(), tt.args, mapEnv(tt.env), &stdout)
-			if err == nil || err.Error() != tt.wantErr {
-				t.Errorf("run(%q) error = %v, want %q", tt.args, err, tt.wantErr)
+			if err == nil {
+				t.Fatalf("run(%q) succeeded, want error %q", tt.args, tt.wantErr)
+			}
+			if diff := cmp.Diff(tt.wantErr, err.Error()); diff != "" {
+				t.Errorf("run(%q) error (-want +got):\n%s", tt.args, diff)
 			}
 		})
 	}

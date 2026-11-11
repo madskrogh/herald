@@ -2,15 +2,15 @@ package main
 
 import (
 	"bytes"
-	"log/slog"
 	"strings"
 	"testing"
 	"uuid"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/ingest/ingesttest"
 	"github.com/madskrogh/herald/internal/pgtest"
 )
 
@@ -141,20 +141,24 @@ func TestCreateTenantAndAPIKey(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	store, env := migratedDatabase(t)
+	dbURL := ingesttest.NewDatabase(t)
+	store, _ := ingesttest.NewStore(t, dbURL)
+	env := map[string]string{"HERALD_DATABASE_URL": dbURL}
 
-	tenantID := runOK(t, env, "tenant", "create", "--name", "Acme")
-	if _, err := uuid.Parse(tenantID); err != nil {
-		t.Fatalf("tenant create printed %q, want a Tenant ID: %v", tenantID, err)
+	printedID := runOK(t, env, "tenant", "create", "--name", "Acme")
+	tenantID, err := uuid.Parse(printedID)
+	if err != nil {
+		t.Fatalf("tenant create printed %q, want a Tenant ID: %v", printedID, err)
 	}
-	key := runOK(t, env, "apikey", "create", "--tenant", tenantID)
+	key := runOK(t, env, "apikey", "create", "--tenant", printedID)
 
-	tenant, err := store.TenantByAPIKey(t.Context(), key)
+	got, err := store.TenantByAPIKey(t.Context(), key)
 	if err != nil {
 		t.Fatalf("TenantByAPIKey(printed key): %v", err)
 	}
-	if tenant.ID.String() != tenantID || tenant.Name != "Acme" {
-		t.Errorf("printed key belongs to Tenant %s %q, want %s \"Acme\"", tenant.ID, tenant.Name, tenantID)
+	want := ingest.Tenant{ID: tenantID, Name: "Acme"}
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(ingest.Tenant{}, "CreatedAt")); diff != "" {
+		t.Errorf("Tenant of the printed key (-want +got):\n%s", diff)
 	}
 }
 
@@ -163,7 +167,7 @@ func TestAPIKeyForUnknownTenant(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	_, env := migratedDatabase(t)
+	env := map[string]string{"HERALD_DATABASE_URL": ingesttest.NewDatabase(t)}
 
 	var stdout, stderr bytes.Buffer
 	args := []string{"apikey", "create", "--tenant", "0193a1b2-0000-7000-8000-000000000000"}
@@ -175,7 +179,7 @@ func TestAPIKeyForUnknownTenant(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Errorf("stdout = %q, want nothing", &stdout)
 	}
-	wantStderr := "herald-admin: create api key: tenant 0193a1b2-0000-7000-8000-000000000000: not found\n"
+	wantStderr := "herald-admin: create api key for tenant 0193a1b2-0000-7000-8000-000000000000: not found\n"
 	if diff := cmp.Diff(wantStderr, stderr.String()); diff != "" {
 		t.Errorf("stderr (-want +got):\n%s", diff)
 	}
@@ -190,22 +194,6 @@ func runOK(t *testing.T, env map[string]string, args ...string) string {
 		t.Fatalf("run(%q) = %d, want 0; stderr:\n%s", args, code, &stderr)
 	}
 	return strings.TrimSuffix(stdout.String(), "\n")
-}
-
-// migratedDatabase migrates a fresh database and returns a Store on it and
-// the environment that points herald-admin at it.
-func migratedDatabase(t *testing.T) (*ingest.Store, map[string]string) {
-	t.Helper()
-	dbURL := pgtest.NewDatabase(t)
-	if err := ingest.Migrate(t.Context(), dbURL, slog.New(slog.DiscardHandler)); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	pool, err := pgxpool.New(t.Context(), dbURL)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return ingest.NewStore(pool), map[string]string{"HERALD_DATABASE_URL": dbURL}
 }
 
 // mapEnv returns a getenv function that looks names up in env.

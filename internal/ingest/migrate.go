@@ -34,14 +34,14 @@ func Migrate(ctx context.Context, databaseURL string, logger *slog.Logger) error
 
 	fsys, err := fs.Sub(migrations, "migrations")
 	if err != nil {
-		return fmt.Errorf("migrations: %w", err)
+		return fmt.Errorf("read embedded migrations: %w", err)
 	}
 	provider, err := goose.NewProvider(goose.DialectPostgres, db, fsys,
 		goose.WithTableName("ingest.goose_db_version"),
 		goose.WithSlog(logger),
 	)
 	if err != nil {
-		return fmt.Errorf("migrations: %w", err)
+		return fmt.Errorf("load migrations: %w", err)
 	}
 	results, err := provider.Up(ctx)
 	if err != nil {

@@ -64,7 +64,7 @@ func (s *Store) CreateAPIKey(ctx context.Context, tenantID uuid.UUID) (string, e
 		KeyHash:  hashAPIKey(key),
 	})
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == foreignKeyViolation {
-		return "", fmt.Errorf("create api key: tenant %s: %w", tenantID, ErrNotFound)
+		return "", fmt.Errorf("create api key for tenant %s: %w", tenantID, ErrNotFound)
 	}
 	if err != nil {
 		return "", fmt.Errorf("create api key for tenant %s: %w", tenantID, err)
