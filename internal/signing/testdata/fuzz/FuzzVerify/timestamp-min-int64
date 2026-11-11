@@ -1,3 +1,5 @@
 go test fuzz v1
 string("v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=")
 string("-9223372036854775808")
+string("msg_p5jXN8AQM9LWM0D4loKWxJek")
+string("{\"test\": 2432232314}")
