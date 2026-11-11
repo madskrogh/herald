@@ -29,7 +29,7 @@ One GitHub issue = one branch = one worktree = one agent session = one PR.
 3. **Build test-first** with the `tdd` skill: agree the seams to test, then red → green in vertical slices.
 4. **Design review.** With tests green, `standards-review` checks the diff on two axes: does it follow the documented standards (plus a baseline of code smells), and does it match the issue? The agent refactors on its findings, with the tests as a safety net.
 5. **Bug review.** The built-in `/code-review` runs on the final diff. It comes after the refactor so it reviews the code that ships.
-6. **Gate.** `make ci`, then push and open a PR with `Closes #12`.
+6. **Gate.** `make ci`, then push and open a PR with `Closes #12` and a **Review notes** section listing every review finding and how it was resolved.
 
 The two reviews are kept separate on purpose: a design smell and a correctness bug call for different actions, and mixing them in one list buries the bugs.
 
@@ -62,6 +62,7 @@ claude -w <name>  →  make up  →  work, commit  →  make ci, push, PR  →  
 
 ## Carrying this over to a team
 
-- Rules and skills are versioned with the code and reviewed in PRs like any other change. A good source of new rules is review comments that keep coming up.
+- Rules and skills are versioned with the code and reviewed in PRs like any other change, in PRs of their own so they are never buried in a feature diff. Agents propose setup changes; they don't make them in passing.
+- Review notes in each PR description keep the evidence: findings that keep coming up become rules, and procedures repeated across PRs become skills. Session transcripts are local and expire, so PRs are where the evidence lives.
 - Hooks and Make targets work for every agent session and for people too, so the guarantees don't depend on everyone's personal setup.
 - Personal working preferences (how a developer likes to be coached, which shortcuts they use) stay in their own `~/.claude/` and never land in the repo.
