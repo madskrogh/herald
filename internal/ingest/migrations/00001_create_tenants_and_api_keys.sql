@@ -6,7 +6,8 @@ CREATE SCHEMA IF NOT EXISTS ingest;
 
 CREATE TABLE ingest.tenants (
     id         uuid PRIMARY KEY DEFAULT uuidv7(),
-    name       text NOT NULL CHECK (name <> ''),
+    -- Not blank: at least one character that isn't whitespace.
+    name       text NOT NULL CHECK (name ~ '\S'),
     created_at timestamptz NOT NULL DEFAULT now()
 );
 

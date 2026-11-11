@@ -47,6 +47,20 @@ func TestAPIKeyResolvesToItsTenant(t *testing.T) {
 	}
 }
 
+func TestTenantNameMustNotBeBlank(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+
+	for _, name := range []string{"", " \t "} {
+		if tenant, err := store.CreateTenant(t.Context(), name); err == nil {
+			t.Errorf("CreateTenant(%q) created Tenant %s, want an error", name, tenant.ID)
+		}
+	}
+}
+
 func TestNotFound(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

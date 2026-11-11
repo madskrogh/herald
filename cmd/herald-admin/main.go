@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -100,7 +101,7 @@ func parseTenantCreate(args []string) (action, error) {
 	if err := parseFlags(fs, args); err != nil {
 		return nil, err
 	}
-	if *name == "" {
+	if strings.TrimSpace(*name) == "" {
 		return nil, errors.New("--name is required")
 	}
 

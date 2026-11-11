@@ -64,6 +64,12 @@ func TestRunUsageErrors(t *testing.T) {
 			wantErr: "HERALD_DATABASE_URL is not set",
 		},
 		{
+			name:    "migrate with extra arguments",
+			args:    []string{"migrate", "down"},
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused"},
+			wantErr: `migrate: unexpected argument "down"`,
+		},
+		{
 			name:    "unknown command",
 			args:    []string{"frobnicate"},
 			wantErr: `unknown command "frobnicate"`,

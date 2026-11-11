@@ -36,8 +36,9 @@ endif
 .env:
 	./scripts/worktree-env.sh
 
+# --build so the stack always runs this checkout's code and migrations.
 up: .env
-	docker compose up -d --wait
+	docker compose up -d --wait --build
 
 # Runs herald-admin against this checkout's stack.
 # Usage: make admin ARGS='tenant create --name Acme'

@@ -82,6 +82,13 @@ func TestRun(t *testing.T) {
 			wantStderr: "herald-admin: tenant create: --name is required\n",
 		},
 		{
+			name:       "tenant create with a blank --name",
+			args:       []string{"tenant", "create", "--name", "  "},
+			env:        dbEnv,
+			wantCode:   2,
+			wantStderr: "herald-admin: tenant create: --name is required\n",
+		},
+		{
 			name:       "tenant create with an unknown flag",
 			args:       []string{"tenant", "create", "--name", "Acme", "--plan", "pro"},
 			env:        dbEnv,

@@ -25,10 +25,23 @@ func Migrate(ctx context.Context, databaseURL string, logger *slog.Logger) error
 	}
 	defer db.Close()
 
+	// Overlapping runs (a retried Job, overlapping deploys) take turns: each
+	// holds a session-level advisory lock on a connection of its own for the
+	// whole run, so the next one finds the migrations applied. Closing db ends
+	// the session, which releases the lock.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock(hashtext('herald.ingest.migrate'))"); err != nil {
+		return fmt.Errorf("take migration lock: %w", err)
+	}
+
 	// goose keeps its version table inside the schema, so that each service's
 	// migration history lives with the schema it describes. The schema has to
 	// exist before goose can create that table.
-	if _, err := db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS ingest"); err != nil {
+	if _, err := conn.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS ingest"); err != nil {
 		return fmt.Errorf("create schema: %w", err)
 	}
 
@@ -38,7 +51,6 @@ func Migrate(ctx context.Context, databaseURL string, logger *slog.Logger) error
 	}
 	provider, err := goose.NewProvider(goose.DialectPostgres, db, fsys,
 		goose.WithTableName("ingest.goose_db_version"),
-		goose.WithSlog(logger),
 	)
 	if err != nil {
 		return fmt.Errorf("load migrations: %w", err)

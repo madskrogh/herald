@@ -45,6 +45,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	}
 	switch args[0] {
 	case "migrate":
+		if len(args) > 1 {
+			return fmt.Errorf("migrate: unexpected argument %q", args[1])
+		}
 		dbURL := getenv("HERALD_DATABASE_URL")
 		if dbURL == "" {
 			return errors.New("HERALD_DATABASE_URL is not set")
