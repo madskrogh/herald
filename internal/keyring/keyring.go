@@ -9,7 +9,8 @@
 // are older keys, kept so that ciphertexts they made can still be decrypted.
 // To rotate, put a new key first and keep the old ones after it. Key IDs are
 // 1 to 255 characters from [A-Za-z0-9_-], for example 2026-11. A key can be
-// generated with `openssl rand -base64 32`.
+// generated with `openssl rand -base64 32`. Whitespace is not trimmed, so a
+// space after a comma makes the next key ID invalid.
 //
 // A ciphertext is laid out as
 //
@@ -36,6 +37,8 @@ const keySize = 32 // AES-256
 // ErrUnknownKey means a ciphertext was encrypted with a key that is not in the
 // keyring, typically because the key was removed while still in use.
 var ErrUnknownKey = errors.New("unknown encryption key")
+
+var errTooShort = errors.New("decrypt: ciphertext too short")
 
 // Keyring holds the current key, which encrypts, and older keys, which only
 // decrypt. It is safe for concurrent use.
@@ -98,8 +101,10 @@ func validKeyID(id string) bool {
 	return true
 }
 
-// Encrypt encrypts plaintext with the current key, bound to ad.
-func (k *Keyring) Encrypt(plaintext, ad []byte) ([]byte, error) {
+// Encrypt encrypts plaintext with the current key. Decrypt only succeeds
+// with the same associatedData, such as the ID of the Endpoint the signing
+// secret belongs to.
+func (k *Keyring) Encrypt(plaintext, associatedData []byte) ([]byte, error) {
 	aead := k.keys[k.currentID]
 	header := append([]byte{byte(len(k.currentID))}, k.currentID...)
 	nonce := make([]byte, aead.NonceSize())
@@ -107,13 +112,15 @@ func (k *Keyring) Encrypt(plaintext, ad []byte) ([]byte, error) {
 		return nil, fmt.Errorf("generate nonce: %w", err)
 	}
 	out := append(header, nonce...)
-	return aead.Seal(out, nonce, plaintext, associatedData(header, ad)), nil
+	return aead.Seal(out, nonce, plaintext, authenticatedData(header, associatedData)), nil
 }
 
-// Decrypt decrypts a ciphertext made by Encrypt with the same ad.
-func (k *Keyring) Decrypt(ciphertext, ad []byte) ([]byte, error) {
+// Decrypt decrypts a ciphertext made by Encrypt with the same associatedData.
+// It returns an error wrapping ErrUnknownKey if the key that encrypted it is
+// not in the keyring.
+func (k *Keyring) Decrypt(ciphertext, associatedData []byte) ([]byte, error) {
 	if len(ciphertext) == 0 || len(ciphertext) < 1+int(ciphertext[0]) {
-		return nil, errors.New("decrypt: ciphertext too short")
+		return nil, errTooShort
 	}
 	header := ciphertext[:1+int(ciphertext[0])]
 	aead, ok := k.keys[string(header[1:])]
@@ -122,19 +129,19 @@ func (k *Keyring) Decrypt(ciphertext, ad []byte) ([]byte, error) {
 	}
 	rest := ciphertext[len(header):]
 	if len(rest) < aead.NonceSize() {
-		return nil, errors.New("decrypt: ciphertext too short")
+		return nil, errTooShort
 	}
 	nonce, sealed := rest[:aead.NonceSize()], rest[aead.NonceSize():]
-	plaintext, err := aead.Open(nil, nonce, sealed, associatedData(header, ad))
+	plaintext, err := aead.Open(nil, nonce, sealed, authenticatedData(header, associatedData))
 	if err != nil {
 		return nil, errors.New("decrypt: message authentication failed")
 	}
 	return plaintext, nil
 }
 
-// associatedData authenticates the ciphertext header along with the caller's
-// ad. It copies into a new slice: appending to header could overwrite the
-// bytes that follow it in the ciphertext.
-func associatedData(header, ad []byte) []byte {
-	return append(append(make([]byte, 0, len(header)+len(ad)), header...), ad...)
+// authenticatedData is what GCM authenticates: the ciphertext header followed
+// by the caller's associated data. It copies into a new slice: appending to
+// header could overwrite the bytes that follow it in the ciphertext.
+func authenticatedData(header, associatedData []byte) []byte {
+	return append(append(make([]byte, 0, len(header)+len(associatedData)), header...), associatedData...)
 }

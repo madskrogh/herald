@@ -1,6 +1,7 @@
 package keyring_test
 
 import (
+	"bytes"
 	"errors"
 	"slices"
 	"strings"
@@ -12,6 +13,9 @@ import (
 )
 
 // Test keys: 32 bytes of 0x01 and 0x02.
+//
+// A ciphertext made with key ID "k1" is laid out as: [0] ID length, [1:3] ID,
+// [3:15] nonce, then the sealed secret and a 16-byte tag.
 const (
 	key1 = "k1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
 	key2 = "k2:AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
@@ -21,13 +25,9 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	kr := mustParse(t, key1)
-	plaintext := []byte("whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw")
 	ad := []byte("ep_1")
+	ciphertext := mustEncrypt(t, kr, "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw", ad)
 
-	ciphertext, err := kr.Encrypt(plaintext, ad)
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
 	got, err := kr.Decrypt(ciphertext, ad)
 	if err != nil {
 		t.Fatalf("Decrypt: %v", err)
@@ -37,18 +37,39 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEncryptUsesFreshNonce(t *testing.T) {
+	t.Parallel()
+
+	kr := mustParse(t, key1)
+	ad := []byte("ep_1")
+	first := mustEncrypt(t, kr, "whsec_secret", ad)
+	second := mustEncrypt(t, kr, "whsec_secret", ad)
+	if bytes.Equal(first, second) {
+		t.Errorf("Encrypt returned the same ciphertext twice: %x", first)
+	}
+}
+
+func TestEncryptUsesFirstKeyAsCurrent(t *testing.T) {
+	t.Parallel()
+
+	ad := []byte("ep_1")
+	ciphertext := mustEncrypt(t, mustParse(t, key2+","+key1), "whsec_new", ad)
+
+	if _, err := mustParse(t, key2).Decrypt(ciphertext, ad); err != nil {
+		t.Errorf("Decrypt with k2: %v", err)
+	}
+	if _, err := mustParse(t, key1).Decrypt(ciphertext, ad); !errors.Is(err, keyring.ErrUnknownKey) {
+		t.Errorf("Decrypt with k1 error = %v, want ErrUnknownKey", err)
+	}
+}
+
 func TestDecryptWithOlderKeyAfterRotation(t *testing.T) {
 	t.Parallel()
 
-	before := mustParse(t, key1)
-	after := mustParse(t, key2+","+key1)
 	ad := []byte("ep_1")
+	ciphertext := mustEncrypt(t, mustParse(t, key1), "whsec_old", ad)
 
-	ciphertext, err := before.Encrypt([]byte("whsec_old"), ad)
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
-	got, err := after.Decrypt(ciphertext, ad)
+	got, err := mustParse(t, key2+","+key1).Decrypt(ciphertext, ad)
 	if err != nil {
 		t.Fatalf("Decrypt after rotation: %v", err)
 	}
@@ -62,13 +83,8 @@ func TestDecryptRejectsTamperedCiphertext(t *testing.T) {
 
 	kr := mustParse(t, key1)
 	ad := []byte("ep_1")
-	ciphertext, err := kr.Encrypt([]byte("whsec_secret"), ad)
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
+	ciphertext := mustEncrypt(t, kr, "whsec_secret", ad)
 
-	// Layout for key ID "k1": [0] ID length, [1:3] ID, [3:15] nonce, then the
-	// sealed secret and a 16-byte tag.
 	tests := []struct {
 		name  string
 		index int
@@ -92,14 +108,28 @@ func TestDecryptRejectsTamperedCiphertext(t *testing.T) {
 	}
 }
 
+// TestDecryptRejectsRewrittenKeyID checks that the key ID is authenticated.
+// Both IDs name the same key, so the rewritten ciphertext would decrypt if
+// only the key it selects were checked.
+func TestDecryptRejectsRewrittenKeyID(t *testing.T) {
+	t.Parallel()
+
+	kr := mustParse(t, "a:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=,b:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=")
+	ad := []byte("ep_1")
+	ciphertext := mustEncrypt(t, kr, "whsec_secret", ad)
+
+	ciphertext[1] = 'b' // [0] ID length, [1] ID
+	if got, err := kr.Decrypt(ciphertext, ad); err == nil {
+		t.Errorf("Decrypt succeeded with %q, want error", got)
+	}
+}
+
 func TestDecryptRejectsOtherEndpointsAssociatedData(t *testing.T) {
 	t.Parallel()
 
 	kr := mustParse(t, key1)
-	ciphertext, err := kr.Encrypt([]byte("whsec_secret"), []byte("ep_1"))
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
+	ciphertext := mustEncrypt(t, kr, "whsec_secret", []byte("ep_1"))
+
 	if got, err := kr.Decrypt(ciphertext, []byte("ep_2")); err == nil {
 		t.Errorf("Decrypt succeeded with %q, want error", got)
 	}
@@ -109,11 +139,9 @@ func TestDecryptUnknownKey(t *testing.T) {
 	t.Parallel()
 
 	ad := []byte("ep_1")
-	ciphertext, err := mustParse(t, key1).Encrypt([]byte("whsec_secret"), ad)
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
-	_, err = mustParse(t, key2).Decrypt(ciphertext, ad)
+	ciphertext := mustEncrypt(t, mustParse(t, key1), "whsec_secret", ad)
+
+	_, err := mustParse(t, key2).Decrypt(ciphertext, ad)
 	if !errors.Is(err, keyring.ErrUnknownKey) {
 		t.Errorf("Decrypt error = %v, want ErrUnknownKey", err)
 	}
@@ -124,13 +152,8 @@ func TestDecryptRejectsTruncatedCiphertext(t *testing.T) {
 
 	kr := mustParse(t, key1)
 	ad := []byte("ep_1")
-	ciphertext, err := kr.Encrypt([]byte("whsec_secret"), ad)
-	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
-	}
+	ciphertext := mustEncrypt(t, kr, "whsec_secret", ad)
 
-	// Layout for key ID "k1": [0] ID length, [1:3] ID, [3:15] nonce, then the
-	// sealed secret and a 16-byte tag.
 	tests := []struct {
 		name string
 		len  int
@@ -163,6 +186,7 @@ func TestParseRejectsInvalidConfig(t *testing.T) {
 		{"trailing comma", key1 + ","},
 		{"empty key ID", ":AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
 		{"key ID with space", "k 1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
+		{"space after comma", key1 + ", " + key2},
 		{"key ID over 255 bytes", strings.Repeat("k", 256) + ":AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
 		{"bad base64", "k1:not base64!"},
 		{"16-byte key", "k1:AQEBAQEBAQEBAQEBAQEBAQ=="},
@@ -214,4 +238,13 @@ func mustParse(t *testing.T, config string) *keyring.Keyring {
 		t.Fatalf("Parse(%q): %v", config, err)
 	}
 	return kr
+}
+
+func mustEncrypt(t *testing.T, kr *keyring.Keyring, plaintext string, associatedData []byte) []byte {
+	t.Helper()
+	ciphertext, err := kr.Encrypt([]byte(plaintext), associatedData)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	return ciphertext
 }
