@@ -18,6 +18,8 @@ func TestCallsNeedAValidAPIKey(t *testing.T) {
 	var app tenantv1.CreateApplicationResponse
 	transports[0].mustInvoke(t, a, key, createApplication("Customer A"), &app)
 	appID := app.GetApplication().GetId()
+	var ep tenantv1.CreateEndpointResponse
+	transports[0].mustInvoke(t, a, key, createEndpoint(appID, "https://example.com/webhooks", nil), &ep)
 
 	// Every operation, with arguments that would succeed with a valid key, so
 	// that only the key can make them fail.
@@ -25,6 +27,8 @@ func TestCallsNeedAValidAPIKey(t *testing.T) {
 		createApplication("Customer B"),
 		getApplication(appID),
 		listApplications(0, ""),
+		createEndpoint(appID, "https://example.com/other", nil),
+		getEndpoint(appID, ep.GetEndpoint().GetId()),
 	}
 	authorizations := []struct {
 		name  string

@@ -33,6 +33,7 @@ func NewGRPCServer(store *ingest.Store, kr *keyring.Keyring, logger *slog.Logger
 		authenticate(store),
 	))
 	tenantv1.RegisterApplicationServiceServer(srv, &applicationServer{store: store})
+	tenantv1.RegisterEndpointServiceServer(srv, &endpointServer{store: store, keyring: kr})
 	return srv
 }
 
@@ -42,6 +43,9 @@ func NewGateway(ctx context.Context, conn grpc.ClientConnInterface) (http.Handle
 	mux := runtime.NewServeMux()
 	if err := tenantv1.RegisterApplicationServiceHandlerClient(ctx, mux, tenantv1.NewApplicationServiceClient(conn)); err != nil {
 		return nil, fmt.Errorf("register application service: %w", err)
+	}
+	if err := tenantv1.RegisterEndpointServiceHandlerClient(ctx, mux, tenantv1.NewEndpointServiceClient(conn)); err != nil {
+		return nil, fmt.Errorf("register endpoint service: %w", err)
 	}
 	return mux, nil
 }

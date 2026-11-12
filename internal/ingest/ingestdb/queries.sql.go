@@ -49,6 +49,58 @@ func (q *Queries) CreateApplication(ctx context.Context, arg CreateApplicationPa
 	return i, err
 }
 
+const createEndpoint = `-- name: CreateEndpoint :one
+INSERT INTO ingest.endpoints (id, application_id, url, filter)
+SELECT $1, a.id, $2, $3::text[]
+FROM ingest.applications a
+WHERE a.tenant_id = $4 AND a.id = $5
+RETURNING id, application_id, url, filter, created_at
+`
+
+type CreateEndpointParams struct {
+	ID            uuid.UUID
+	URL           string
+	Filter        []string
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+}
+
+// Creates the Endpoint only if its Application belongs to the Tenant, so that
+// no row comes back for another Tenant's Application.
+func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (IngestEndpoint, error) {
+	row := q.db.QueryRow(ctx, createEndpoint,
+		arg.ID,
+		arg.URL,
+		arg.Filter,
+		arg.TenantID,
+		arg.ApplicationID,
+	)
+	var i IngestEndpoint
+	err := row.Scan(
+		&i.ID,
+		&i.ApplicationID,
+		&i.URL,
+		&i.Filter,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createSigningSecret = `-- name: CreateSigningSecret :exec
+INSERT INTO ingest.signing_secrets (endpoint_id, ciphertext)
+VALUES ($1, $2)
+`
+
+type CreateSigningSecretParams struct {
+	EndpointID uuid.UUID
+	Ciphertext []byte
+}
+
+func (q *Queries) CreateSigningSecret(ctx context.Context, arg CreateSigningSecretParams) error {
+	_, err := q.db.Exec(ctx, createSigningSecret, arg.EndpointID, arg.Ciphertext)
+	return err
+}
+
 const createTenant = `-- name: CreateTenant :one
 INSERT INTO ingest.tenants (name)
 VALUES ($1)
@@ -80,6 +132,32 @@ func (q *Queries) GetApplication(ctx context.Context, arg GetApplicationParams) 
 		&i.ID,
 		&i.TenantID,
 		&i.Name,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getEndpoint = `-- name: GetEndpoint :one
+SELECT e.id, e.application_id, e.url, e.filter, e.created_at
+FROM ingest.endpoints e
+JOIN ingest.applications a ON a.id = e.application_id
+WHERE a.tenant_id = $1 AND e.application_id = $2 AND e.id = $3
+`
+
+type GetEndpointParams struct {
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+	ID            uuid.UUID
+}
+
+func (q *Queries) GetEndpoint(ctx context.Context, arg GetEndpointParams) (IngestEndpoint, error) {
+	row := q.db.QueryRow(ctx, getEndpoint, arg.TenantID, arg.ApplicationID, arg.ID)
+	var i IngestEndpoint
+	err := row.Scan(
+		&i.ID,
+		&i.ApplicationID,
+		&i.URL,
+		&i.Filter,
 		&i.CreatedAt,
 	)
 	return i, err

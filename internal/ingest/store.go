@@ -1,5 +1,5 @@
 // Package ingest owns herald-api's ingest schema: its migrations and the
-// Tenants and API keys stored in it.
+// Tenants, API keys, Applications and Endpoints stored in it.
 package ingest
 
 import (
@@ -26,7 +26,8 @@ const apiKeyPrefix = "herald_"
 // a row that doesn't exist.
 const foreignKeyViolation = "23503"
 
-// ErrNotFound is returned when an API key or a Tenant doesn't exist.
+// ErrNotFound is returned when an API key, a Tenant, an Application or an
+// Endpoint doesn't exist, or belongs to another Tenant.
 var ErrNotFound = errors.New("not found")
 
 // Tenant is an organization that uses Herald to send webhooks.
@@ -36,14 +37,15 @@ type Tenant struct {
 	CreatedAt time.Time
 }
 
-// Store reads and writes Tenants and API keys in the ingest schema.
+// Store reads and writes the ingest schema.
 type Store struct {
-	q *ingestdb.Queries
+	pool *pgxpool.Pool
+	q    *ingestdb.Queries
 }
 
 // NewStore returns a Store that uses pool.
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{q: ingestdb.New(pool)}
+	return &Store{pool: pool, q: ingestdb.New(pool)}
 }
 
 // CreateTenant creates a Tenant with the given name.

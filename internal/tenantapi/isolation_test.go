@@ -19,10 +19,14 @@ func TestOtherTenantsResourcesAreNotFound(t *testing.T) {
 	var app tenantv1.CreateApplicationResponse
 	transports[0].mustInvoke(t, a, owner, createApplication("Customer A"), &app)
 	appID := app.GetApplication().GetId()
+	var ep tenantv1.CreateEndpointResponse
+	transports[0].mustInvoke(t, a, owner, createEndpoint(appID, "https://example.com/webhooks", nil), &ep)
 
 	// Every operation on a resource that belongs to owner.
 	operations := []call{
 		getApplication(appID),
+		createEndpoint(appID, "https://example.com/other", nil),
+		getEndpoint(appID, ep.GetEndpoint().GetId()),
 	}
 	for _, tr := range transports {
 		for _, op := range operations {

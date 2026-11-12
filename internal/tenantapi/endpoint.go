@@ -1,0 +1,87 @@
+package tenantapi
+
+import (
+	"context"
+	"fmt"
+	"uuid"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	tenantv1 "github.com/madskrogh/herald/internal/gen/herald/tenant/v1"
+	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/keyring"
+	"github.com/madskrogh/herald/internal/signing"
+)
+
+// endpointServer implements EndpointService.
+type endpointServer struct {
+	tenantv1.UnimplementedEndpointServiceServer
+	store   *ingest.Store
+	keyring *keyring.Keyring
+}
+
+func (s *endpointServer) CreateEndpoint(ctx context.Context, req *tenantv1.CreateEndpointRequest) (*tenantv1.CreateEndpointResponse, error) {
+	appID, err := parseID("Application", req.GetApplicationId())
+	if err != nil {
+		return nil, err
+	}
+
+	id := uuid.NewV7()
+	secret := signing.NewSecret()
+	// The ID as associated data binds the ciphertext to this Endpoint, so it
+	// fails to decrypt if it is ever copied onto another Endpoint's row.
+	ciphertext, err := s.keyring.Encrypt([]byte(secret), []byte(id.String()))
+	if err != nil {
+		return nil, fmt.Errorf("encrypt signing secret: %w", err)
+	}
+	ep, err := s.store.CreateEndpoint(ctx, ingest.NewEndpoint{
+		ID:                      id,
+		TenantID:                tenantID(ctx),
+		ApplicationID:           appID,
+		URL:                     req.GetUrl(),
+		Filter:                  req.GetFilter(),
+		SigningSecretCiphertext: ciphertext,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &tenantv1.CreateEndpointResponse{Endpoint: toEndpoint(ep), SigningSecret: secret}, nil
+}
+
+func (s *endpointServer) GetEndpoint(ctx context.Context, req *tenantv1.GetEndpointRequest) (*tenantv1.GetEndpointResponse, error) {
+	appID, err := parseID("Application", req.GetApplicationId())
+	if err != nil {
+		return nil, err
+	}
+	id, err := parseID("Endpoint", req.GetId())
+	if err != nil {
+		return nil, err
+	}
+	ep, err := s.store.Endpoint(ctx, tenantID(ctx), appID, id)
+	if err != nil {
+		return nil, err
+	}
+	return &tenantv1.GetEndpointResponse{Endpoint: toEndpoint(ep)}, nil
+}
+
+func toEndpoint(ep ingest.Endpoint) *tenantv1.Endpoint {
+	return &tenantv1.Endpoint{
+		Id:            ep.ID.String(),
+		ApplicationId: ep.ApplicationID.String(),
+		Url:           ep.URL,
+		Filter:        ep.Filter,
+		CreatedAt:     timestamppb.New(ep.CreatedAt),
+	}
+}
+
+// parseID parses the ID of a resource of the given kind, such as
+// "Application".
+func parseID(kind, s string) (uuid.UUID, error) {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.UUID{}, status.Errorf(codes.InvalidArgument, "invalid %s ID %q", kind, s)
+	}
+	return id, nil
+}

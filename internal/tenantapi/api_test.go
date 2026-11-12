@@ -135,6 +135,29 @@ func listApplications(pageSize int32, pageToken string) call {
 	}
 }
 
+func createEndpoint(applicationID, endpointURL string, filter []string) call {
+	body, err := json.Marshal(map[string]any{"url": endpointURL, "filter": filter})
+	if err != nil {
+		panic(err) // Strings always marshal.
+	}
+	return call{
+		grpcMethod: "/herald.tenant.v1.EndpointService/CreateEndpoint",
+		req:        &tenantv1.CreateEndpointRequest{ApplicationId: applicationID, Url: endpointURL, Filter: filter},
+		httpMethod: http.MethodPost,
+		path:       "/v1/applications/" + applicationID + "/endpoints",
+		body:       string(body),
+	}
+}
+
+func getEndpoint(applicationID, id string) call {
+	return call{
+		grpcMethod: "/herald.tenant.v1.EndpointService/GetEndpoint",
+		req:        &tenantv1.GetEndpointRequest{ApplicationId: applicationID, Id: id},
+		httpMethod: http.MethodGet,
+		path:       "/v1/applications/" + applicationID + "/endpoints/" + id,
+	}
+}
+
 // pageQuery returns the query parameters of a REST list call.
 func pageQuery(pageSize int32, pageToken string) string {
 	q := url.Values{}

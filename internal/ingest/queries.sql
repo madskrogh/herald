@@ -30,3 +30,22 @@ FROM ingest.applications
 WHERE tenant_id = @tenant_id AND id > @after
 ORDER BY id
 LIMIT @max_results;
+
+-- name: CreateEndpoint :one
+-- Creates the Endpoint only if its Application belongs to the Tenant, so that
+-- no row comes back for another Tenant's Application.
+INSERT INTO ingest.endpoints (id, application_id, url, filter)
+SELECT @id, a.id, @url, @filter::text[]
+FROM ingest.applications a
+WHERE a.tenant_id = @tenant_id AND a.id = @application_id
+RETURNING *;
+
+-- name: CreateSigningSecret :exec
+INSERT INTO ingest.signing_secrets (endpoint_id, ciphertext)
+VALUES (@endpoint_id, @ciphertext);
+
+-- name: GetEndpoint :one
+SELECT e.*
+FROM ingest.endpoints e
+JOIN ingest.applications a ON a.id = e.application_id
+WHERE a.tenant_id = @tenant_id AND e.application_id = @application_id AND e.id = @id;
