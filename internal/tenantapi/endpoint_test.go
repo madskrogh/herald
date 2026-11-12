@@ -107,3 +107,66 @@ func TestEndpointsGetSigningSecretsOfTheirOwn(t *testing.T) {
 		t.Errorf("two Endpoints both have signing secret %q", first.GetSigningSecret())
 	}
 }
+
+func TestListEndpoints(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	a := newAPI(t)
+	key := a.newTenant(t, "Acme")
+	var app, otherApp tenantv1.CreateApplicationResponse
+	transports[0].mustInvoke(t, a, key, createApplication("Customer A"), &app)
+	transports[0].mustInvoke(t, a, key, createApplication("Customer B"), &otherApp)
+	appID := app.GetApplication().GetId()
+	for _, u := range []string{"https://example.com/a", "https://example.com/b", "https://example.com/c"} {
+		transports[0].mustInvoke(t, a, key, createEndpoint(appID, u, nil), nil)
+	}
+	transports[0].mustInvoke(t, a, key, createEndpoint(otherApp.GetApplication().GetId(), "https://example.com/not-a", nil), nil)
+
+	for _, tr := range transports {
+		t.Run(tr.name, func(t *testing.T) {
+			t.Parallel()
+
+			t.Run("in pages, in the order they were created", func(t *testing.T) {
+				t.Parallel()
+				var first tenantv1.ListEndpointsResponse
+				tr.mustInvoke(t, a, key, listEndpoints(appID, 2, ""), &first)
+				if first.GetNextPageToken() == "" {
+					t.Fatal("first page has no next_page_token")
+				}
+				var second tenantv1.ListEndpointsResponse
+				tr.mustInvoke(t, a, key, listEndpoints(appID, 2, first.GetNextPageToken()), &second)
+				if second.GetNextPageToken() != "" {
+					t.Errorf("last page has next_page_token %q, want none", second.GetNextPageToken())
+				}
+				got := [][]string{endpointURLs(&first), endpointURLs(&second)}
+				want := [][]string{{"https://example.com/a", "https://example.com/b"}, {"https://example.com/c"}}
+				if diff := cmp.Diff(want, got); diff != "" {
+					t.Errorf("pages of Endpoint URLs (-want +got):\n%s", diff)
+				}
+			})
+
+			t.Run("on one page by default", func(t *testing.T) {
+				t.Parallel()
+				var page tenantv1.ListEndpointsResponse
+				tr.mustInvoke(t, a, key, listEndpoints(appID, 0, ""), &page)
+				want := []string{"https://example.com/a", "https://example.com/b", "https://example.com/c"}
+				if diff := cmp.Diff(want, endpointURLs(&page)); diff != "" {
+					t.Errorf("Endpoint URLs (-want +got):\n%s", diff)
+				}
+				if page.GetNextPageToken() != "" {
+					t.Errorf("next_page_token = %q, want none", page.GetNextPageToken())
+				}
+			})
+		})
+	}
+}
+
+func endpointURLs(page *tenantv1.ListEndpointsResponse) []string {
+	var urls []string
+	for _, ep := range page.GetEndpoints() {
+		urls = append(urls, ep.GetUrl())
+	}
+	return urls
+}

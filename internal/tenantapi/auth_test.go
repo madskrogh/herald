@@ -29,6 +29,7 @@ func TestCallsNeedAValidAPIKey(t *testing.T) {
 		listApplications(0, ""),
 		createEndpoint(appID, "https://example.com/other", nil),
 		getEndpoint(appID, ep.GetEndpoint().GetId()),
+		listEndpoints(appID, 0, ""),
 	}
 	authorizations := []struct {
 		name  string

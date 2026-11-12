@@ -66,6 +66,27 @@ func (s *endpointServer) GetEndpoint(ctx context.Context, req *tenantv1.GetEndpo
 	return &tenantv1.GetEndpointResponse{Endpoint: toEndpoint(ep)}, nil
 }
 
+func (s *endpointServer) ListEndpoints(ctx context.Context, req *tenantv1.ListEndpointsRequest) (*tenantv1.ListEndpointsResponse, error) {
+	appID, err := parseID("Application", req.GetApplicationId())
+	if err != nil {
+		return nil, err
+	}
+	p, err := parsePage(req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	eps, err := s.store.ListEndpoints(ctx, tenantID(ctx), appID, p.after, p.fetch())
+	if err != nil {
+		return nil, err
+	}
+	eps, next := cut(p, eps, func(ep ingest.Endpoint) uuid.UUID { return ep.ID })
+	resp := &tenantv1.ListEndpointsResponse{NextPageToken: next}
+	for _, ep := range eps {
+		resp.Endpoints = append(resp.Endpoints, toEndpoint(ep))
+	}
+	return resp, nil
+}
+
 func toEndpoint(ep ingest.Endpoint) *tenantv1.Endpoint {
 	return &tenantv1.Endpoint{
 		Id:            ep.ID.String(),

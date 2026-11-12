@@ -49,3 +49,13 @@ SELECT e.*
 FROM ingest.endpoints e
 JOIN ingest.applications a ON a.id = e.application_id
 WHERE a.tenant_id = @tenant_id AND e.application_id = @application_id AND e.id = @id;
+
+-- name: ListEndpoints :many
+-- A page of the Endpoints under the Tenant's Application: those after the ID
+-- @after, in ID order.
+SELECT e.*
+FROM ingest.endpoints e
+JOIN ingest.applications a ON a.id = e.application_id
+WHERE a.tenant_id = @tenant_id AND e.application_id = @application_id AND e.id > @after
+ORDER BY e.id
+LIMIT @max_results;

@@ -91,3 +91,27 @@ func (s *Store) Endpoint(ctx context.Context, tenantID, applicationID, id uuid.U
 	}
 	return Endpoint(row), nil
 }
+
+// ListEndpoints returns up to maxResults of the Endpoints under the Tenant's
+// Application whose IDs come after the ID after, in ID order. The nil UUID
+// comes before every ID. If the Application doesn't exist or belongs to
+// another Tenant, it returns ErrNotFound rather than an empty list.
+func (s *Store) ListEndpoints(ctx context.Context, tenantID, applicationID, after uuid.UUID, maxResults int32) ([]Endpoint, error) {
+	if _, err := s.Application(ctx, tenantID, applicationID); err != nil {
+		return nil, fmt.Errorf("list endpoints: %w", err)
+	}
+	rows, err := s.q.ListEndpoints(ctx, ingestdb.ListEndpointsParams{
+		TenantID:      tenantID,
+		ApplicationID: applicationID,
+		After:         after,
+		MaxResults:    maxResults,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list endpoints: %w", err)
+	}
+	eps := make([]Endpoint, len(rows))
+	for i, row := range rows {
+		eps[i] = Endpoint(row)
+	}
+	return eps, nil
+}

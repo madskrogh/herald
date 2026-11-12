@@ -158,6 +158,15 @@ func getEndpoint(applicationID, id string) call {
 	}
 }
 
+func listEndpoints(applicationID string, pageSize int32, pageToken string) call {
+	return call{
+		grpcMethod: "/herald.tenant.v1.EndpointService/ListEndpoints",
+		req:        &tenantv1.ListEndpointsRequest{ApplicationId: applicationID, PageSize: pageSize, PageToken: pageToken},
+		httpMethod: http.MethodGet,
+		path:       "/v1/applications/" + applicationID + "/endpoints?" + pageQuery(pageSize, pageToken),
+	}
+}
+
 // pageQuery returns the query parameters of a REST list call.
 func pageQuery(pageSize int32, pageToken string) string {
 	q := url.Values{}

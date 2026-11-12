@@ -27,6 +27,7 @@ func TestOtherTenantsResourcesAreNotFound(t *testing.T) {
 		getApplication(appID),
 		createEndpoint(appID, "https://example.com/other", nil),
 		getEndpoint(appID, ep.GetEndpoint().GetId()),
+		listEndpoints(appID, 0, ""),
 	}
 	for _, tr := range transports {
 		for _, op := range operations {

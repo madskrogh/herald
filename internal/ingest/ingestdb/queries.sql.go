@@ -216,3 +216,52 @@ func (q *Queries) ListApplications(ctx context.Context, arg ListApplicationsPara
 	}
 	return items, nil
 }
+
+const listEndpoints = `-- name: ListEndpoints :many
+SELECT e.id, e.application_id, e.url, e.filter, e.created_at
+FROM ingest.endpoints e
+JOIN ingest.applications a ON a.id = e.application_id
+WHERE a.tenant_id = $1 AND e.application_id = $2 AND e.id > $3
+ORDER BY e.id
+LIMIT $4
+`
+
+type ListEndpointsParams struct {
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+	After         uuid.UUID
+	MaxResults    int32
+}
+
+// A page of the Endpoints under the Tenant's Application: those after the ID
+// @after, in ID order.
+func (q *Queries) ListEndpoints(ctx context.Context, arg ListEndpointsParams) ([]IngestEndpoint, error) {
+	rows, err := q.db.Query(ctx, listEndpoints,
+		arg.TenantID,
+		arg.ApplicationID,
+		arg.After,
+		arg.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IngestEndpoint
+	for rows.Next() {
+		var i IngestEndpoint
+		if err := rows.Scan(
+			&i.ID,
+			&i.ApplicationID,
+			&i.URL,
+			&i.Filter,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
