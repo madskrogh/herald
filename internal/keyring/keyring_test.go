@@ -179,53 +179,61 @@ func TestParseRejectsInvalidConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		config string
+		name    string
+		config  string
+		wantErr string
 	}{
-		{"empty", ""},
-		{"missing separator", "k1AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
-		{"trailing comma", key1 + ","},
-		{"empty key ID", ":AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
-		{"key ID with space", "k 1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
-		{"space after comma", key1 + ", " + key2},
-		{"key ID over 255 bytes", strings.Repeat("k", 256) + ":AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
-		{"bad base64", "k1:not base64!"},
-		{"16-byte key", "k1:AQEBAQEBAQEBAQEBAQEBAQ=="},
-		{"duplicate key ID", key1 + ",k1:AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="},
+		{"empty", "", "keyring entry 0: want <id>:<base64 key>"},
+		{"missing separator", "k1AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", "keyring entry 0: want <id>:<base64 key>"},
+		{"trailing comma", key1 + ",", "keyring entry 1: want <id>:<base64 key>"},
+		{"empty key ID", ":AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", `keyring entry 0: invalid key ID ""`},
+		{"key ID with space", "k 1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", `keyring entry 0: invalid key ID "k 1"`},
+		{"space after comma", key1 + ", " + key2, `keyring entry 1: invalid key ID " k2"`},
+		{"key ID over 255 bytes", strings.Repeat("k", 256) + ":AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", "keyring entry 0: invalid key ID"},
+		{"bad base64", "k1:not base64!", `keyring entry 0: key "k1": illegal base64 data`},
+		{"16-byte key", "k1:AQEBAQEBAQEBAQEBAQEBAQ==", `keyring entry 0: key "k1" has 16 bytes, want 32`},
+		{"duplicate key ID", key1 + ",k1:AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=", `keyring entry 1: duplicate key ID "k1"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := keyring.Parse(tt.config); err == nil {
-				t.Errorf("Parse(%q) succeeded, want error", tt.config)
+			_, err := keyring.Parse(tt.config)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Parse(%q) error = %v, want one containing %q", tt.config, err, tt.wantErr)
 			}
 		})
 	}
 }
 
+// storedCiphertext was made by Encrypt with key1 and associated data "ep_1".
+// Ciphertexts are stored, so it must keep decrypting whatever the code
+// becomes. It is also the "valid" fuzz seed in testdata/fuzz/FuzzDecrypt.
+const storedCiphertext = "\x02k1\xe1\xb6\xce\x37\x43\x2c\x64\xeb\x80\x87\x08\xaf\x50\xbb\xc7\xed\xbe\x29\x87\x14\xcf\x9b\x1d\x96\x93\x12\x81\xca\xc0\xa1\x1f\xc3\x5a\x9f\x08\xb5\xda\x5f\x21\x1b"
+
+func TestDecryptStoredCiphertext(t *testing.T) {
+	t.Parallel()
+
+	got, err := mustParse(t, key1).Decrypt([]byte(storedCiphertext), []byte("ep_1"))
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	if diff := cmp.Diff("whsec_secret", string(got)); diff != "" {
+		t.Errorf("Decrypt (-want +got):\n%s", diff)
+	}
+}
+
 // FuzzDecrypt checks that Decrypt never panics, and that any input it accepts
-// decrypts to the only plaintext ever encrypted under these keys. Each fuzz
-// worker runs this setup again with a fresh random nonce, so a ciphertext from
-// another worker is genuine too; comparing ciphertexts would flag it.
+// decrypts to the only plaintext ever encrypted under these keys. Seeds are in
+// testdata/fuzz/FuzzDecrypt.
 func FuzzDecrypt(f *testing.F) {
 	kr, err := keyring.Parse(key2 + "," + key1)
 	if err != nil {
 		f.Fatalf("Parse: %v", err)
 	}
-	ad := []byte("ep_1")
-	valid, err := kr.Encrypt([]byte("whsec_secret"), ad)
-	if err != nil {
-		f.Fatalf("Encrypt: %v", err)
-	}
-	f.Add(valid)
-	f.Add([]byte{})
-	f.Add([]byte{0xff})
-	f.Add([]byte("\x02k1"))
-	f.Add([]byte("\x02k1\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"))
 
 	f.Fuzz(func(t *testing.T, ciphertext []byte) {
-		got, err := kr.Decrypt(ciphertext, ad)
+		got, err := kr.Decrypt(ciphertext, []byte("ep_1"))
 		if err == nil && string(got) != "whsec_secret" {
 			t.Errorf("Decrypt(%x) succeeded with %q, want error", ciphertext, got)
 		}
