@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/madskrogh/herald/internal/retry"
 )
 
@@ -55,8 +57,8 @@ func TestNextWithoutJitter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("after %d Attempts", tt.attempts), func(t *testing.T) {
 			t.Parallel()
-			if got := next(t, s, tt.attempts); got != tt.want {
-				t.Errorf("Next(%d) = %v, want %v", tt.attempts, got, tt.want)
+			if diff := cmp.Diff(tt.want, next(t, s, tt.attempts)); diff != "" {
+				t.Errorf("Next(%d) mismatch (-want +got):\n%s", tt.attempts, diff)
 			}
 		})
 	}
@@ -65,30 +67,34 @@ func TestNextWithoutJitter(t *testing.T) {
 func TestNextJitterBounds(t *testing.T) {
 	t.Parallel()
 
-	// The random source yields values in [0, 1), so these are the extremes.
-	lowest := newSchedule(t, 1, fixedRandom(0))
-	highest := newSchedule(t, 1, fixedRandom(math.Nextafter(1, 0)))
 	tests := []struct {
+		scale    float64
 		attempts int
 		min, max time.Duration
 	}{
-		{0, 0, 0},
-		{1, 4500 * time.Millisecond, 5500 * time.Millisecond},
-		{2, 54 * time.Second, 66 * time.Second},
-		{3, 9 * time.Minute, 11 * time.Minute},
-		{4, 54 * time.Minute, 66 * time.Minute},
-		{5, 2*time.Hour + 42*time.Minute, 3*time.Hour + 18*time.Minute},
-		{6, 5*time.Hour + 24*time.Minute, 6*time.Hour + 36*time.Minute},
-		{7, 10*time.Hour + 48*time.Minute, 13*time.Hour + 12*time.Minute},
+		{1, 0, 0, 0},
+		{1, 1, 4500 * time.Millisecond, 5500 * time.Millisecond},
+		{1, 2, 54 * time.Second, 66 * time.Second},
+		{1, 3, 9 * time.Minute, 11 * time.Minute},
+		{1, 4, 54 * time.Minute, 66 * time.Minute},
+		{1, 5, 2*time.Hour + 42*time.Minute, 3*time.Hour + 18*time.Minute},
+		{1, 6, 5*time.Hour + 24*time.Minute, 6*time.Hour + 36*time.Minute},
+		{1, 7, 10*time.Hour + 48*time.Minute, 13*time.Hour + 12*time.Minute},
+		// Jitter scales with the delay: 43.2s ± 10%, not 12h ± 10%.
+		{0.001, 1, 4500 * time.Microsecond, 5500 * time.Microsecond},
+		{0.001, 7, 38880 * time.Millisecond, 47520 * time.Millisecond},
 	}
 	for _, tt := range tests {
-		t.Run(fmt.Sprintf("after %d Attempts", tt.attempts), func(t *testing.T) {
+		t.Run(fmt.Sprintf("scale %v after %d Attempts", tt.scale, tt.attempts), func(t *testing.T) {
 			t.Parallel()
-			if got := next(t, lowest, tt.attempts); got != tt.min {
-				t.Errorf("Next(%d) with lowest jitter = %v, want %v", tt.attempts, got, tt.min)
+			// The random source yields values in [0, 1), so these are the extremes.
+			lowest := newSchedule(t, tt.scale, fixedRandom(0))
+			highest := newSchedule(t, tt.scale, fixedRandom(math.Nextafter(1, 0)))
+			if diff := cmp.Diff(tt.min, next(t, lowest, tt.attempts)); diff != "" {
+				t.Errorf("Next(%d) with lowest jitter mismatch (-want +got):\n%s", tt.attempts, diff)
 			}
-			if got := next(t, highest, tt.attempts); got != tt.max {
-				t.Errorf("Next(%d) with highest jitter = %v, want %v", tt.attempts, got, tt.max)
+			if diff := cmp.Diff(tt.max, next(t, highest, tt.attempts)); diff != "" {
+				t.Errorf("Next(%d) with highest jitter mismatch (-want +got):\n%s", tt.attempts, diff)
 			}
 		})
 	}
@@ -110,8 +116,8 @@ func TestNextScaled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("after %d Attempts", tt.attempts), func(t *testing.T) {
 			t.Parallel()
-			if got := next(t, s, tt.attempts); got != tt.want {
-				t.Errorf("Next(%d) at scale 0.001 = %v, want %v", tt.attempts, got, tt.want)
+			if diff := cmp.Diff(tt.want, next(t, s, tt.attempts)); diff != "" {
+				t.Errorf("Next(%d) at scale 0.001 mismatch (-want +got):\n%s", tt.attempts, diff)
 			}
 		})
 	}
