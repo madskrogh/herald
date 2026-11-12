@@ -17,15 +17,17 @@ test:
 # another commit: make breaking AGAINST=<ref>
 AGAINST ?= origin/main
 
-# Fails on a change to the protos that breaks compatibility with AGAINST. A ref
-# without buf.yaml has no protos to compare with, which is true of main only
-# until the first protos merge, so that case passes with a message. A ref that
-# doesn't exist fails, so a missing fetch can't pass as "nothing to compare".
-# The ref is resolved to a commit here, so that buf, which reads the shared git
-# directory, compares with the same commit whichever worktree runs this.
+# Fails on a change to the protos that breaks compatibility with the merge-base
+# of HEAD and AGAINST: what this branch changed, not what AGAINST changed since
+# the branch started. A commit without buf.yaml has no protos to compare with,
+# which is true of main only until the first protos merge, so that case passes
+# with a message. A ref that doesn't exist fails, so a missing fetch can't pass
+# as "nothing to compare". The commit is resolved here, so that buf, which
+# reads the shared git directory, compares with the same commit whichever
+# worktree runs this.
 breaking:
-	@commit=$$(git rev-parse --verify --quiet '$(AGAINST)^{commit}') || { \
-		echo "breaking: unknown ref $(AGAINST)"; exit 1; }; \
+	@commit=$$(git merge-base HEAD '$(AGAINST)' 2>/dev/null) || { \
+		echo "breaking: no merge-base of HEAD and $(AGAINST)"; exit 1; }; \
 	if git cat-file -e "$$commit:buf.yaml" 2>/dev/null; then \
 		buf breaking --against "$$(git rev-parse --git-common-dir)#ref=$$commit"; \
 	else \

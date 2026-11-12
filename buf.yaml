@@ -4,6 +4,9 @@ modules:
 lint:
   use:
     - STANDARD
+# WIRE, because what has to stay compatible is the binary encoding between
+# herald-api and herald-dispatcher versions running side by side. It still
+# allows renaming a field, or deleting one whose number is reserved.
 breaking:
   use:
-    - FILE
+    - WIRE

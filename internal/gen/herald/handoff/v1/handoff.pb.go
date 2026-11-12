@@ -6,12 +6,15 @@
 
 // Package herald.handoff.v1 is the contract between the relay in herald-api
 // and herald-dispatcher (ADR 0002). The relay sends a Batch as a NATS request
-// to the dispatchers' queue group, and a dispatcher replies with a BatchAck
-// once it has committed the Batch's Deliveries.
+// to the dispatchers' queue group, and a dispatcher answers with a
+// BatchReply.
 //
 // The package is internal: it is never exposed through the Tenant API. herald-api
 // and herald-dispatcher versions run side by side during a rollout, so every
 // change must stay wire-compatible, which buf breaking checks on every PR.
+//
+// IDs are UUIDs in their canonical text form: lowercase hex with hyphens, as
+// in 0190a5e4-7b2c-7d3e-9f40-1a2b3c4d5e6f.
 
 package handoffv1
 
@@ -84,13 +87,15 @@ func (x *Batch) GetMessages() []*Message {
 // worked out for it.
 type Message struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The Message's ID, a UUID.
-	Id        string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	EventType string `protobuf:"bytes,2,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The Tenant that submitted the Message, so the dispatcher can tell whose
+	// Deliveries it stores.
+	TenantId  string `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	EventType string `protobuf:"bytes,3,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
 	// The JSON payload exactly as the Tenant submitted it. It is signed byte for
 	// byte, so it is carried as bytes rather than parsed.
-	Payload       []byte      `protobuf:"bytes,3,opt,name=payload,proto3" json:"payload,omitempty"`
-	Deliveries    []*Delivery `protobuf:"bytes,4,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
+	Payload       []byte      `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
+	Deliveries    []*Delivery `protobuf:"bytes,5,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -132,6 +137,13 @@ func (x *Message) GetId() string {
 	return ""
 }
 
+func (x *Message) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
 func (x *Message) GetEventType() string {
 	if x != nil {
 		return x.EventType
@@ -156,8 +168,7 @@ func (x *Message) GetDeliveries() []*Delivery {
 // Delivery is the Message on its way to one Endpoint.
 type Delivery struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The Delivery's ID, a UUID.
-	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// A copy of the Endpoint's details at the time the Message was accepted.
 	Endpoint      *Endpoint `protobuf:"bytes,2,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -211,8 +222,8 @@ func (x *Delivery) GetEndpoint() *Endpoint {
 // Endpoint holds what a dispatcher needs to make Attempts to an Endpoint.
 type Endpoint struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The Endpoint's ID, a UUID. Its signing secrets are encrypted with it as
-	// associated data, so decrypting them needs it.
+	// Its signing secrets are encrypted with this ID, in the canonical text
+	// form, as associated data, so decrypting them needs it.
 	Id  string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Url string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
 	// Each Attempt is signed with every one of these (ADR 0003). Signing-secret
@@ -322,29 +333,39 @@ func (x *SigningSecret) GetCiphertext() []byte {
 	return nil
 }
 
-// BatchAck is a dispatcher's reply to a Batch. It acknowledges the whole
-// Batch, and is sent only after every Delivery in it has been committed.
-// Without it the relay sends the Batch again.
-type BatchAck struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+// BatchReply is a dispatcher's answer to a Batch, covering the whole Batch.
+//
+// The relay treats the Batch as handed off only when committed is true. Any
+// other reply, including an empty one or one from a newer dispatcher that it
+// can't fully read, means the Batch was not stored, and the relay sends it
+// again later. Success must stay an explicit true: a reader ignores fields it
+// doesn't know, so a failure signalled only by a new field would look like
+// success to an older relay.
+type BatchReply struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// True once every Delivery in the Batch has been committed.
+	Committed bool `protobuf:"varint,1,opt,name=committed,proto3" json:"committed,omitempty"`
+	// Why the Batch was not committed, for the relay's logs. Empty when
+	// committed is true.
+	Error         string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BatchAck) Reset() {
-	*x = BatchAck{}
+func (x *BatchReply) Reset() {
+	*x = BatchReply{}
 	mi := &file_herald_handoff_v1_handoff_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BatchAck) String() string {
+func (x *BatchReply) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BatchAck) ProtoMessage() {}
+func (*BatchReply) ProtoMessage() {}
 
-func (x *BatchAck) ProtoReflect() protoreflect.Message {
+func (x *BatchReply) ProtoReflect() protoreflect.Message {
 	mi := &file_herald_handoff_v1_handoff_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -356,9 +377,23 @@ func (x *BatchAck) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BatchAck.ProtoReflect.Descriptor instead.
-func (*BatchAck) Descriptor() ([]byte, []int) {
+// Deprecated: Use BatchReply.ProtoReflect.Descriptor instead.
+func (*BatchReply) Descriptor() ([]byte, []int) {
 	return file_herald_handoff_v1_handoff_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *BatchReply) GetCommitted() bool {
+	if x != nil {
+		return x.Committed
+	}
+	return false
+}
+
+func (x *BatchReply) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
 }
 
 var File_herald_handoff_v1_handoff_proto protoreflect.FileDescriptor
@@ -367,14 +402,15 @@ const file_herald_handoff_v1_handoff_proto_rawDesc = "" +
 	"\n" +
 	"\x1fherald/handoff/v1/handoff.proto\x12\x11herald.handoff.v1\"?\n" +
 	"\x05Batch\x126\n" +
-	"\bmessages\x18\x01 \x03(\v2\x1a.herald.handoff.v1.MessageR\bmessages\"\x8f\x01\n" +
+	"\bmessages\x18\x01 \x03(\v2\x1a.herald.handoff.v1.MessageR\bmessages\"\xac\x01\n" +
 	"\aMessage\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
+	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1d\n" +
 	"\n" +
-	"event_type\x18\x02 \x01(\tR\teventType\x12\x18\n" +
-	"\apayload\x18\x03 \x01(\fR\apayload\x12;\n" +
+	"event_type\x18\x03 \x01(\tR\teventType\x12\x18\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload\x12;\n" +
 	"\n" +
-	"deliveries\x18\x04 \x03(\v2\x1b.herald.handoff.v1.DeliveryR\n" +
+	"deliveries\x18\x05 \x03(\v2\x1b.herald.handoff.v1.DeliveryR\n" +
 	"deliveries\"S\n" +
 	"\bDelivery\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x127\n" +
@@ -386,9 +422,11 @@ const file_herald_handoff_v1_handoff_proto_rawDesc = "" +
 	"\rSigningSecret\x12\x1e\n" +
 	"\n" +
 	"ciphertext\x18\x01 \x01(\fR\n" +
-	"ciphertext\"\n" +
+	"ciphertext\"@\n" +
 	"\n" +
-	"\bBatchAckB\xd1\x01\n" +
+	"BatchReply\x12\x1c\n" +
+	"\tcommitted\x18\x01 \x01(\bR\tcommitted\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05errorB\xd1\x01\n" +
 	"\x15com.herald.handoff.v1B\fHandoffProtoP\x01ZDgithub.com/madskrogh/herald/internal/gen/herald/handoff/v1;handoffv1\xa2\x02\x03HHX\xaa\x02\x11Herald.Handoff.V1\xca\x02\x11Herald\\Handoff\\V1\xe2\x02\x1dHerald\\Handoff\\V1\\GPBMetadata\xea\x02\x13Herald::Handoff::V1b\x06proto3"
 
 var (
@@ -410,7 +448,7 @@ var file_herald_handoff_v1_handoff_proto_goTypes = []any{
 	(*Delivery)(nil),      // 2: herald.handoff.v1.Delivery
 	(*Endpoint)(nil),      // 3: herald.handoff.v1.Endpoint
 	(*SigningSecret)(nil), // 4: herald.handoff.v1.SigningSecret
-	(*BatchAck)(nil),      // 5: herald.handoff.v1.BatchAck
+	(*BatchReply)(nil),    // 5: herald.handoff.v1.BatchReply
 }
 var file_herald_handoff_v1_handoff_proto_depIdxs = []int32{
 	1, // 0: herald.handoff.v1.Batch.messages:type_name -> herald.handoff.v1.Message

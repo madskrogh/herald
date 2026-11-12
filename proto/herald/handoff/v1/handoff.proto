@@ -2,12 +2,15 @@ syntax = "proto3";
 
 // Package herald.handoff.v1 is the contract between the relay in herald-api
 // and herald-dispatcher (ADR 0002). The relay sends a Batch as a NATS request
-// to the dispatchers' queue group, and a dispatcher replies with a BatchAck
-// once it has committed the Batch's Deliveries.
+// to the dispatchers' queue group, and a dispatcher answers with a
+// BatchReply.
 //
 // The package is internal: it is never exposed through the Tenant API. herald-api
 // and herald-dispatcher versions run side by side during a rollout, so every
 // change must stay wire-compatible, which buf breaking checks on every PR.
+//
+// IDs are UUIDs in their canonical text form: lowercase hex with hyphens, as
+// in 0190a5e4-7b2c-7d3e-9f40-1a2b3c4d5e6f.
 package herald.handoff.v1;
 
 // Batch is one handoff: a set of Messages, each with all of its Deliveries.
@@ -23,18 +26,19 @@ message Batch {
 // Message is one Message a Tenant submitted, with the Deliveries herald-api
 // worked out for it.
 message Message {
-  // The Message's ID, a UUID.
   string id = 1;
-  string event_type = 2;
+  // The Tenant that submitted the Message, so the dispatcher can tell whose
+  // Deliveries it stores.
+  string tenant_id = 2;
+  string event_type = 3;
   // The JSON payload exactly as the Tenant submitted it. It is signed byte for
   // byte, so it is carried as bytes rather than parsed.
-  bytes payload = 3;
-  repeated Delivery deliveries = 4;
+  bytes payload = 4;
+  repeated Delivery deliveries = 5;
 }
 
 // Delivery is the Message on its way to one Endpoint.
 message Delivery {
-  // The Delivery's ID, a UUID.
   string id = 1;
   // A copy of the Endpoint's details at the time the Message was accepted.
   Endpoint endpoint = 2;
@@ -42,8 +46,8 @@ message Delivery {
 
 // Endpoint holds what a dispatcher needs to make Attempts to an Endpoint.
 message Endpoint {
-  // The Endpoint's ID, a UUID. Its signing secrets are encrypted with it as
-  // associated data, so decrypting them needs it.
+  // Its signing secrets are encrypted with this ID, in the canonical text
+  // form, as associated data, so decrypting them needs it.
   string id = 1;
   string url = 2;
   // Each Attempt is signed with every one of these (ADR 0003). Signing-secret
@@ -60,7 +64,18 @@ message SigningSecret {
   bytes ciphertext = 1;
 }
 
-// BatchAck is a dispatcher's reply to a Batch. It acknowledges the whole
-// Batch, and is sent only after every Delivery in it has been committed.
-// Without it the relay sends the Batch again.
-message BatchAck {}
+// BatchReply is a dispatcher's answer to a Batch, covering the whole Batch.
+//
+// The relay treats the Batch as handed off only when committed is true. Any
+// other reply, including an empty one or one from a newer dispatcher that it
+// can't fully read, means the Batch was not stored, and the relay sends it
+// again later. Success must stay an explicit true: a reader ignores fields it
+// doesn't know, so a failure signalled only by a new field would look like
+// success to an older relay.
+message BatchReply {
+  // True once every Delivery in the Batch has been committed.
+  bool committed = 1;
+  // Why the Batch was not committed, for the relay's logs. Empty when
+  // committed is true.
+  string error = 2;
+}

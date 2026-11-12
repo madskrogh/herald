@@ -20,11 +20,10 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      # Full history, so origin/main is there for `buf breaking` to compare
-      # with.
+      # Two commits, so HEAD^1 is there for `buf breaking` to compare with.
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
       - uses: actions/setup-go@v7
         with:
@@ -51,7 +50,7 @@ jobs:
           version: 1.59.0
           setup_only: true
 
-      # A PR's protos are compared with main's. On main, where origin/main is
-      # the commit under test, they are compared with the previous commit:
-      # merges are squashed, so that is main before this merge.
-      - run: make ci AGAINST=${{ github.event_name == 'push' && 'HEAD~1' || 'origin/main' }}
+      # Protos are compared with HEAD^1. On a PR, HEAD is the merge commit and
+      # HEAD^1 the main it was made from; on main, merges are squashed, so
+      # HEAD^1 is main before this merge.
+      - run: make ci AGAINST=HEAD^1
