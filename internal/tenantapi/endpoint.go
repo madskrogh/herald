@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/madskrogh/herald/internal/eventtype"
 	tenantv1 "github.com/madskrogh/herald/internal/gen/herald/tenant/v1"
 	"github.com/madskrogh/herald/internal/ingest"
 	"github.com/madskrogh/herald/internal/keyring"
@@ -26,6 +27,12 @@ func (s *endpointServer) CreateEndpoint(ctx context.Context, req *tenantv1.Creat
 	appID, err := parseID("Application", req.GetApplicationId())
 	if err != nil {
 		return nil, err
+	}
+	if err := checkEndpointURL(req.GetUrl()); err != nil {
+		return nil, invalidArgument(err)
+	}
+	if _, err := eventtype.ParseFilter(req.GetFilter()); err != nil {
+		return nil, invalidArgument(err)
 	}
 
 	id := uuid.NewV7()
@@ -95,6 +102,12 @@ func toEndpoint(ep ingest.Endpoint) *tenantv1.Endpoint {
 		Filter:        ep.Filter,
 		CreatedAt:     timestamppb.New(ep.CreatedAt),
 	}
+}
+
+// invalidArgument returns err as the caller's error: an InvalidArgument status
+// with err's message.
+func invalidArgument(err error) error {
+	return status.Error(codes.InvalidArgument, err.Error())
 }
 
 // parseID parses the ID of a resource of the given kind, such as

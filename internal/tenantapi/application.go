@@ -17,6 +17,9 @@ type applicationServer struct {
 }
 
 func (s *applicationServer) CreateApplication(ctx context.Context, req *tenantv1.CreateApplicationRequest) (*tenantv1.CreateApplicationResponse, error) {
+	if err := checkApplicationName(req.GetName()); err != nil {
+		return nil, invalidArgument(err)
+	}
 	app, err := s.store.CreateApplication(ctx, tenantID(ctx), req.GetName())
 	if err != nil {
 		return nil, err
