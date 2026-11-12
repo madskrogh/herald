@@ -7,7 +7,13 @@
 //
 // The first key is the current key and encrypts everything new. The others
 // are older keys, kept so that ciphertexts they made can still be decrypted.
-// To rotate, put a new key first and keep the old ones after it. Key IDs are
+//
+// Every service that decrypts must know a key before any service encrypts
+// with it, so a rotation takes two deploys: first add the new key after the
+// current one, everywhere; then move it to the front. Skipping the first step
+// makes Decrypt return ErrUnknownKey wherever the new key hasn't arrived yet.
+//
+// Key IDs are
 // 1 to 255 characters from [A-Za-z0-9_-], for example 2026-11. A key can be
 // generated with `openssl rand -base64 32`. Whitespace is not trimmed, so a
 // space after a comma makes the next key ID invalid.
@@ -36,7 +42,8 @@ import (
 const keySize = 32 // AES-256
 
 // ErrUnknownKey means a ciphertext was encrypted with a key that is not in the
-// keyring, typically because the key was removed while still in use.
+// keyring: the key was removed while still in use, or a rotation reached the
+// encrypting service before this one (see the package documentation).
 var ErrUnknownKey = errors.New("unknown encryption key")
 
 var errTooShort = errors.New("ciphertext too short")
