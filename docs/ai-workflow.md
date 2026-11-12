@@ -76,7 +76,7 @@ Lifecycle:
 /implement-issue <n>  →  make up  →  work, commit  →  make ci, push, PR  →  merge  →  exit the session  →  make worktree-rm NAME=issue-<n>
 ```
 
-A session locks its worktree while it runs, so `make worktree-rm` refuses a worktree whose session is still open. Run it from the main checkout once that session has exited, or choose "remove" when the session asks on exit.
+A session locks its worktree while it runs, so `make worktree-rm` refuses a worktree whose session is still open. Run it from the main checkout once that session has exited, or choose "remove" when the session asks on exit. A session that entered its worktree mid-conversation gets no such prompt, so `implement-issue` asks instead, and stops the worktree's stack before removing it.
 
 ## Carrying this over to a team
 
