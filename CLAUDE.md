@@ -38,6 +38,8 @@ One GitHub issue = one branch = one worktree = one PR.
 4. Run the built-in `/code-review` on the final diff for bugs.
 5. `make ci`, push, and open a PR. Write its description by filling in [.github/pull_request_template.md](.github/pull_request_template.md); `gh pr create --body` doesn't apply it for you. Its **Review notes** list each finding from steps 3 and 4, and whether it was fixed or rejected (with the reason). These notes are the evidence for later changes to the agent setup.
 
+PRs are squash-merged; it is the only merge method, so a branch's own history never reaches `main`. To bring a pushed branch up to date, merge `origin/main` into it. Don't rebase or force-push a branch once it is pushed: that loses the reviewer's "changes since last review" view, and a squash leaves nothing for it to clean up.
+
 Agent setup (`CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, `.claude/settings.json`) changes only in its own PR, never inside a feature PR. When a task suggests a new rule or skill, propose it under Review notes instead of making the change.
 
 Worktrees: `claude -w <name>` creates `.claude/worktrees/<name>/` on branch `worktree-<name>` from `origin/main`. Each worktree gets its own compose project and ports through `.env` (see `scripts/worktree-env.sh`). Integration tests use testcontainers and need nothing from `.env`.
