@@ -15,6 +15,7 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 | `make up` | Start the local stack with `docker compose` (generates `.env` on first run) |
 | `make down` | Stop the stack and delete its volumes |
 | `make ci` | Everything CI runs on a PR: lint, tests with `-race`, buf checks, generated-code check |
+| `make admin ARGS='…'` | Run herald-admin against this checkout's stack, e.g. `ARGS='tenant create --name Acme'` |
 | `make worktree-rm NAME=x` | Stop a worktree's stack, remove the worktree and its branch (after its session has exited) |
 
 Run `make ci` before every push. It is exactly what CI runs.
@@ -35,7 +36,10 @@ One GitHub issue = one branch = one worktree = one PR.
 2. Build it test-first with the `tdd` skill. Agree the seams before writing tests.
 3. Tests green: run the `standards-review` skill against `main`, and refactor on its findings.
 4. Run the built-in `/code-review` on the final diff for bugs.
-5. `make ci`, push, and open a PR whose description says `Closes #<n>` and has a **Review notes** section: each finding from steps 3 and 4, and whether it was fixed or rejected (with the reason). These notes are the evidence for later changes to the agent setup.
+5. Run the `rejection-review` skill on every finding from steps 3 and 4 that you rejected. A disputed rejection gets fixed, or goes to the PR's Decide block if you have an argument the reviewer didn't address.
+6. `make ci`, push, and open a PR. Write its description by filling in [.github/pull_request_template.md](.github/pull_request_template.md); `gh pr create --body` doesn't apply it for you. Its **Review notes** list each finding from steps 3 and 4, and whether it was fixed or rejected (with the reason and the rejection review's verdict). These notes are the evidence for later changes to the agent setup.
+
+PRs are squash-merged; it is the only merge method, so a branch's own history never reaches `main`. To bring a pushed branch up to date, merge `origin/main` into it. Don't rebase or force-push a branch once it is pushed: that loses the reviewer's "changes since last review" view, and a squash leaves nothing for it to clean up.
 
 Agent setup (`CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, `.claude/settings.json`) changes only in its own PR, never inside a feature PR. When a task suggests a new rule or skill, propose it under Review notes instead of making the change.
 

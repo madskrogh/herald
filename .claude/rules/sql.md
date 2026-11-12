@@ -6,7 +6,7 @@ paths:
 
 # SQL, sqlc and migrations
 
-- Queries live in `.sql` files with sqlc annotations (`-- name: ClaimDueDeliveries :many`). Never build SQL strings in Go (ADR 0005).
+- Queries live in `.sql` files with sqlc annotations (`-- name: ClaimDueDeliveries :many`). Go code never builds SQL strings; the few exceptions are in `go.md` (ADR 0005).
 - After changing a query or migration, run `sqlc generate` and commit the generated code in the same change.
 - Migrations are goose files, owned by the service whose schema they change (`ingest` or `delivery`), and never touch the other service's schema.
 - Migrations are forward-only in practice: never edit a migration that has been merged; add a new one.
