@@ -33,6 +33,13 @@ One GitHub issue = one branch = one worktree = one agent session = one PR.
 
 The two reviews are kept separate on purpose: a design smell and a correctness bug call for different actions, and mixing them in one list buries the bugs.
 
+## Branches and merging
+
+- **`main` is protected on GitHub** by a ruleset that blocks force-pushes and deletion. Other branches have no rules, so the guarantee comes from the server, not from any one session's permissions.
+- **Squash is the only merge method.** Each PR lands on `main` as one commit titled after the PR (`Sign webhooks with Standard Webhooks (#18)`), which passed CI and review as a whole. That keeps `git bisect` and `git revert` working in PR-sized units, and the agent's working commits (test-first slices, review fixes) stay on the PR instead of in `main`'s history.
+- **Branches are updated by merging `main` into them, never by rebasing once pushed.** With squash merges a rebase buys no cleaner history, and force-pushing a branch under review loses the reviewer's "changes since last review" view. No permission rule lets an agent force-push, so a force-push always needs a person's approval.
+- **Branch from `main` only.** A branch built on another unmerged branch has to be rebased after that branch is squashed, so a task that depends on another waits for it to merge.
+
 ## Quality checks, from fastest to slowest
 
 | When | What | Why there |
