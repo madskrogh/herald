@@ -17,6 +17,13 @@ type IngestApiKey struct {
 	CreatedAt time.Time
 }
 
+type IngestApplication struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	Name      string
+	CreatedAt time.Time
+}
+
 type IngestTenant struct {
 	ID        uuid.UUID
 	Name      string

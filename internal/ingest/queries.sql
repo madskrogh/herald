@@ -12,3 +12,13 @@ SELECT t.id, t.name, t.created_at
 FROM ingest.api_keys k
 JOIN ingest.tenants t ON t.id = k.tenant_id
 WHERE k.key_hash = @key_hash;
+
+-- name: CreateApplication :one
+INSERT INTO ingest.applications (tenant_id, name)
+VALUES (@tenant_id, @name)
+RETURNING *;
+
+-- name: GetApplication :one
+SELECT *
+FROM ingest.applications
+WHERE tenant_id = @tenant_id AND id = @id;

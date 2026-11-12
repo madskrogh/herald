@@ -26,6 +26,29 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) erro
 	return err
 }
 
+const createApplication = `-- name: CreateApplication :one
+INSERT INTO ingest.applications (tenant_id, name)
+VALUES ($1, $2)
+RETURNING id, tenant_id, name, created_at
+`
+
+type CreateApplicationParams struct {
+	TenantID uuid.UUID
+	Name     string
+}
+
+func (q *Queries) CreateApplication(ctx context.Context, arg CreateApplicationParams) (IngestApplication, error) {
+	row := q.db.QueryRow(ctx, createApplication, arg.TenantID, arg.Name)
+	var i IngestApplication
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Name,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createTenant = `-- name: CreateTenant :one
 INSERT INTO ingest.tenants (name)
 VALUES ($1)
@@ -36,6 +59,29 @@ func (q *Queries) CreateTenant(ctx context.Context, name string) (IngestTenant, 
 	row := q.db.QueryRow(ctx, createTenant, name)
 	var i IngestTenant
 	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
+	return i, err
+}
+
+const getApplication = `-- name: GetApplication :one
+SELECT id, tenant_id, name, created_at
+FROM ingest.applications
+WHERE tenant_id = $1 AND id = $2
+`
+
+type GetApplicationParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+func (q *Queries) GetApplication(ctx context.Context, arg GetApplicationParams) (IngestApplication, error) {
+	row := q.db.QueryRow(ctx, getApplication, arg.TenantID, arg.ID)
+	var i IngestApplication
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Name,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 
