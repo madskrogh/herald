@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"uuid"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/madskrogh/herald/internal/eventtype"
@@ -24,7 +22,7 @@ type endpointServer struct {
 }
 
 func (s *endpointServer) CreateEndpoint(ctx context.Context, req *tenantv1.CreateEndpointRequest) (*tenantv1.CreateEndpointResponse, error) {
-	appID, err := parseID("Application", req.GetApplicationId())
+	applicationID, err := parseID("Application", req.GetApplicationId())
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +44,7 @@ func (s *endpointServer) CreateEndpoint(ctx context.Context, req *tenantv1.Creat
 	ep, err := s.store.CreateEndpoint(ctx, ingest.NewEndpoint{
 		ID:                      id,
 		TenantID:                tenantID(ctx),
-		ApplicationID:           appID,
+		ApplicationID:           applicationID,
 		URL:                     req.GetUrl(),
 		Filter:                  req.GetFilter(),
 		SigningSecretCiphertext: ciphertext,
@@ -58,7 +56,7 @@ func (s *endpointServer) CreateEndpoint(ctx context.Context, req *tenantv1.Creat
 }
 
 func (s *endpointServer) GetEndpoint(ctx context.Context, req *tenantv1.GetEndpointRequest) (*tenantv1.GetEndpointResponse, error) {
-	appID, err := parseID("Application", req.GetApplicationId())
+	applicationID, err := parseID("Application", req.GetApplicationId())
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +64,7 @@ func (s *endpointServer) GetEndpoint(ctx context.Context, req *tenantv1.GetEndpo
 	if err != nil {
 		return nil, err
 	}
-	ep, err := s.store.Endpoint(ctx, tenantID(ctx), appID, id)
+	ep, err := s.store.Endpoint(ctx, tenantID(ctx), applicationID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +72,7 @@ func (s *endpointServer) GetEndpoint(ctx context.Context, req *tenantv1.GetEndpo
 }
 
 func (s *endpointServer) ListEndpoints(ctx context.Context, req *tenantv1.ListEndpointsRequest) (*tenantv1.ListEndpointsResponse, error) {
-	appID, err := parseID("Application", req.GetApplicationId())
+	applicationID, err := parseID("Application", req.GetApplicationId())
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +80,7 @@ func (s *endpointServer) ListEndpoints(ctx context.Context, req *tenantv1.ListEn
 	if err != nil {
 		return nil, err
 	}
-	eps, err := s.store.ListEndpoints(ctx, tenantID(ctx), appID, p.after, p.fetch())
+	eps, err := s.store.ListEndpoints(ctx, tenantID(ctx), applicationID, p.after, p.fetch())
 	if err != nil {
 		return nil, err
 	}
@@ -102,20 +100,4 @@ func toEndpoint(ep ingest.Endpoint) *tenantv1.Endpoint {
 		Filter:        ep.Filter,
 		CreatedAt:     timestamppb.New(ep.CreatedAt),
 	}
-}
-
-// invalidArgument returns err as the caller's error: an InvalidArgument status
-// with err's message.
-func invalidArgument(err error) error {
-	return status.Error(codes.InvalidArgument, err.Error())
-}
-
-// parseID parses the ID of a resource of the given kind, such as
-// "Application".
-func parseID(kind, s string) (uuid.UUID, error) {
-	id, err := uuid.Parse(s)
-	if err != nil {
-		return uuid.UUID{}, status.Errorf(codes.InvalidArgument, "invalid %s ID %q", kind, s)
-	}
-	return id, nil
 }

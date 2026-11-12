@@ -26,40 +26,40 @@ func TestRESTResponses(t *testing.T) {
 	}
 	a := newAPI(t)
 	key := a.newTenant(t, "Acme")
-	var app tenantv1.CreateApplicationResponse
-	transports[0].mustInvoke(t, a, key, createApplication("Customer A"), &app)
-	appID := app.GetApplication().GetId()
+	var application tenantv1.CreateApplicationResponse
+	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
+	applicationID := application.GetApplication().GetId()
 	var ep tenantv1.CreateEndpointResponse
-	transports[0].mustInvoke(t, a, key, createEndpoint(appID, "https://example.com/a", nil), &ep)
+	setup.mustInvoke(t, a, key, createEndpoint(applicationID, "https://example.com/a", nil), &ep)
 	epID := ep.GetEndpoint().GetId()
 
 	// One normalizer for every response, so that an ID gets the same
 	// placeholder in every golden file.
 	n := newNormalizer()
-	n.placeholder(appID)
+	n.placeholder(applicationID)
 	n.placeholder(epID)
 
 	tests := []struct {
-		name          string
-		authorization string
-		call          call
+		name   string
+		noAuth bool // make the call without an API key
+		call   call
 	}{
 		{name: "create_application", call: createApplication("Customer B")},
-		{name: "get_application", call: getApplication(appID)},
+		{name: "get_application", call: getApplication(applicationID)},
 		{name: "list_applications", call: listApplications(1, "")},
-		{name: "create_endpoint", call: createEndpoint(appID, "https://example.com/b", []string{"invoice.*", "customer.>"})},
-		{name: "get_endpoint", call: getEndpoint(appID, epID)},
-		{name: "list_endpoints", call: listEndpoints(appID, 0, "")},
-		{name: "unauthenticated", authorization: "-", call: getApplication(appID)},
+		{name: "create_endpoint", call: createEndpoint(applicationID, "https://example.com/b", []string{"invoice.*", "customer.>"})},
+		{name: "get_endpoint", call: getEndpoint(applicationID, epID)},
+		{name: "list_endpoints", call: listEndpoints(applicationID, 0, "")},
+		{name: "unauthenticated", noAuth: true, call: getApplication(applicationID)},
 		{name: "not_found", call: getApplication("0193a1b2-0000-7000-8000-000000000000")},
-		{name: "invalid_argument", call: createEndpoint(appID, "https://example.com/b", []string{"invoice..paid"})},
+		{name: "invalid_argument", call: createEndpoint(applicationID, "https://example.com/b", []string{"invoice..paid"})},
 	}
 	// Not parallel: the calls create resources, and the placeholders are
 	// numbered in the order the responses are read.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			auth := "Bearer " + key
-			if tt.authorization == "-" {
+			if tt.noAuth {
 				auth = ""
 			}
 			_, body := doREST(t, a, auth, tt.call)

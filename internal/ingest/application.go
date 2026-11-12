@@ -55,9 +55,9 @@ func (s *Store) ListApplications(ctx context.Context, tenantID, after uuid.UUID,
 	if err != nil {
 		return nil, fmt.Errorf("list applications: %w", err)
 	}
-	apps := make([]Application, len(rows))
+	applications := make([]Application, len(rows))
 	for i, row := range rows {
-		apps[i] = Application(row)
+		applications[i] = Application(row)
 	}
-	return apps, nil
+	return applications, nil
 }

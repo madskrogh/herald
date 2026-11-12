@@ -24,19 +24,19 @@ func TestCreateAndGetEndpoint(t *testing.T) {
 	for _, tr := range transports {
 		t.Run(tr.name, func(t *testing.T) {
 			t.Parallel()
-			var app tenantv1.CreateApplicationResponse
-			tr.mustInvoke(t, a, key, createApplication("Customer A"), &app)
-			appID := app.GetApplication().GetId()
+			var application tenantv1.CreateApplicationResponse
+			tr.mustInvoke(t, a, key, createApplication("Customer A"), &application)
+			applicationID := application.GetApplication().GetId()
 
 			var created tenantv1.CreateEndpointResponse
-			tr.mustInvoke(t, a, key, createEndpoint(appID, "https://example.com/webhooks", []string{"invoice.*", "customer.>"}), &created)
+			tr.mustInvoke(t, a, key, createEndpoint(applicationID, "https://example.com/webhooks", []string{"invoice.*", "customer.>"}), &created)
 			ep := created.GetEndpoint()
 			if ep.GetId() == "" {
 				t.Fatal("created Endpoint has no ID")
 			}
 			want := &tenantv1.Endpoint{
 				Id:            ep.GetId(),
-				ApplicationId: appID,
+				ApplicationId: applicationID,
 				Url:           "https://example.com/webhooks",
 				Filter:        []string{"invoice.*", "customer.>"},
 				CreatedAt:     ep.GetCreatedAt(),
@@ -56,7 +56,7 @@ func TestCreateAndGetEndpoint(t *testing.T) {
 			}
 
 			var got tenantv1.GetEndpointResponse
-			tr.mustInvoke(t, a, key, getEndpoint(appID, ep.GetId()), &got)
+			tr.mustInvoke(t, a, key, getEndpoint(applicationID, ep.GetId()), &got)
 			if diff := cmp.Diff(want, got.GetEndpoint(), protocmp.Transform()); diff != "" {
 				t.Errorf("GetEndpoint (-want +got):\n%s", diff)
 			}
@@ -72,10 +72,10 @@ func TestEndpointUnderAnotherApplicationIsNotFound(t *testing.T) {
 	a := newAPI(t)
 	key := a.newTenant(t, "Acme")
 	var owner, other tenantv1.CreateApplicationResponse
-	transports[0].mustInvoke(t, a, key, createApplication("Customer A"), &owner)
-	transports[0].mustInvoke(t, a, key, createApplication("Customer B"), &other)
+	setup.mustInvoke(t, a, key, createApplication("Customer A"), &owner)
+	setup.mustInvoke(t, a, key, createApplication("Customer B"), &other)
 	var ep tenantv1.CreateEndpointResponse
-	transports[0].mustInvoke(t, a, key, createEndpoint(owner.GetApplication().GetId(), "https://example.com/webhooks", nil), &ep)
+	setup.mustInvoke(t, a, key, createEndpoint(owner.GetApplication().GetId(), "https://example.com/webhooks", nil), &ep)
 
 	for _, tr := range transports {
 		t.Run(tr.name, func(t *testing.T) {
@@ -97,12 +97,12 @@ func TestEndpointsGetSigningSecretsOfTheirOwn(t *testing.T) {
 	}
 	a := newAPI(t)
 	key := a.newTenant(t, "Acme")
-	var app tenantv1.CreateApplicationResponse
-	transports[0].mustInvoke(t, a, key, createApplication("Customer A"), &app)
+	var application tenantv1.CreateApplicationResponse
+	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
 
 	var first, second tenantv1.CreateEndpointResponse
-	transports[0].mustInvoke(t, a, key, createEndpoint(app.GetApplication().GetId(), "https://example.com/a", nil), &first)
-	transports[0].mustInvoke(t, a, key, createEndpoint(app.GetApplication().GetId(), "https://example.com/b", nil), &second)
+	setup.mustInvoke(t, a, key, createEndpoint(application.GetApplication().GetId(), "https://example.com/a", nil), &first)
+	setup.mustInvoke(t, a, key, createEndpoint(application.GetApplication().GetId(), "https://example.com/b", nil), &second)
 	if first.GetSigningSecret() == second.GetSigningSecret() {
 		t.Errorf("two Endpoints both have signing secret %q", first.GetSigningSecret())
 	}
@@ -115,14 +115,14 @@ func TestListEndpoints(t *testing.T) {
 	}
 	a := newAPI(t)
 	key := a.newTenant(t, "Acme")
-	var app, otherApp tenantv1.CreateApplicationResponse
-	transports[0].mustInvoke(t, a, key, createApplication("Customer A"), &app)
-	transports[0].mustInvoke(t, a, key, createApplication("Customer B"), &otherApp)
-	appID := app.GetApplication().GetId()
+	var application, otherApplication tenantv1.CreateApplicationResponse
+	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
+	setup.mustInvoke(t, a, key, createApplication("Customer B"), &otherApplication)
+	applicationID := application.GetApplication().GetId()
 	for _, u := range []string{"https://example.com/a", "https://example.com/b", "https://example.com/c"} {
-		transports[0].mustInvoke(t, a, key, createEndpoint(appID, u, nil), nil)
+		setup.mustInvoke(t, a, key, createEndpoint(applicationID, u, nil), nil)
 	}
-	transports[0].mustInvoke(t, a, key, createEndpoint(otherApp.GetApplication().GetId(), "https://example.com/not-a", nil), nil)
+	setup.mustInvoke(t, a, key, createEndpoint(otherApplication.GetApplication().GetId(), "https://example.com/not-a", nil), nil)
 
 	for _, tr := range transports {
 		t.Run(tr.name, func(t *testing.T) {
@@ -131,12 +131,12 @@ func TestListEndpoints(t *testing.T) {
 			t.Run("in pages, in the order they were created", func(t *testing.T) {
 				t.Parallel()
 				var first tenantv1.ListEndpointsResponse
-				tr.mustInvoke(t, a, key, listEndpoints(appID, 2, ""), &first)
+				tr.mustInvoke(t, a, key, listEndpoints(applicationID, 2, ""), &first)
 				if first.GetNextPageToken() == "" {
 					t.Fatal("first page has no next_page_token")
 				}
 				var second tenantv1.ListEndpointsResponse
-				tr.mustInvoke(t, a, key, listEndpoints(appID, 2, first.GetNextPageToken()), &second)
+				tr.mustInvoke(t, a, key, listEndpoints(applicationID, 2, first.GetNextPageToken()), &second)
 				if second.GetNextPageToken() != "" {
 					t.Errorf("last page has next_page_token %q, want none", second.GetNextPageToken())
 				}
@@ -150,7 +150,7 @@ func TestListEndpoints(t *testing.T) {
 			t.Run("on one page by default", func(t *testing.T) {
 				t.Parallel()
 				var page tenantv1.ListEndpointsResponse
-				tr.mustInvoke(t, a, key, listEndpoints(appID, 0, ""), &page)
+				tr.mustInvoke(t, a, key, listEndpoints(applicationID, 0, ""), &page)
 				want := []string{"https://example.com/a", "https://example.com/b", "https://example.com/c"}
 				if diff := cmp.Diff(want, endpointURLs(&page)); diff != "" {
 					t.Errorf("Endpoint URLs (-want +got):\n%s", diff)

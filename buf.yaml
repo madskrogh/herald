@@ -14,8 +14,8 @@ modules:
   # more than the encoding: JSON field names through the REST gateway, gRPC
   # method paths, and the type and package names of clients generated from
   # these files. WIRE and WIRE_JSON would let an RPC be renamed or deleted.
-  # No rule set checks the google.api.http annotations; a change to a REST
-  # path shows up as a diff in the committed OpenAPI spec instead.
+  # No rule set checks the google.api.http annotations; the integration tests
+  # in internal/tenantapi pin each operation's REST method and path instead.
   - path: api
     breaking:
       use:

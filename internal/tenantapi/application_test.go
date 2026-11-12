@@ -25,21 +25,21 @@ func TestCreateAndGetApplication(t *testing.T) {
 
 			var created tenantv1.CreateApplicationResponse
 			tr.mustInvoke(t, a, key, createApplication("Customer A"), &created)
-			app := created.GetApplication()
-			if app.GetId() == "" {
+			application := created.GetApplication()
+			if application.GetId() == "" {
 				t.Fatal("created Application has no ID")
 			}
 			// Postgres's clock may be a little behind the test's.
-			if at := app.GetCreatedAt().AsTime(); at.Before(before.Add(-time.Minute)) || at.After(time.Now().Add(time.Minute)) {
+			if at := application.GetCreatedAt().AsTime(); at.Before(before.Add(-time.Minute)) || at.After(time.Now().Add(time.Minute)) {
 				t.Errorf("created_at = %v, want about %v", at, before)
 			}
-			want := &tenantv1.Application{Id: app.GetId(), Name: "Customer A", CreatedAt: app.GetCreatedAt()}
-			if diff := cmp.Diff(want, app, protocmp.Transform()); diff != "" {
+			want := &tenantv1.Application{Id: application.GetId(), Name: "Customer A", CreatedAt: application.GetCreatedAt()}
+			if diff := cmp.Diff(want, application, protocmp.Transform()); diff != "" {
 				t.Errorf("CreateApplication (-want +got):\n%s", diff)
 			}
 
 			var got tenantv1.GetApplicationResponse
-			tr.mustInvoke(t, a, key, getApplication(app.GetId()), &got)
+			tr.mustInvoke(t, a, key, getApplication(application.GetId()), &got)
 			if diff := cmp.Diff(want, got.GetApplication(), protocmp.Transform()); diff != "" {
 				t.Errorf("GetApplication (-want +got):\n%s", diff)
 			}
@@ -56,9 +56,9 @@ func TestListApplications(t *testing.T) {
 	key := a.newTenant(t, "Acme")
 	other := a.newTenant(t, "Globex")
 	for _, name := range []string{"Customer A", "Customer B", "Customer C"} {
-		transports[0].mustInvoke(t, a, key, createApplication(name), nil)
+		setup.mustInvoke(t, a, key, createApplication(name), nil)
 	}
-	transports[0].mustInvoke(t, a, other, createApplication("Not Acme's"), nil)
+	setup.mustInvoke(t, a, other, createApplication("Not Acme's"), nil)
 
 	for _, tr := range transports {
 		t.Run(tr.name, func(t *testing.T) {
@@ -101,8 +101,8 @@ func TestListApplications(t *testing.T) {
 
 func applicationNames(page *tenantv1.ListApplicationsResponse) []string {
 	var names []string
-	for _, app := range page.GetApplications() {
-		names = append(names, app.GetName())
+	for _, application := range page.GetApplications() {
+		names = append(names, application.GetName())
 	}
 	return names
 }

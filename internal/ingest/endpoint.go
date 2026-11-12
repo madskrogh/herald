@@ -60,13 +60,17 @@ func (s *Store) CreateEndpoint(ctx context.Context, e NewEndpoint) (Endpoint, er
 			return fmt.Errorf("application %s: %w", e.ApplicationID, ErrNotFound)
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("insert endpoint: %w", err)
 		}
 		ep = Endpoint(row)
-		return q.CreateSigningSecret(ctx, ingestdb.CreateSigningSecretParams{
+		err = q.CreateSigningSecret(ctx, ingestdb.CreateSigningSecretParams{
 			EndpointID: e.ID,
 			Ciphertext: e.SigningSecretCiphertext,
 		})
+		if err != nil {
+			return fmt.Errorf("insert signing secret: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
 		return Endpoint{}, fmt.Errorf("create endpoint: %w", err)

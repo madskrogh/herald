@@ -1,6 +1,7 @@
 package tenantapi
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -54,4 +55,33 @@ func TestCheckEndpointURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzCheckEndpointURL(f *testing.F) {
+	for _, s := range []string{
+		"https://example.com/webhooks",
+		"http://[::1]:8080/a?b=c",
+		"https://user@example.com/",
+		"https://example.com/#",
+		"https:example.com",
+		"https://%41/",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		if checkEndpointURL(s) != nil {
+			return
+		}
+		// An accepted URL is one Herald can send an Attempt to.
+		req, err := http.NewRequest(http.MethodPost, s, nil)
+		if err != nil {
+			t.Fatalf("accepted %q, but it makes no request: %v", s, err)
+		}
+		if req.URL.Host == "" || req.URL.User != nil {
+			t.Errorf("accepted %q: request URL has host %q and user %v", s, req.URL.Host, req.URL.User)
+		}
+		if len(s) > 2048 {
+			t.Errorf("accepted %q of %d bytes", s, len(s))
+		}
+	})
 }

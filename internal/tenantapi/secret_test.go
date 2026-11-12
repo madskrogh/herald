@@ -23,10 +23,10 @@ func TestSigningSecretIsStoredOnlyEncrypted(t *testing.T) {
 	}
 	a := newAPI(t)
 	key := a.newTenant(t, "Acme")
-	var app tenantv1.CreateApplicationResponse
-	transports[0].mustInvoke(t, a, key, createApplication("Customer A"), &app)
+	var application tenantv1.CreateApplicationResponse
+	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
 	var created tenantv1.CreateEndpointResponse
-	transports[0].mustInvoke(t, a, key, createEndpoint(app.GetApplication().GetId(), "https://example.com/webhooks", nil), &created)
+	setup.mustInvoke(t, a, key, createEndpoint(application.GetApplication().GetId(), "https://example.com/webhooks", nil), &created)
 	secret := created.GetSigningSecret()
 	endpointID := uuid.MustParse(created.GetEndpoint().GetId())
 

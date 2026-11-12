@@ -16,9 +16,9 @@ func TestInvalidArguments(t *testing.T) {
 	}
 	a := newAPI(t)
 	key := a.newTenant(t, "Acme")
-	var app tenantv1.CreateApplicationResponse
-	transports[0].mustInvoke(t, a, key, createApplication("Customer A"), &app)
-	appID := app.GetApplication().GetId()
+	var application tenantv1.CreateApplicationResponse
+	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
+	applicationID := application.GetApplication().GetId()
 
 	const okURL = "https://example.com/webhooks"
 	tests := []struct {
@@ -33,11 +33,11 @@ func TestInvalidArguments(t *testing.T) {
 		{name: "page token not base64", call: listApplications(0, "!!!")},
 		{name: "page token not an ID", call: listApplications(0, "AAAA")},
 		{name: "Endpoint under an Application ID that isn't a UUID", call: createEndpoint("customer-a", okURL, nil)},
-		{name: "Endpoint URL without a scheme", call: createEndpoint(appID, "example.com/webhooks", nil)},
-		{name: "Endpoint filter pattern with an empty token", call: createEndpoint(appID, okURL, []string{"invoice..paid"})},
-		{name: "Endpoint filter with > before the end", call: createEndpoint(appID, okURL, []string{"invoice.>.paid"})},
-		{name: "Endpoint ID not a UUID", call: getEndpoint(appID, "endpoint-1")},
-		{name: "Endpoints page token not an ID", call: listEndpoints(appID, 0, "AAAA")},
+		{name: "Endpoint URL without a scheme", call: createEndpoint(applicationID, "example.com/webhooks", nil)},
+		{name: "Endpoint filter pattern with an empty token", call: createEndpoint(applicationID, okURL, []string{"invoice..paid"})},
+		{name: "Endpoint filter with > before the end", call: createEndpoint(applicationID, okURL, []string{"invoice.>.paid"})},
+		{name: "Endpoint ID not a UUID", call: getEndpoint(applicationID, "endpoint-1")},
+		{name: "Endpoints page token not an ID", call: listEndpoints(applicationID, 0, "AAAA")},
 	}
 	for _, tr := range transports {
 		for _, tt := range tests {
@@ -54,7 +54,7 @@ func TestInvalidArguments(t *testing.T) {
 	// failures above come from crossing them.
 	valid := []call{
 		createApplication(strings.Repeat("é", 128)),
-		createEndpoint(appID, okURL, []string{"invoice.*", "customer.>", "*"}),
+		createEndpoint(applicationID, okURL, []string{"invoice.*", "customer.>", "*"}),
 	}
 	for _, tr := range transports {
 		for _, c := range valid {

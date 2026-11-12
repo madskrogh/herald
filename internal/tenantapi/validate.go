@@ -6,6 +6,10 @@ import (
 	"net/url"
 	"strings"
 	"unicode"
+	"uuid"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // maxApplicationNameBytes is the longest Application name, as documented in
@@ -57,4 +61,20 @@ func checkEndpointURL(s string) error {
 		return fmt.Errorf("endpoint URL %q has a fragment", s)
 	}
 	return nil
+}
+
+// invalidArgument returns err as the caller's error: an InvalidArgument status
+// with err's message.
+func invalidArgument(err error) error {
+	return status.Error(codes.InvalidArgument, err.Error())
+}
+
+// parseID parses the ID of a resource of the given kind, such as
+// "Application".
+func parseID(kind, s string) (uuid.UUID, error) {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.UUID{}, status.Errorf(codes.InvalidArgument, "invalid %s ID %q", kind, s)
+	}
+	return id, nil
 }

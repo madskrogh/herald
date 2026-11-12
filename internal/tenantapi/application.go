@@ -20,11 +20,11 @@ func (s *applicationServer) CreateApplication(ctx context.Context, req *tenantv1
 	if err := checkApplicationName(req.GetName()); err != nil {
 		return nil, invalidArgument(err)
 	}
-	app, err := s.store.CreateApplication(ctx, tenantID(ctx), req.GetName())
+	application, err := s.store.CreateApplication(ctx, tenantID(ctx), req.GetName())
 	if err != nil {
 		return nil, err
 	}
-	return &tenantv1.CreateApplicationResponse{Application: toApplication(app)}, nil
+	return &tenantv1.CreateApplicationResponse{Application: toApplication(application)}, nil
 }
 
 func (s *applicationServer) GetApplication(ctx context.Context, req *tenantv1.GetApplicationRequest) (*tenantv1.GetApplicationResponse, error) {
@@ -32,11 +32,11 @@ func (s *applicationServer) GetApplication(ctx context.Context, req *tenantv1.Ge
 	if err != nil {
 		return nil, err
 	}
-	app, err := s.store.Application(ctx, tenantID(ctx), id)
+	application, err := s.store.Application(ctx, tenantID(ctx), id)
 	if err != nil {
 		return nil, err
 	}
-	return &tenantv1.GetApplicationResponse{Application: toApplication(app)}, nil
+	return &tenantv1.GetApplicationResponse{Application: toApplication(application)}, nil
 }
 
 func (s *applicationServer) ListApplications(ctx context.Context, req *tenantv1.ListApplicationsRequest) (*tenantv1.ListApplicationsResponse, error) {
@@ -44,22 +44,22 @@ func (s *applicationServer) ListApplications(ctx context.Context, req *tenantv1.
 	if err != nil {
 		return nil, err
 	}
-	apps, err := s.store.ListApplications(ctx, tenantID(ctx), p.after, p.fetch())
+	applications, err := s.store.ListApplications(ctx, tenantID(ctx), p.after, p.fetch())
 	if err != nil {
 		return nil, err
 	}
-	apps, next := cut(p, apps, func(app ingest.Application) uuid.UUID { return app.ID })
+	applications, next := cut(p, applications, func(application ingest.Application) uuid.UUID { return application.ID })
 	resp := &tenantv1.ListApplicationsResponse{NextPageToken: next}
-	for _, app := range apps {
-		resp.Applications = append(resp.Applications, toApplication(app))
+	for _, application := range applications {
+		resp.Applications = append(resp.Applications, toApplication(application))
 	}
 	return resp, nil
 }
 
-func toApplication(app ingest.Application) *tenantv1.Application {
+func toApplication(application ingest.Application) *tenantv1.Application {
 	return &tenantv1.Application{
-		Id:        app.ID.String(),
-		Name:      app.Name,
-		CreatedAt: timestamppb.New(app.CreatedAt),
+		Id:        application.ID.String(),
+		Name:      application.Name,
+		CreatedAt: timestamppb.New(application.CreatedAt),
 	}
 }

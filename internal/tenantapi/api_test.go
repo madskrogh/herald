@@ -203,6 +203,10 @@ var transports = []transport{
 	{name: "REST", invoke: invokeREST},
 }
 
+// setup is the transport tests create the resources they need with, before
+// the calls under test. Either transport would do.
+var setup = transports[0]
+
 func invokeGRPC(t *testing.T, a *api, authorization string, c call, resp proto.Message) codes.Code {
 	t.Helper()
 	ctx := t.Context()
