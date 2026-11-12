@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"uuid"
@@ -139,31 +140,71 @@ func TestAPIKeys(t *testing.T) {
 	// property under test, and the Store has no way to show it.
 	t.Run("are not stored in plain", func(t *testing.T) {
 		t.Parallel()
-		// A row's text form shows bytea as hex, so the hash column is also
-		// checked as raw bytes.
-		type apiKeyRow struct {
-			Text    string
-			KeyHash []byte
-		}
-		rows, err := pool.Query(t.Context(), "SELECT k::text, k.key_hash FROM ingest.api_keys k")
+
+		// Positive control: an absence check also passes when it can't see
+		// the key, so first make sure it fires on rows that hold one in plain.
+		// The planted row is never committed, so the check below doesn't see it.
+		const planted = "herald_PLANTEDKEY"
+		tx, err := pool.Begin(t.Context())
 		if err != nil {
-			t.Fatalf("query api_keys: %v", err)
+			t.Fatalf("begin: %v", err)
 		}
-		stored, err := pgx.CollectRows(rows, pgx.RowToStructByPos[apiKeyRow])
+		defer func() { _ = tx.Rollback(t.Context()) }()
+		_, err = tx.Exec(t.Context(),
+			"INSERT INTO ingest.api_keys (tenant_id, key_hash) VALUES ($1, $2)",
+			tenant.ID, []byte(planted))
 		if err != nil {
-			t.Fatalf("read api_keys: %v", err)
+			t.Fatalf("plant a key: %v", err)
 		}
+		if !slices.ContainsFunc(readAPIKeyRows(t, tx), func(row apiKeyRow) bool { return row.holdsKey(planted) }) {
+			t.Fatal("the check misses a key stored in plain as raw bytes")
+		}
+		// No api_keys column is text, so this row can't come from Postgres.
+		if !(apiKeyRow{Text: "(" + planted + ")"}).holdsKey(planted) {
+			t.Fatal("the check misses a key stored in plain as text")
+		}
+
+		stored := readAPIKeyRows(t, pool)
 		if len(stored) != 2 {
 			t.Fatalf("got %d api_keys rows, want 2", len(stored))
 		}
 		for _, row := range stored {
 			for _, key := range []string{first, second} {
-				// The random part alone, in case the prefix is stripped.
-				secret := strings.TrimPrefix(key, "herald_")
-				if strings.Contains(row.Text, secret) || bytes.Contains(row.KeyHash, []byte(secret)) {
+				if row.holdsKey(key) {
 					t.Errorf("api_keys row %s contains the key %q", row.Text, key)
 				}
 			}
 		}
 	})
+}
+
+// apiKeyRow is an api_keys row as the plain-key check reads it: the whole row
+// in its text form, and the hash column as raw bytes, since the text form
+// shows bytea as hex.
+type apiKeyRow struct {
+	Text    string
+	KeyHash []byte
+}
+
+// holdsKey reports whether row contains key in plain. It looks for the random
+// part alone, in case the prefix is stripped.
+func (row apiKeyRow) holdsKey(key string) bool {
+	secret := strings.TrimPrefix(key, "herald_")
+	return strings.Contains(row.Text, secret) || bytes.Contains(row.KeyHash, []byte(secret))
+}
+
+// readAPIKeyRows returns the api_keys rows that q can see.
+func readAPIKeyRows(t *testing.T, q interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}) []apiKeyRow {
+	t.Helper()
+	rows, err := q.Query(t.Context(), "SELECT k::text, k.key_hash FROM ingest.api_keys k")
+	if err != nil {
+		t.Fatalf("query api_keys: %v", err)
+	}
+	stored, err := pgx.CollectRows(rows, pgx.RowToStructByPos[apiKeyRow])
+	if err != nil {
+		t.Fatalf("read api_keys: %v", err)
+	}
+	return stored
 }
