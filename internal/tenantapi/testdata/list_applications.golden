@@ -1,0 +1,10 @@
+{
+  "applications": [
+    {
+      "id": "ID_1",
+      "name": "Customer A",
+      "createdAt": "TIMESTAMP"
+    }
+  ],
+  "nextPageToken": "PAGE_TOKEN"
+}

@@ -54,7 +54,8 @@ func NewGateway(ctx context.Context, conn grpc.ClientConnInterface) (http.Handle
 // return into gRPC status errors. Errors that are already status errors are
 // the caller's, and pass through. ingest.ErrNotFound becomes NotFound. Any
 // other error is Herald's own: it is logged, and the caller sees only
-// Internal, since its message may reveal internals.
+// Internal. Neither passes on the error's message, which is written for
+// Herald's logs and may reveal internals.
 func statusErrors(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		resp, err := handler(ctx, req)
@@ -65,7 +66,7 @@ func statusErrors(logger *slog.Logger) grpc.UnaryServerInterceptor {
 			return nil, err
 		}
 		if errors.Is(err, ingest.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, err.Error())
+			return nil, status.Error(codes.NotFound, "not found")
 		}
 		logger.ErrorContext(ctx, "internal error", "method", info.FullMethod, "error", err)
 		return nil, status.Error(codes.Internal, "internal error")
