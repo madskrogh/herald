@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/ingest/ingestdb"
 	"github.com/madskrogh/herald/internal/ingest/ingesttest"
 	"github.com/madskrogh/herald/internal/pgtest"
 )
@@ -136,32 +137,40 @@ func TestAPIKeys(t *testing.T) {
 		}
 	})
 
-	// The one test that uses a table directly: what is stored is the
-	// property under test, and the Store has no way to show it or to store a
-	// key in plain. That is also why its SQL lives here and not in sqlc.
+	// The one test that reads a table directly: what is stored is the
+	// property under test, and the Store has no way to show it.
 	t.Run("are not stored in plain", func(t *testing.T) {
 		t.Parallel()
 
 		// Positive control: an absence check also passes when it can't see
 		// the key, so first make sure it fires on rows that hold one in plain.
-		// The planted row is never committed, so the check below doesn't see it.
-		const planted = "herald_PLANTEDKEY"
+		// They hold only its random part: a check that finds that also finds
+		// the whole key.
+		const (
+			planted       = "herald_PLANTEDPLANTEDPLANTEDKEY22"
+			plantedRandom = "PLANTEDPLANTEDPLANTEDKEY22"
+		)
 		tx, err := pool.Begin(t.Context())
 		if err != nil {
 			t.Fatalf("begin: %v", err)
 		}
+		// Only for an early return; the planted row is rolled back below.
 		defer func() { _ = tx.Rollback(t.Context()) }()
-		_, err = tx.Exec(t.Context(),
-			"INSERT INTO ingest.api_keys (tenant_id, key_hash) VALUES ($1, $2)",
-			tenant.ID, []byte(planted))
+		err = ingestdb.New(tx).CreateAPIKey(t.Context(), ingestdb.CreateAPIKeyParams{
+			TenantID: tenant.ID,
+			KeyHash:  []byte(plantedRandom),
+		})
 		if err != nil {
 			t.Fatalf("plant a key: %v", err)
 		}
 		if !slices.ContainsFunc(readAPIKeyRows(t, tx), func(row apiKeyRow) bool { return row.holdsKey(planted) }) {
 			t.Fatal("the check misses a key stored in plain as raw bytes")
 		}
+		if err := tx.Rollback(t.Context()); err != nil {
+			t.Fatalf("roll back the planted key: %v", err)
+		}
 		// No api_keys column is text, so this row can't come from Postgres.
-		if !(apiKeyRow{Text: "(" + planted + ")"}).holdsKey(planted) {
+		if !(apiKeyRow{Text: "(" + plantedRandom + ")"}).holdsKey(planted) {
 			t.Fatal("the check misses a key stored in plain as text")
 		}
 
@@ -194,15 +203,11 @@ func (row apiKeyRow) holdsKey(key string) bool {
 	return strings.Contains(row.Text, secret) || bytes.Contains(row.KeyHash, []byte(secret))
 }
 
-// querier is a pool or a transaction.
-type querier interface {
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}
-
-// readAPIKeyRows returns the api_keys rows that q can see.
-func readAPIKeyRows(t *testing.T, q querier) []apiKeyRow {
+// readAPIKeyRows returns the api_keys rows that db can see. The query lives
+// here, not in sqlc: it reads what the Store never needs to.
+func readAPIKeyRows(t *testing.T, db ingestdb.DBTX) []apiKeyRow {
 	t.Helper()
-	rows, err := q.Query(t.Context(), "SELECT k::text, k.key_hash FROM ingest.api_keys k")
+	rows, err := db.Query(t.Context(), "SELECT k::text, k.key_hash FROM ingest.api_keys k")
 	if err != nil {
 		t.Fatalf("query api_keys: %v", err)
 	}
