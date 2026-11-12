@@ -46,3 +46,63 @@ func TestCreateAndGetApplication(t *testing.T) {
 		})
 	}
 }
+
+func TestListApplications(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	a := newAPI(t)
+	key := a.newTenant(t, "Acme")
+	other := a.newTenant(t, "Globex")
+	for _, name := range []string{"Customer A", "Customer B", "Customer C"} {
+		transports[0].mustInvoke(t, a, key, createApplication(name), nil)
+	}
+	transports[0].mustInvoke(t, a, other, createApplication("Not Acme's"), nil)
+
+	for _, tr := range transports {
+		t.Run(tr.name, func(t *testing.T) {
+			t.Parallel()
+
+			t.Run("in pages, in the order they were created", func(t *testing.T) {
+				t.Parallel()
+				var first tenantv1.ListApplicationsResponse
+				tr.mustInvoke(t, a, key, listApplications(2, ""), &first)
+				if first.GetNextPageToken() == "" {
+					t.Fatal("first page has no next_page_token")
+				}
+				var second tenantv1.ListApplicationsResponse
+				tr.mustInvoke(t, a, key, listApplications(2, first.GetNextPageToken()), &second)
+				if second.GetNextPageToken() != "" {
+					t.Errorf("last page has next_page_token %q, want none", second.GetNextPageToken())
+				}
+				got := [][]string{applicationNames(&first), applicationNames(&second)}
+				want := [][]string{{"Customer A", "Customer B"}, {"Customer C"}}
+				if diff := cmp.Diff(want, got); diff != "" {
+					t.Errorf("pages of Application names (-want +got):\n%s", diff)
+				}
+			})
+
+			t.Run("on one page by default", func(t *testing.T) {
+				t.Parallel()
+				var page tenantv1.ListApplicationsResponse
+				tr.mustInvoke(t, a, key, listApplications(0, ""), &page)
+				want := []string{"Customer A", "Customer B", "Customer C"}
+				if diff := cmp.Diff(want, applicationNames(&page)); diff != "" {
+					t.Errorf("Application names (-want +got):\n%s", diff)
+				}
+				if page.GetNextPageToken() != "" {
+					t.Errorf("next_page_token = %q, want none", page.GetNextPageToken())
+				}
+			})
+		})
+	}
+}
+
+func applicationNames(page *tenantv1.ListApplicationsResponse) []string {
+	var names []string
+	for _, app := range page.GetApplications() {
+		names = append(names, app.GetName())
+	}
+	return names
+}

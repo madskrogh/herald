@@ -42,3 +42,22 @@ func (s *Store) Application(ctx context.Context, tenantID, id uuid.UUID) (Applic
 	}
 	return Application(row), nil
 }
+
+// ListApplications returns up to maxResults of the Tenant's Applications
+// whose IDs come after the ID after, in ID order. The nil UUID comes before
+// every ID.
+func (s *Store) ListApplications(ctx context.Context, tenantID, after uuid.UUID, maxResults int32) ([]Application, error) {
+	rows, err := s.q.ListApplications(ctx, ingestdb.ListApplicationsParams{
+		TenantID:   tenantID,
+		After:      after,
+		MaxResults: maxResults,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list applications: %w", err)
+	}
+	apps := make([]Application, len(rows))
+	for i, row := range rows {
+		apps[i] = Application(row)
+	}
+	return apps, nil
+}

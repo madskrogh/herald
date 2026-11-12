@@ -38,6 +38,23 @@ func (s *applicationServer) GetApplication(ctx context.Context, req *tenantv1.Ge
 	return &tenantv1.GetApplicationResponse{Application: toApplication(app)}, nil
 }
 
+func (s *applicationServer) ListApplications(ctx context.Context, req *tenantv1.ListApplicationsRequest) (*tenantv1.ListApplicationsResponse, error) {
+	p, err := parsePage(req.GetPageSize(), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	apps, err := s.store.ListApplications(ctx, tenantID(ctx), p.after, p.fetch())
+	if err != nil {
+		return nil, err
+	}
+	apps, next := cut(p, apps, func(app ingest.Application) uuid.UUID { return app.ID })
+	resp := &tenantv1.ListApplicationsResponse{NextPageToken: next}
+	for _, app := range apps {
+		resp.Applications = append(resp.Applications, toApplication(app))
+	}
+	return resp, nil
+}
+
 func toApplication(app ingest.Application) *tenantv1.Application {
 	return &tenantv1.Application{
 		Id:        app.ID.String(),

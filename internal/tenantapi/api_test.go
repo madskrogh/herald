@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -122,6 +124,27 @@ func getApplication(id string) call {
 		httpMethod: http.MethodGet,
 		path:       "/v1/applications/" + id,
 	}
+}
+
+func listApplications(pageSize int32, pageToken string) call {
+	return call{
+		grpcMethod: "/herald.tenant.v1.ApplicationService/ListApplications",
+		req:        &tenantv1.ListApplicationsRequest{PageSize: pageSize, PageToken: pageToken},
+		httpMethod: http.MethodGet,
+		path:       "/v1/applications?" + pageQuery(pageSize, pageToken),
+	}
+}
+
+// pageQuery returns the query parameters of a REST list call.
+func pageQuery(pageSize int32, pageToken string) string {
+	q := url.Values{}
+	if pageSize != 0 {
+		q.Set("pageSize", strconv.Itoa(int(pageSize)))
+	}
+	if pageToken != "" {
+		q.Set("pageToken", pageToken)
+	}
+	return q.Encode()
 }
 
 // jsonString returns s as a JSON string literal.

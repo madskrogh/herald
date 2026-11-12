@@ -98,3 +98,43 @@ func (q *Queries) GetTenantByAPIKeyHash(ctx context.Context, keyHash []byte) (In
 	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
 	return i, err
 }
+
+const listApplications = `-- name: ListApplications :many
+SELECT id, tenant_id, name, created_at
+FROM ingest.applications
+WHERE tenant_id = $1 AND id > $2
+ORDER BY id
+LIMIT $3
+`
+
+type ListApplicationsParams struct {
+	TenantID   uuid.UUID
+	After      uuid.UUID
+	MaxResults int32
+}
+
+// A page of the Tenant's Applications: those after the ID @after, in ID order.
+func (q *Queries) ListApplications(ctx context.Context, arg ListApplicationsParams) ([]IngestApplication, error) {
+	rows, err := q.db.Query(ctx, listApplications, arg.TenantID, arg.After, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IngestApplication
+	for rows.Next() {
+		var i IngestApplication
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Name,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

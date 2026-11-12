@@ -24,6 +24,7 @@ func TestCallsNeedAValidAPIKey(t *testing.T) {
 	operations := []call{
 		createApplication("Customer B"),
 		getApplication(appID),
+		listApplications(0, ""),
 	}
 	authorizations := []struct {
 		name  string

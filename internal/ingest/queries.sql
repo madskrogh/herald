@@ -22,3 +22,11 @@ RETURNING *;
 SELECT *
 FROM ingest.applications
 WHERE tenant_id = @tenant_id AND id = @id;
+
+-- name: ListApplications :many
+-- A page of the Tenant's Applications: those after the ID @after, in ID order.
+SELECT *
+FROM ingest.applications
+WHERE tenant_id = @tenant_id AND id > @after
+ORDER BY id
+LIMIT @max_results;
