@@ -12,16 +12,30 @@ import (
 // share it, so a filter can name every valid Event type.
 var tokenRE = regexp.MustCompile(`^[a-z0-9_]+$`)
 
-// Validate returns an error if t is not a valid Event type: dot-separated
-// tokens of lowercase letters, digits and underscores, such as "invoice.paid"
+// EventType is an Event type that has been parsed and validated by
+// ParseEventType. The zero EventType is not a valid Event type.
+type EventType struct {
+	// tokens holds the Event type split into its dot-separated tokens.
+	tokens []string
+}
+
+// ParseEventType parses an Event type: dot-separated tokens of lowercase
+// letters, digits and underscores, such as "invoice.paid"
 // (`^[a-z0-9_]+(\.[a-z0-9_]+)*$`).
-func Validate(t string) error {
-	for _, tok := range strings.Split(t, ".") {
+func ParseEventType(s string) (EventType, error) {
+	tokens := strings.Split(s, ".")
+	for _, tok := range tokens {
 		if !tokenRE.MatchString(tok) {
-			return fmt.Errorf("invalid event type %q: want dot-separated tokens of [a-z0-9_]", t)
+			return EventType{}, fmt.Errorf("invalid event type %q: want dot-separated tokens of [a-z0-9_]", s)
 		}
 	}
-	return nil
+	return EventType{tokens: tokens}, nil
+}
+
+// String returns the Event type as the Tenant submitted it, such as
+// "invoice.paid".
+func (e EventType) String() string {
+	return strings.Join(e.tokens, ".")
 }
 
 // Filter is an Endpoint filter that has been parsed and validated by
@@ -61,19 +75,14 @@ func validPatternToken(tok string, last bool) bool {
 }
 
 // Matches reports whether an Endpoint with this filter accepts Messages of
-// eventType. An invalid Event type matches no filter. An empty filter,
-// including the zero Filter, matches every valid Event type; otherwise a match
-// on any one pattern is enough.
-func (f Filter) Matches(eventType string) bool {
-	if Validate(eventType) != nil {
-		return false
-	}
+// Event type e. An empty filter, including the zero Filter, matches every
+// Event type; otherwise a match on any one pattern is enough.
+func (f Filter) Matches(e EventType) bool {
 	if len(f.patterns) == 0 {
 		return true
 	}
-	tokens := strings.Split(eventType, ".")
 	for _, p := range f.patterns {
-		if matchPattern(p, tokens) {
+		if matchPattern(p, e.tokens) {
 			return true
 		}
 	}

@@ -6,7 +6,7 @@ import (
 	"github.com/madskrogh/herald/internal/eventtype"
 )
 
-func TestValidate(t *testing.T) {
+func TestParseEventType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -34,9 +34,12 @@ func TestValidate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := eventtype.Validate(tt.eventType)
+			e, err := eventtype.ParseEventType(tt.eventType)
 			if got := err == nil; got != tt.valid {
-				t.Errorf("Validate(%q) = %v, want valid %v", tt.eventType, err, tt.valid)
+				t.Fatalf("ParseEventType(%q) error = %v, want valid %v", tt.eventType, err, tt.valid)
+			}
+			if tt.valid && e.String() != tt.eventType {
+				t.Errorf("ParseEventType(%q).String() = %q, want the input", tt.eventType, e.String())
 			}
 		})
 	}
@@ -114,10 +117,6 @@ func TestFilterMatches(t *testing.T) {
 		{"* then >, nothing for >", []string{"*.paid.>"}, "invoice.paid", false},
 		{"any pattern is enough", []string{"user.*", "invoice.paid"}, "invoice.paid", true},
 		{"no pattern matches", []string{"user.*", "invoice.paid"}, "invoice.created", false},
-		{"invalid event type, empty filter", []string{}, "Invoice.paid", false},
-		{"invalid event type, empty", []string{"*"}, "", false},
-		{"invalid event type, trailing dot", []string{"invoice.*"}, "invoice.", false},
-		{"invalid event type, uppercase", []string{">"}, "INVOICE", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -126,7 +125,7 @@ func TestFilterMatches(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseFilter(%q): %v", tt.patterns, err)
 			}
-			if got := f.Matches(tt.eventType); got != tt.want {
+			if got := f.Matches(parseEventType(t, tt.eventType)); got != tt.want {
 				t.Errorf("ParseFilter(%q).Matches(%q) = %v, want %v", tt.patterns, tt.eventType, got, tt.want)
 			}
 		})
@@ -134,33 +133,34 @@ func TestFilterMatches(t *testing.T) {
 }
 
 // FuzzFilter checks invariants that hold for any Tenant-supplied pattern and
-// Event type: nothing panics, an invalid Event type matches no filter, every
+// Event type: nothing panics, a valid Event type keeps its spelling, every
 // valid Event type is a pattern that matches itself, and ">" matches every
 // valid Event type. Seed inputs are in testdata/fuzz/FuzzFilter.
 func FuzzFilter(f *testing.F) {
 	f.Fuzz(func(t *testing.T, pattern, eventType string) {
-		valid := eventtype.Validate(eventType) == nil
-		if filter, err := eventtype.ParseFilter([]string{pattern}); err == nil {
-			if filter.Matches(eventType) && !valid {
-				t.Errorf("ParseFilter(%q).Matches(%q) = true for an invalid event type", pattern, eventType)
-			}
-		}
-		if !valid {
+		e, err := eventtype.ParseEventType(eventType)
+		if err != nil {
 			return
+		}
+		if filter, err := eventtype.ParseFilter([]string{pattern}); err == nil {
+			filter.Matches(e)
+		}
+		if e.String() != eventType {
+			t.Errorf("ParseEventType(%q).String() = %q, want the input", eventType, e.String())
 		}
 
 		self, err := eventtype.ParseFilter([]string{eventType})
 		if err != nil {
 			t.Fatalf("ParseFilter(%q) of a valid event type: %v", eventType, err)
 		}
-		if !self.Matches(eventType) {
+		if !self.Matches(e) {
 			t.Errorf("ParseFilter(%q).Matches(%q) = false, want true", eventType, eventType)
 		}
 		all, err := eventtype.ParseFilter([]string{">"})
 		if err != nil {
 			t.Fatalf(`ParseFilter(">"): %v`, err)
 		}
-		if !all.Matches(eventType) {
+		if !all.Matches(e) {
 			t.Errorf(`ParseFilter(">").Matches(%q) = false, want true`, eventType)
 		}
 	})
@@ -170,7 +170,16 @@ func TestZeroFilterMatchesEverything(t *testing.T) {
 	t.Parallel()
 
 	var f eventtype.Filter
-	if !f.Matches("invoice.paid") {
+	if !f.Matches(parseEventType(t, "invoice.paid")) {
 		t.Error(`Filter{}.Matches("invoice.paid") = false, want true`)
 	}
+}
+
+func parseEventType(t *testing.T, s string) eventtype.EventType {
+	t.Helper()
+	e, err := eventtype.ParseEventType(s)
+	if err != nil {
+		t.Fatalf("ParseEventType(%q): %v", s, err)
+	}
+	return e
 }
