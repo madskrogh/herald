@@ -20,7 +20,11 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
+      # Full history, so origin/main is there for `buf breaking` to compare
+      # with.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v7
         with:
@@ -39,5 +43,13 @@ jobs:
       - uses: sqlc-dev/setup-sqlc@v5
         with:
           sqlc-version: 1.30.0
+
+      # Installs buf only; `make ci` runs lint, breaking and generate. Pinned
+      # so its lint and breaking rules don't change under a PR. protoc-gen-go
+      # is pinned separately, as a tool in go.mod.
+      - uses: bufbuild/buf-action@v1
+        with:
+          version: 1.59.0
+          setup_only: true
 
       - run: make ci

@@ -8,6 +8,7 @@ require (
 	github.com/pressly/goose/v3 v3.30.0
 	github.com/testcontainers/testcontainers-go v0.45.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.45.0
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -69,3 +70,5 @@ require (
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 )
+
+tool google.golang.org/protobuf/cmd/protoc-gen-go

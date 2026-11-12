@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+// Package herald.handoff.v1 is the contract between the relay in herald-api
+// and herald-dispatcher (ADR 0002). The relay sends a Batch as a NATS request
+// to the dispatchers' queue group, and a dispatcher replies with a BatchAck
+// once it has committed the Batch's Deliveries.
+//
+// The package is internal: it is never exposed through the Tenant API. herald-api
+// and herald-dispatcher versions run side by side during a rollout, so every
+// change must stay wire-compatible, which buf breaking checks on every PR.
+package herald.handoff.v1;
+
+// Batch is one handoff: a set of Messages, each with all of its Deliveries.
+// A Message's Deliveries are never split across Batches, and its payload is
+// sent once however many Deliveries it has.
+//
+// A Batch carries everything a dispatcher needs to store and sign its
+// Deliveries, so the dispatcher never reads the ingest schema.
+message Batch {
+  repeated Message messages = 1;
+}
+
+// Message is one Message a Tenant submitted, with the Deliveries herald-api
+// worked out for it.
+message Message {
+  // The Message's ID, a UUID.
+  string id = 1;
+  string event_type = 2;
+  // The JSON payload exactly as the Tenant submitted it. It is signed byte for
+  // byte, so it is carried as bytes rather than parsed.
+  bytes payload = 3;
+  repeated Delivery deliveries = 4;
+}
+
+// Delivery is the Message on its way to one Endpoint.
+message Delivery {
+  // The Delivery's ID, a UUID.
+  string id = 1;
+  // A copy of the Endpoint's details at the time the Message was accepted.
+  Endpoint endpoint = 2;
+}
+
+// Endpoint holds what a dispatcher needs to make Attempts to an Endpoint.
+message Endpoint {
+  // The Endpoint's ID, a UUID. Its signing secrets are encrypted with it as
+  // associated data, so decrypting them needs it.
+  string id = 1;
+  string url = 2;
+  // Every signing secret is used to sign each Attempt (ADR 0003).
+  repeated SigningSecret signing_secrets = 3;
+}
+
+// SigningSecret is one of an Endpoint's signing secrets. It is a message
+// rather than bare bytes so that fields such as an expiry for signing-secret
+// rotation can be added without breaking the wire format.
+message SigningSecret {
+  // The signing secret encrypted with the keyring (internal/keyring). It is
+  // decrypted only just before signing.
+  bytes ciphertext = 1;
+}
+
+// BatchAck is a dispatcher's reply to a Batch. It acknowledges the whole
+// Batch, and is sent only after every Delivery in it has been committed.
+// Without it the relay sends the Batch again.
+message BatchAck {}
