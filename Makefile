@@ -21,11 +21,13 @@ AGAINST ?= origin/main
 # without buf.yaml has no protos to compare with, which is true of main only
 # until the first protos merge, so that case passes with a message. A ref that
 # doesn't exist fails, so a missing fetch can't pass as "nothing to compare".
+# The ref is resolved to a commit here: buf reads the repository through the
+# git directory shared by all worktrees, where HEAD is the main checkout's.
 breaking:
-	@git rev-parse --verify --quiet '$(AGAINST)^{commit}' >/dev/null || { \
-		echo "breaking: unknown ref $(AGAINST)"; exit 1; }
-	@if git cat-file -e '$(AGAINST):buf.yaml' 2>/dev/null; then \
-		buf breaking --against "$$(git rev-parse --git-common-dir)#ref=$(AGAINST)"; \
+	@commit=$$(git rev-parse --verify --quiet '$(AGAINST)^{commit}') || { \
+		echo "breaking: unknown ref $(AGAINST)"; exit 1; }; \
+	if git cat-file -e "$$commit:buf.yaml" 2>/dev/null; then \
+		buf breaking --against "$$(git rev-parse --git-common-dir)#ref=$$commit"; \
 	else \
 		echo "breaking: $(AGAINST) has no buf.yaml, so there are no protos to compare with"; \
 	fi
