@@ -215,7 +215,8 @@ type Endpoint struct {
 	// associated data, so decrypting them needs it.
 	Id  string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Url string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
-	// Every signing secret is used to sign each Attempt (ADR 0003).
+	// Each Attempt is signed with every one of these (ADR 0003). Signing-secret
+	// rotation adds an expiry, after which a secret is no longer used.
 	SigningSecrets []*SigningSecret `protobuf:"bytes,3,rep,name=signing_secrets,json=signingSecrets,proto3" json:"signing_secrets,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache

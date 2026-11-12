@@ -46,7 +46,8 @@ message Endpoint {
   // associated data, so decrypting them needs it.
   string id = 1;
   string url = 2;
-  // Every signing secret is used to sign each Attempt (ADR 0003).
+  // Each Attempt is signed with every one of these (ADR 0003). Signing-secret
+  // rotation adds an expiry, after which a secret is no longer used.
   repeated SigningSecret signing_secrets = 3;
 }
 

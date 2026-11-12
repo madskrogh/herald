@@ -45,11 +45,13 @@ jobs:
           sqlc-version: 1.30.0
 
       # Installs buf only; `make ci` runs lint, breaking and generate. Pinned
-      # so its lint and breaking rules don't change under a PR. protoc-gen-go
-      # is pinned separately, as a tool in go.mod.
+      # so its lint and breaking rules don't change under a PR.
       - uses: bufbuild/buf-action@v1
         with:
           version: 1.59.0
           setup_only: true
 
-      - run: make ci
+      # A PR's protos are compared with main's. On main, where origin/main is
+      # the commit under test, they are compared with the previous commit:
+      # merges are squashed, so that is main before this merge.
+      - run: make ci AGAINST=${{ github.event_name == 'push' && 'HEAD~1' || 'origin/main' }}
