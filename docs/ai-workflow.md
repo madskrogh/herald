@@ -15,7 +15,7 @@ Herald is built with Claude Code as a pair programmer. This document describes t
 |---|---|
 | `CLAUDE.md` | Entry point for agents: what Herald is, where the spec is, commands, the workflow |
 | `.claude/rules/` | Conventions loaded by file path: Go style (`*.go`), testing (`*_test.go`), SQL and sqlc (`*.sql`) |
-| `.claude/skills/` | On-demand procedures: `tdd`, `codebase-design`, `standards-review` (adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT), and `rejection-review` |
+| `.claude/skills/` | On-demand procedures: `tdd`, `codebase-design`, `standards-review` (adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT), `rejection-review` and `implement-issue` |
 | `.claude/hooks/` | Scripts run by Claude Code on events |
 | `.claude/settings.json` | Sandbox, hooks, worktree settings |
 | `scripts/worktree-env.sh` | Per-worktree `.env` (compose project name, ports) |
@@ -25,7 +25,7 @@ Herald is built with Claude Code as a pair programmer. This document describes t
 One GitHub issue = one branch = one worktree = one agent session = one PR.
 
 1. **Spec.** The task is a GitHub issue, small enough for one PR.
-2. **Start.** `claude -w issue-12` creates an isolated worktree from `origin/main` and starts a session there.
+2. **Start.** `/implement-issue 12`, or asking a session to implement issue 12, moves the session into worktree `issue-12` on branch `worktree-issue-12`, created from `origin/main`. Every issue's worktree and branch get the same name, so nobody has to remember the convention. From a terminal, `claude -w issue-12` does the same.
 3. **Build test-first** with the `tdd` skill: agree the seams to test, then red → green in vertical slices.
 4. **Design review.** With tests green, `standards-review` checks the diff on two axes: does it follow the documented standards (plus a baseline of code smells), and does it match the issue? The agent refactors on its findings, with the tests as a safety net.
 5. **Bug review.** The built-in `/code-review` runs on the final diff. It comes after the refactor so it reviews the code that ships.
@@ -73,7 +73,7 @@ Worktrees isolate files, not the machine. Ports, Docker containers and the NATS 
 Lifecycle:
 
 ```
-claude -w <name>  →  make up  →  work, commit  →  make ci, push, PR  →  merge  →  exit the session  →  make worktree-rm NAME=<name>
+/implement-issue <n>  →  make up  →  work, commit  →  make ci, push, PR  →  merge  →  exit the session  →  make worktree-rm NAME=issue-<n>
 ```
 
 A session locks its worktree while it runs, so `make worktree-rm` refuses a worktree whose session is still open. Run it from the main checkout once that session has exited, or choose "remove" when the session asks on exit.

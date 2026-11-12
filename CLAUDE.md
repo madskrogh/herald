@@ -32,7 +32,7 @@ Run `make ci` before every push. It is exactly what CI runs.
 
 One GitHub issue = one branch = one worktree = one PR.
 
-1. Read the issue: `gh issue view <n>`.
+1. Start with the `implement-issue` skill (`/implement-issue <n>`): it reads the issue and moves the session into worktree `issue-<n>`.
 2. Build it test-first with the `tdd` skill. Agree the seams before writing tests.
 3. Tests green: run the `standards-review` skill against `main`, and refactor on its findings.
 4. Run the built-in `/code-review` on the final diff for bugs.
@@ -43,4 +43,4 @@ PRs are squash-merged; it is the only merge method, so a branch's own history ne
 
 Agent setup (`CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, `.claude/settings.json`) changes only in its own PR, never inside a feature PR. When a task suggests a new rule or skill, propose it under Review notes instead of making the change.
 
-Worktrees: `claude -w <name>` creates `.claude/worktrees/<name>/` on branch `worktree-<name>` from `origin/main`. Each worktree gets its own compose project and ports through `.env` (see `scripts/worktree-env.sh`). Integration tests use testcontainers and need nothing from `.env`.
+Worktrees: `implement-issue` (or `claude -w <name>` from a terminal) creates `.claude/worktrees/<name>/` on branch `worktree-<name>` from `origin/main`. Each worktree gets its own compose project and ports through `.env` (see `scripts/worktree-env.sh`). Integration tests use testcontainers and need nothing from `.env`.
