@@ -38,9 +38,10 @@ breaking:
 generate:
 	sqlc generate
 	buf generate
+	buf generate --template buf.gen.openapi.yaml
 
 # Directories holding committed generated code, checked by check-generated.
-GENERATED_DIRS := internal/ingest/ingestdb internal/gen
+GENERATED_DIRS := internal/ingest/ingestdb internal/gen docs/openapi
 
 # Fails if go.mod/go.sum are untidy, or if regenerating changes any generated
 # code relative to the index (including new files it would add). Staged

@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package herald.tenant.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// EndpointService manages the Endpoints registered under an Application.
+service EndpointService {
+  // CreateEndpoint registers an Endpoint and generates its signing secret. The
+  // response is the only time the signing secret is returned.
+  rpc CreateEndpoint(CreateEndpointRequest) returns (CreateEndpointResponse) {
+    option (google.api.http) = {
+      post: "/v1/applications/{application_id}/endpoints"
+      body: "*"
+    };
+  }
+
+  // GetEndpoint returns one Endpoint, without its signing secret.
+  rpc GetEndpoint(GetEndpointRequest) returns (GetEndpointResponse) {
+    option (google.api.http) = {get: "/v1/applications/{application_id}/endpoints/{id}"};
+  }
+
+  // ListEndpoints returns an Application's Endpoints, without their signing
+  // secrets.
+  rpc ListEndpoints(ListEndpointsRequest) returns (ListEndpointsResponse) {
+    option (google.api.http) = {get: "/v1/applications/{application_id}/endpoints"};
+  }
+}
+
+// Endpoint is a URL registered under an Application, to which Herald delivers
+// webhooks. Its URL and filter can't be changed after it is created.
+message Endpoint {
+  string id = 1;
+  string application_id = 2;
+  // An absolute http or https URL with a host, at most 2048 bytes, without
+  // user information or a fragment.
+  string url = 3;
+  // The Event types the Endpoint accepts, as patterns: Event types in which
+  // any token may be "*", which matches exactly one token, and whose last
+  // token may be ">", which matches one or more tokens. An empty filter
+  // accepts every Event type. At most 32 patterns, each at most 128 bytes.
+  repeated string filter = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message CreateEndpointRequest {
+  string application_id = 1;
+  string url = 2;
+  repeated string filter = 3;
+}
+
+message CreateEndpointResponse {
+  Endpoint endpoint = 1;
+  // The secret Herald signs webhooks to this Endpoint with (Standard Webhooks,
+  // "whsec_" prefix). It is returned only here, so store it now.
+  string signing_secret = 2;
+}
+
+message GetEndpointRequest {
+  string application_id = 1;
+  string id = 2;
+}
+
+message GetEndpointResponse {
+  Endpoint endpoint = 1;
+}
+
+message ListEndpointsRequest {
+  string application_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListEndpointsResponse {
+  repeated Endpoint endpoints = 1;
+  string next_page_token = 2;
+}
