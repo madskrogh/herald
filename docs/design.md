@@ -57,8 +57,8 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 ## Limits and validation
 
 - Payload: JSON, at most **256 KB** (`413` otherwise).
-- Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Endpoint filters use NATS-style wildcards (`*` matches one token, `>` matches the rest). An empty filter matches everything.
-- Endpoint filter: at most **32 patterns**, each at most **128 bytes**. A pattern may be as long as an Event type, so a filter can name any Event type. The caps keep a handoff batch's Event types small next to the NATS limit, and bound the cost of matching filters during fan-out on the request path.
+- Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Every Delivery in a handoff batch carries its Message's Event type, so the cap bounds what each Delivery adds to a batch.
+- Endpoint filter: NATS-style wildcards (`*` matches one token, `>` matches the rest). An empty filter matches everything. At most **32 patterns**, each at most **128 bytes**, which bounds the cost of matching one Endpoint during fan-out on the request path. A pattern may be as long as an Event type, so a filter can name any Event type.
 - Handoff batches stay under the NATS maximum message size (1 MB by default).
 - In v1, an Endpoint's URL and event filter can't be changed after creation (signing secrets can be rotated).
 

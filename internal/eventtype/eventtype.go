@@ -8,18 +8,18 @@ import (
 	"strings"
 )
 
-// maxEventTypeBytes is the longest Event type ParseEventType accepts. The cap
-// keeps the Event types that Deliveries carry in a handoff batch from bringing
-// it near the NATS maximum message size.
+// maxEventTypeBytes is the longest Event type ParseEventType accepts. Every
+// Delivery in a handoff batch carries its Message's Event type, so the cap
+// bounds what each Delivery adds to a batch.
 const maxEventTypeBytes = 128
 
 // maxPatternBytes is the longest filter pattern ParseFilter accepts. It equals
 // maxEventTypeBytes, so a filter can name every valid Event type.
 const maxPatternBytes = maxEventTypeBytes
 
-// maxFilterPatterns is the most patterns an Endpoint filter may hold. Fan-out
-// matches every pattern of every Endpoint on the request path that accepts a
-// Message.
+// maxFilterPatterns is the most patterns an Endpoint filter may hold. With
+// maxPatternBytes, it bounds the cost of matching one Endpoint during fan-out,
+// on the request path that accepts a Message.
 const maxFilterPatterns = 32
 
 // tokenRE matches one token of an Event type. Event types and filter patterns
@@ -35,7 +35,7 @@ type EventType struct {
 
 // ParseEventType parses an Event type: dot-separated tokens of lowercase
 // letters, digits and underscores, such as "invoice.paid"
-// (`^[a-z0-9_]+(\.[a-z0-9_]+)*$`), at most 128 bytes long.
+// (`^[a-z0-9_]+(\.[a-z0-9_]+)*$`), at most maxEventTypeBytes long.
 func ParseEventType(s string) (EventType, error) {
 	if len(s) > maxEventTypeBytes {
 		return EventType{}, fmt.Errorf("invalid event type: %d bytes, want at most %d", len(s), maxEventTypeBytes)
@@ -65,16 +65,16 @@ type Filter struct {
 // ParseFilter parses an Endpoint filter: a list of patterns with NATS-style
 // wildcards. A pattern is an Event type in which any token may be "*", which
 // matches exactly one token, and whose last token may be ">", which matches one
-// or more tokens. A filter holds at most 32 patterns, each at most 128 bytes
-// long. An empty list is a valid filter.
+// or more tokens. A filter holds at most maxFilterPatterns patterns, each at
+// most maxPatternBytes long. An empty list is a valid filter.
 func ParseFilter(patterns []string) (Filter, error) {
 	if len(patterns) > maxFilterPatterns {
 		return Filter{}, fmt.Errorf("invalid filter: %d patterns, want at most %d", len(patterns), maxFilterPatterns)
 	}
 	f := Filter{patterns: make([][]string, 0, len(patterns))}
-	for _, p := range patterns {
+	for n, p := range patterns {
 		if len(p) > maxPatternBytes {
-			return Filter{}, fmt.Errorf("invalid filter pattern: %d bytes, want at most %d", len(p), maxPatternBytes)
+			return Filter{}, fmt.Errorf("invalid filter pattern %d: %d bytes, want at most %d", n, len(p), maxPatternBytes)
 		}
 		tokens := strings.Split(p, ".")
 		for i, tok := range tokens {
