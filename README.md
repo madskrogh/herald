@@ -12,24 +12,24 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 │         ▼                            │                │                            │         │
 │  ┌──────────────┐   ┌────────────┐   │                │  ┌──────────────┐   ┌──────┴──────┐  │
 │  │  Tenant API  │   │   relay    │   │    ┌──────┐    │  │    intake    │   │   workers   │  │
-│  │ gRPC + REST  │   │polls outbox├───┼───►│ NATS │────┼─►│ stores batch │   │ ≤4 in flight│  │
-│  │ API-key auth │   │ 1/process  │◄┄┄┼┄┄┄┄│      │◄┄┄┄┼┄┄│ ack on commit│   │ 8 Attempts  │  │
+│  │ gRPC + REST  │   │polls outbox├───┼───►│ NATS │────┼─►│ stores batch │   │ ≤4/Endpoint │  │
+│  │ API-key auth │   │ one per api│◄--┼----│      │◄---┼--│ commit, reply│   │ sign · retry│  │
 │  └──────┬───────┘   └─────┬──────┘   │    └──────┘    │  └──────┬───────┘   └──────┬──────┘  │
 └─────────┼─────────────────┼──────────┘                └─────────┼──────────────────┼─────────┘
-          │ one transaction ▲ SKIP LOCKED claim                   │ ON CONFLICT      ▲ SKIP LOCKED
-          ▼                 ▼ mark handed off                     ▼ DO NOTHING       ▼ claim due
+          │ one transaction ▲ SKIP LOCKED claim                   │ ON CONFLICT      ▲ claim due
+          ▼                 ▼ mark handed off                     ▼ DO NOTHING       ▼ Attempts
 ┌──────────────────────────────────────┐                ┌──────────────────────────────────────┐
 │       Postgres · ingest schema       │                │      Postgres · delivery schema      │
-│   Messages · outbox of Deliveries    │                │        Deliveries · Attempts         │
+│    Messages (outbox) · Deliveries    │                │        Deliveries · Attempts         │
 └─────────┴────────────────────────────┘                └──────────────────────────────────────┘
           ▲ Tenants, API keys
           │
    ┌──────┴───────┐
-   │ herald-admin │                                         ──► batch   ◄┄┄ ack after commit
+   │ herald-admin │                                         ──► batch   ◄-- reply after commit
    └──────────────┘
 ```
 
-Two services, each with its own schema. herald-api accepts a Message and writes it together with its Deliveries in one transaction. A relay hands them over to herald-dispatcher in batches over NATS, and marks them handed off only once the dispatcher has committed them. Delivery is at-least-once, and every hop is safe to repeat. A request repeated with the same `Idempotency-Key` returns the original Message, a resent batch inserts nothing new, and every Attempt of a Delivery carries the same `webhook-id`, so the receiving end can drop repeats.
+Two services, each with its own schema. herald-api accepts a Message and writes it together with its Deliveries in one transaction. A relay hands them over to herald-dispatcher in batches over NATS, and marks them handed off only once the dispatcher has committed them. Delivery is at-least-once, and every hop is safe to repeat. A request repeated with the same `Idempotency-Key` returns the original Message, a resent batch inserts nothing new, and every Attempt of a Delivery carries the same `webhook-id`, so Endpoints can drop repeats.
 
 ## Status
 
