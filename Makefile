@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test generate check-generated up down worktree-rm
+.PHONY: ci lint test generate check-generated up down admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test check-generated
@@ -12,11 +12,12 @@ lint:
 test:
 	go test -race ./...
 
-# Regenerates all committed generated code. sqlc and buf add their steps here.
+# Regenerates all committed generated code. buf adds its step here.
 generate:
+	sqlc generate
 
 # Directories holding committed generated code, checked by check-generated.
-GENERATED_DIRS :=
+GENERATED_DIRS := internal/ingest/ingestdb
 
 # Fails if go.mod/go.sum are untidy, or if regenerating changes any generated
 # code relative to the index (including new files it would add). Staged
@@ -35,8 +36,15 @@ endif
 .env:
 	./scripts/worktree-env.sh
 
+# --build so the stack always runs this checkout's code and migrations.
 up: .env
-	docker compose up -d --wait
+	docker compose up -d --wait --build
+
+# Runs herald-admin against this checkout's stack.
+# Usage: make admin ARGS='tenant create --name Acme'
+admin: .env
+	@. ./.env && HERALD_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
+		go run ./cmd/herald-admin $(ARGS)
 
 down:
 	docker compose down -v

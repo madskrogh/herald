@@ -1,0 +1,19 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema: internal/ingest/migrations
+    queries: internal/ingest/queries.sql
+    gen:
+      go:
+        package: ingestdb
+        out: internal/ingest/ingestdb
+        sql_package: pgx/v5
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: uuid
+              type: UUID
+          - db_type: timestamptz
+            go_type:
+              import: time
+              type: Time
