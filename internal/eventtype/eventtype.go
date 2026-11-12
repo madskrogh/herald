@@ -8,6 +8,19 @@ import (
 	"strings"
 )
 
+// MaxEventTypeBytes is the longest Event type ParseEventType accepts. The cap
+// keeps the Event types that Deliveries carry in a handoff batch from bringing
+// it near the NATS maximum message size.
+const MaxEventTypeBytes = 128
+
+// MaxPatternBytes is the longest filter pattern ParseFilter accepts. It equals
+// MaxEventTypeBytes, so a filter can name every valid Event type.
+const MaxPatternBytes = MaxEventTypeBytes
+
+// MaxPatterns is the most patterns an Endpoint filter may hold. Fan-out matches
+// every pattern of every Endpoint on the request path that accepts a Message.
+const MaxPatterns = 32
+
 // tokenRE matches one token of an Event type. Event types and filter patterns
 // share it, so a filter can name every valid Event type.
 var tokenRE = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -21,8 +34,11 @@ type EventType struct {
 
 // ParseEventType parses an Event type: dot-separated tokens of lowercase
 // letters, digits and underscores, such as "invoice.paid"
-// (`^[a-z0-9_]+(\.[a-z0-9_]+)*$`).
+// (`^[a-z0-9_]+(\.[a-z0-9_]+)*$`), at most MaxEventTypeBytes long.
 func ParseEventType(s string) (EventType, error) {
+	if len(s) > MaxEventTypeBytes {
+		return EventType{}, fmt.Errorf("invalid event type: %d bytes, want at most %d", len(s), MaxEventTypeBytes)
+	}
 	tokens := strings.Split(s, ".")
 	for _, tok := range tokens {
 		if !tokenRE.MatchString(tok) {
@@ -48,10 +64,17 @@ type Filter struct {
 // ParseFilter parses an Endpoint filter: a list of patterns with NATS-style
 // wildcards. A pattern is an Event type in which any token may be "*", which
 // matches exactly one token, and whose last token may be ">", which matches one
-// or more tokens. An empty list is a valid filter.
+// or more tokens. A filter holds at most MaxPatterns patterns, each at most
+// MaxPatternBytes long. An empty list is a valid filter.
 func ParseFilter(patterns []string) (Filter, error) {
+	if len(patterns) > MaxPatterns {
+		return Filter{}, fmt.Errorf("invalid filter: %d patterns, want at most %d", len(patterns), MaxPatterns)
+	}
 	f := Filter{patterns: make([][]string, 0, len(patterns))}
 	for _, p := range patterns {
+		if len(p) > MaxPatternBytes {
+			return Filter{}, fmt.Errorf("invalid filter pattern: %d bytes, want at most %d", len(p), MaxPatternBytes)
+		}
 		tokens := strings.Split(p, ".")
 		for i, tok := range tokens {
 			if !validPatternToken(tok, i == len(tokens)-1) {

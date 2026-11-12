@@ -1,6 +1,8 @@
 package eventtype_test
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/madskrogh/herald/internal/eventtype"
@@ -19,6 +21,8 @@ func TestParseEventType(t *testing.T) {
 		{"three tokens", "invoice.paid.late", true},
 		{"digits and underscores", "user_2fa.enabled", true},
 		{"underscore only", "_", true},
+		{"128 bytes", strings.Repeat("a", 128), true},
+		{"128 bytes, dotted", strings.Repeat("a.", 63) + "aa", true},
 		{"empty", "", false},
 		{"dot only", ".", false},
 		{"leading dot", ".invoice", false},
@@ -30,6 +34,8 @@ func TestParseEventType(t *testing.T) {
 		{"space", "invoice paid", false},
 		{"single-token wildcard", "invoice.*", false},
 		{"multi-token wildcard", "invoice.>", false},
+		{"129 bytes", strings.Repeat("a", 129), false},
+		{"129 bytes, dotted", strings.Repeat("a.", 64) + "a", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -64,6 +70,9 @@ func TestParseFilter(t *testing.T) {
 		{"multi-token wildcard last", []string{"invoice.>"}, true},
 		{"both wildcards", []string{"invoice.*.>"}, true},
 		{"several patterns", []string{"invoice.*", "user.created"}, true},
+		{"pattern of 128 bytes", []string{strings.Repeat("a", 128)}, true},
+		{"pattern of 128 bytes, wildcards", []string{strings.Repeat("*.", 63) + "aa"}, true},
+		{"32 patterns", slices.Repeat([]string{"invoice.*"}, 32), true},
 		{"multi-token wildcard in the middle", []string{"invoice.>.late"}, false},
 		{"multi-token wildcard first", []string{">.paid"}, false},
 		{"partial single-token wildcard", []string{"inv*"}, false},
@@ -74,6 +83,9 @@ func TestParseFilter(t *testing.T) {
 		{"trailing dot", []string{"invoice."}, false},
 		{"uppercase", []string{"Invoice.paid"}, false},
 		{"one invalid among valid", []string{"invoice.*", "user.>.x"}, false},
+		{"pattern of 129 bytes", []string{strings.Repeat("a", 129)}, false},
+		{"pattern of 129 bytes, wildcards", []string{strings.Repeat("*.", 64) + ">"}, false},
+		{"33 patterns", slices.Repeat([]string{"invoice.*"}, 33), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
