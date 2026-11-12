@@ -41,14 +41,14 @@
         },
         "parameters": [
           {
-            "name": "pageSize",
+            "name": "page_size",
             "in": "query",
             "required": false,
             "type": "integer",
             "format": "int32"
           },
           {
-            "name": "pageToken",
+            "name": "page_token",
             "in": "query",
             "required": false,
             "type": "string"
@@ -90,7 +90,7 @@
         ]
       }
     },
-    "/v1/applications/{applicationId}/endpoints": {
+    "/v1/applications/{application_id}/endpoints": {
       "get": {
         "summary": "ListEndpoints returns an Application's Endpoints, without their signing\nsecrets.",
         "operationId": "EndpointService_ListEndpoints",
@@ -110,20 +110,20 @@
         },
         "parameters": [
           {
-            "name": "applicationId",
+            "name": "application_id",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
-            "name": "pageSize",
+            "name": "page_size",
             "in": "query",
             "required": false,
             "type": "integer",
             "format": "int32"
           },
           {
-            "name": "pageToken",
+            "name": "page_token",
             "in": "query",
             "required": false,
             "type": "string"
@@ -152,7 +152,7 @@
         },
         "parameters": [
           {
-            "name": "applicationId",
+            "name": "application_id",
             "in": "path",
             "required": true,
             "type": "string"
@@ -171,7 +171,7 @@
         ]
       }
     },
-    "/v1/applications/{applicationId}/endpoints/{id}": {
+    "/v1/applications/{application_id}/endpoints/{id}": {
       "get": {
         "summary": "GetEndpoint returns one Endpoint, without its signing secret.",
         "operationId": "EndpointService_GetEndpoint",
@@ -191,7 +191,7 @@
         },
         "parameters": [
           {
-            "name": "applicationId",
+            "name": "application_id",
             "in": "path",
             "required": true,
             "type": "string"
@@ -293,7 +293,7 @@
           "type": "string",
           "description": "A name for the Tenant's own reference, such as the customer's name. It is\nnot blank, and at most 256 bytes."
         },
-        "createdAt": {
+        "created_at": {
           "type": "string",
           "format": "date-time"
         }
@@ -322,7 +322,7 @@
         "endpoint": {
           "$ref": "#/definitions/v1Endpoint"
         },
-        "signingSecret": {
+        "signing_secret": {
           "type": "string",
           "description": "The secret Herald signs webhooks to this Endpoint with (Standard Webhooks,\n\"whsec_\" prefix). It is returned only here, so store it now."
         }
@@ -334,7 +334,7 @@
         "id": {
           "type": "string"
         },
-        "applicationId": {
+        "application_id": {
           "type": "string"
         },
         "url": {
@@ -348,7 +348,7 @@
           },
           "description": "The Event types the Endpoint accepts, as patterns: Event types in which\nany token may be \"*\", which matches exactly one token, and whose last\ntoken may be \"\u003e\", which matches one or more tokens. An empty filter\naccepts every Event type. At most 32 patterns, each at most 128 bytes."
         },
-        "createdAt": {
+        "created_at": {
           "type": "string",
           "format": "date-time"
         }
@@ -381,7 +381,7 @@
             "$ref": "#/definitions/v1Application"
           }
         },
-        "nextPageToken": {
+        "next_page_token": {
           "type": "string"
         }
       }
@@ -396,7 +396,7 @@
             "$ref": "#/definitions/v1Endpoint"
           }
         },
-        "nextPageToken": {
+        "next_page_token": {
           "type": "string"
         }
       }

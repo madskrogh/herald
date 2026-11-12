@@ -172,10 +172,10 @@ func listEndpoints(applicationID string, pageSize int32, pageToken string) call 
 func pageQuery(pageSize int32, pageToken string) string {
 	q := url.Values{}
 	if pageSize != 0 {
-		q.Set("pageSize", strconv.Itoa(int(pageSize)))
+		q.Set("page_size", strconv.Itoa(int(pageSize)))
 	}
 	if pageToken != "" {
-		q.Set("pageToken", pageToken)
+		q.Set("page_token", pageToken)
 	}
 	return q.Encode()
 }

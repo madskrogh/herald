@@ -49,8 +49,10 @@ const maxRequestBody = 1 << 20
 // calling the gRPC server at the other end of conn.
 func NewGateway(ctx context.Context, conn grpc.ClientConnInterface) (http.Handler, error) {
 	mux := runtime.NewServeMux(runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
-		// The gateway's default output.
-		MarshalOptions: protojson.MarshalOptions{EmitUnpopulated: true},
+		// Field names as in the protos (application_id), so that each field
+		// has one name in gRPC, REST bodies, query parameters and the docs.
+		// Unpopulated fields are written, as by the gateway's default.
+		MarshalOptions: protojson.MarshalOptions{UseProtoNames: true, EmitUnpopulated: true},
 		// Unlike the default, a field the API doesn't know is an error: a
 		// misspelled "filter" would otherwise leave an Endpoint's filter empty,
 		// accepting every Event type.

@@ -121,13 +121,13 @@ func (n *normalizer) collect(v any, replacements map[string]string) {
 			switch {
 			case !ok || s == "":
 				n.collect(field, replacements)
-			case k == "id" || k == "applicationId":
+			case k == "id" || k == "application_id":
 				replacements[s] = n.placeholder(s)
-			case k == "createdAt":
+			case k == "created_at":
 				replacements[s] = "TIMESTAMP"
-			case k == "signingSecret":
+			case k == "signing_secret":
 				replacements[s] = "SIGNING_SECRET"
-			case k == "nextPageToken":
+			case k == "next_page_token":
 				replacements[s] = "PAGE_TOKEN"
 			}
 		}

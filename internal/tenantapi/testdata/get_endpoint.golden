@@ -1,9 +1,9 @@
 {
   "endpoint": {
     "id": "ID_2",
-    "applicationId": "ID_1",
+    "application_id": "ID_1",
     "url": "https://example.com/a",
     "filter": [],
-    "createdAt": "TIMESTAMP"
+    "created_at": "TIMESTAMP"
   }
 }

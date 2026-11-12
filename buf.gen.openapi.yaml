@@ -27,4 +27,6 @@ plugins:
     opt:
       - allow_merge=true
       - merge_file_name=tenant
+      # Field names as the gateway writes them: as in the protos.
+      - json_names_for_fields=false
 clean: true

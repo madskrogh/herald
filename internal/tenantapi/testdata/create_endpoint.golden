@@ -1,13 +1,13 @@
 {
   "endpoint": {
     "id": "ID_4",
-    "applicationId": "ID_1",
+    "application_id": "ID_1",
     "url": "https://example.com/b",
     "filter": [
       "invoice.*",
       "customer.>"
     ],
-    "createdAt": "TIMESTAMP"
+    "created_at": "TIMESTAMP"
   },
-  "signingSecret": "SIGNING_SECRET"
+  "signing_secret": "SIGNING_SECRET"
 }

@@ -3,8 +3,8 @@
     {
       "id": "ID_1",
       "name": "Customer A",
-      "createdAt": "TIMESTAMP"
+      "created_at": "TIMESTAMP"
     }
   ],
-  "nextPageToken": "PAGE_TOKEN"
+  "next_page_token": "PAGE_TOKEN"
 }
