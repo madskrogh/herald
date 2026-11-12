@@ -27,10 +27,11 @@ func TestMigrate(t *testing.T) {
 	wantLogs := [][]logRecord{
 		{
 			{Level: "INFO", Msg: "applied migration", Service: "herald-api", Version: 1},
-			{Level: "INFO", Msg: "schema up to date", Service: "herald-api", Version: 1},
+			{Level: "INFO", Msg: "applied migration", Service: "herald-api", Version: 2},
+			{Level: "INFO", Msg: "schema up to date", Service: "herald-api", Version: 2},
 		},
 		{
-			{Level: "INFO", Msg: "schema up to date", Service: "herald-api", Version: 1},
+			{Level: "INFO", Msg: "schema up to date", Service: "herald-api", Version: 2},
 		},
 	}
 	for i, want := range wantLogs {
@@ -68,6 +69,22 @@ func TestRunUsageErrors(t *testing.T) {
 			args:    []string{"migrate", "down"},
 			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused"},
 			wantErr: `migrate: unexpected argument "down"`,
+		},
+		{
+			name:    "serve without a database URL",
+			env:     map[string]string{"HERALD_KEYRING": testKeyring},
+			wantErr: "HERALD_DATABASE_URL is not set",
+		},
+		{
+			name:    "serve without a keyring",
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused"},
+			wantErr: "HERALD_KEYRING is not set",
+		},
+		{
+			// The error names the key but must not show it.
+			name:    "serve with an invalid keyring",
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": "test:c2VjcmV0"},
+			wantErr: `HERALD_KEYRING: keyring entry 0: key "test" has 6 bytes, want 32`,
 		},
 		{
 			name:    "unknown command",

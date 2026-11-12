@@ -17,6 +17,28 @@ type IngestApiKey struct {
 	CreatedAt time.Time
 }
 
+type IngestApplication struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	Name      string
+	CreatedAt time.Time
+}
+
+type IngestEndpoint struct {
+	ID            uuid.UUID
+	ApplicationID uuid.UUID
+	URL           string
+	Filter        []string
+	CreatedAt     time.Time
+}
+
+type IngestSigningSecret struct {
+	ID         uuid.UUID
+	EndpointID uuid.UUID
+	Ciphertext []byte
+	CreatedAt  time.Time
+}
+
 type IngestTenant struct {
 	ID        uuid.UUID
 	Name      string

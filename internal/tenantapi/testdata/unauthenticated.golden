@@ -1,0 +1,5 @@
+{
+  "code": 16,
+  "message": "want an API key as \"authorization: Bearer <key>\"",
+  "details": []
+}

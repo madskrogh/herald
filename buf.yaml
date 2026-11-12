@@ -1,12 +1,28 @@
 version: v2
+# Two modules, because their callers need different guarantees from
+# buf breaking.
 modules:
+  # Internal contracts between Herald's own services (herald.handoff.v1).
+  # WIRE, because what has to stay compatible is the binary encoding between
+  # herald-api and herald-dispatcher versions running side by side. It still
+  # allows renaming a field, or deleting one whose number is reserved.
   - path: proto
+    breaking:
+      use:
+        - WIRE
+  # The public Tenant API (herald.tenant.v1). FILE, because Tenants depend on
+  # more than the encoding: JSON field names through the REST gateway, gRPC
+  # method paths, and the type and package names of clients generated from
+  # these files. WIRE and WIRE_JSON would let an RPC be renamed or deleted.
+  # No rule set checks the google.api.http annotations; the integration tests
+  # in internal/tenantapi pin each operation's REST method and path instead.
+  - path: api
+    breaking:
+      use:
+        - FILE
+deps:
+  - buf.build/googleapis/googleapis
+  - buf.build/grpc-ecosystem/grpc-gateway
 lint:
   use:
     - STANDARD
-# WIRE, because what has to stay compatible is the binary encoding between
-# herald-api and herald-dispatcher versions running side by side. It still
-# allows renaming a field, or deleting one whose number is reserved.
-breaking:
-  use:
-    - WIRE

@@ -8,6 +8,9 @@ sql:
         package: ingestdb
         out: internal/ingest/ingestdb
         sql_package: pgx/v5
+        # Go initialisms, so that rows convert to the ingest package's types.
+        rename:
+          url: URL
         overrides:
           - db_type: uuid
             go_type:

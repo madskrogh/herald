@@ -51,6 +51,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 
 - **Tenant authentication:** API keys stored as hashes, sent as a bearer token (REST) or in metadata (gRPC), each scoped to one Tenant.
 - **Signing:** Standard Webhooks with HMAC-SHA256 ([ADR 0003](adr/0003-standard-webhooks-signing.md)). Each Endpoint has its own signing secrets (`whsec_` prefix), returned by the API when the Endpoint is created.
+- **Endpoint addresses:** herald-dispatcher refuses to connect to loopback, link-local and private addresses, checking the address it actually dials, after DNS resolution. Otherwise an Endpoint such as `http://169.254.169.254/` would make it a proxy into Herald's network. The Tenant API doesn't check this when an Endpoint is created, because a public host name can resolve to a private address later (DNS rebinding). Built with the delivery workers.
 - **Secrets at rest:** AES-GCM, with a key ID stored in each ciphertext and a keyring in config. Deliveries carry the encrypted copy, which the dispatcher decrypts just before signing.
 - **Signing-secret rotation** (M3): the new secret is added and the old one expires after 48 h (longer than the retry window). Deliveries are signed with every secret that hasn't expired, and replays use the Endpoint's current secrets.
 
@@ -59,13 +60,19 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 - Payload: JSON, at most **256 KB** (`413` otherwise).
 - Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Every Message in a handoff batch carries its Event type, so the cap bounds what each Message adds to a batch.
 - Endpoint filter: NATS-style wildcards (`*` matches one token, `>` matches the rest). An empty filter matches everything. At most **32 patterns**, each at most **128 bytes**, which bounds the cost of matching one Endpoint during fan-out on the request path. A pattern may be as long as an Event type, so a filter can name any Event type.
+- Tenant API REST request body: at most **1 MB**, checked before authentication.
+- Application name: not blank, at most **256 bytes**.
+- Endpoint URL: an absolute `http` or `https` URL with a host and, if any, a port from 1 to 65535, at most **2048 bytes**, without user information (it would be stored in plain), a fragment (never sent) or unescaped whitespace.
 - Handoff batches stay under the NATS maximum message size (1 MB by default).
 - In v1, an Endpoint's URL and event filter can't be changed after creation (signing secrets can be rotated).
 
 ## API
 
 - Protobuf first ([ADR 0004](adr/0004-protobuf-first-api.md)): `.proto` files with HTTP annotations, from which `buf` generates the gRPC server, the grpc-gateway REST/JSON gateway and an OpenAPI spec.
-- The handoff between herald-api and herald-dispatcher is the internal protobuf package `herald.handoff.v1`. It has no HTTP annotations and is never served through the gateway. `buf breaking` keeps it wire-compatible, so both services' versions can run side by side during a rollout.
+- The Tenant API is the protobuf package `herald.tenant.v1`, in a buf module of its own (`api/`). `buf breaking` checks it with the FILE rule set, because Tenants depend on more than its encoding: JSON field names through the gateway, gRPC method paths, and the names in clients generated from the protos. No buf rule checks the HTTP annotations; the integration tests pin each operation's REST method and path instead.
+- Everything a Tenant types uses snake_case: REST JSON fields and query parameters use the proto field names (`application_id`, `page_size`), and multi-word path segments follow suit (`signing_secrets`). Each field has one name across gRPC, REST and the docs.
+- The handoff between herald-api and herald-dispatcher is the internal protobuf package `herald.handoff.v1` (module `proto/`). It has no HTTP annotations and is never served through the gateway. `buf breaking` keeps it wire-compatible (the WIRE rule set), so both services' versions can run side by side during a rollout.
+- Every Tenant API call carries an API key as `authorization: Bearer <key>`. Another Tenant's resource is reported as not found, never as forbidden, so IDs don't reveal what exists. List calls are paginated from the start (`page_size` up to 100, opaque `page_token`), since adding pagination later would silently truncate clients that don't page.
 - Data access with sqlc on pgx ([ADR 0005](adr/0005-sqlc-instead-of-orm.md)).
 
 ## Stack

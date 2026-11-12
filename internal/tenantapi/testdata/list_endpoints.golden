@@ -1,0 +1,22 @@
+{
+  "endpoints": [
+    {
+      "id": "ID_2",
+      "application_id": "ID_1",
+      "url": "https://example.com/a",
+      "filter": [],
+      "created_at": "TIMESTAMP"
+    },
+    {
+      "id": "ID_4",
+      "application_id": "ID_1",
+      "url": "https://example.com/b",
+      "filter": [
+        "invoice.*",
+        "customer.>"
+      ],
+      "created_at": "TIMESTAMP"
+    }
+  ],
+  "next_page_token": ""
+}

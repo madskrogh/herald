@@ -1,0 +1,9 @@
+{
+  "endpoint": {
+    "id": "ID_2",
+    "application_id": "ID_1",
+    "url": "https://example.com/a",
+    "filter": [],
+    "created_at": "TIMESTAMP"
+  }
+}

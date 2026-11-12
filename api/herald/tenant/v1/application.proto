@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+// Package herald.tenant.v1 is the Tenant API: how a Tenant manages its
+// Applications and their Endpoints. It is served over gRPC, and over REST/JSON
+// through the HTTP annotations (ADR 0004).
+//
+// Every call is authenticated with one of the Tenant's API keys, sent as
+// "authorization: Bearer <key>": an HTTP header for REST, gRPC metadata for
+// gRPC. A call sees only its own Tenant's resources; another Tenant's resource
+// is reported as not found.
+//
+// IDs are UUIDs in their canonical text form: lowercase hex with hyphens, as
+// in 0190a5e4-7b2c-7d3e-9f40-1a2b3c4d5e6f.
+//
+// List calls return results in pages, ordered by ID. IDs are UUIDv7, which
+// begin with a timestamp, so that is about the order of creation. A response's
+// next_page_token is passed as page_token to get the next page, and is empty
+// on the last page. page_size defaults to 50 and is capped at 100.
+package herald.tenant.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// ApplicationService manages a Tenant's Applications.
+service ApplicationService {
+  // CreateApplication creates an Application.
+  rpc CreateApplication(CreateApplicationRequest) returns (CreateApplicationResponse) {
+    option (google.api.http) = {
+      post: "/v1/applications"
+      body: "*"
+    };
+  }
+
+  // GetApplication returns one Application.
+  rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse) {
+    option (google.api.http) = {get: "/v1/applications/{id}"};
+  }
+
+  // ListApplications returns the Tenant's Applications.
+  rpc ListApplications(ListApplicationsRequest) returns (ListApplicationsResponse) {
+    option (google.api.http) = {get: "/v1/applications"};
+  }
+}
+
+// Application is one of a Tenant's customers: the owner of a set of Endpoints.
+message Application {
+  string id = 1;
+  // A name for the Tenant's own reference, such as the customer's name. It is
+  // not blank, and at most 256 bytes.
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message CreateApplicationRequest {
+  string name = 1;
+}
+
+message CreateApplicationResponse {
+  Application application = 1;
+}
+
+message GetApplicationRequest {
+  string id = 1;
+}
+
+message GetApplicationResponse {
+  Application application = 1;
+}
+
+message ListApplicationsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListApplicationsResponse {
+  repeated Application applications = 1;
+  string next_page_token = 2;
+}

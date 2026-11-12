@@ -2,15 +2,28 @@ version: v2
 # Managed mode sets go_package, so the .proto files carry no Go-specific options.
 managed:
   enabled: true
+  # Dependencies carry their own go_package, which points at the Go module
+  # that already provides their generated code.
+  disable:
+    - module: buf.build/googleapis/googleapis
+      file_option: go_package
+    - module: buf.build/grpc-ecosystem/grpc-gateway
+      file_option: go_package
   override:
     - file_option: go_package_prefix
       value: github.com/madskrogh/herald/internal/gen
+# The plugins' versions are pinned in go.mod as tools, so they always match
+# the runtime libraries the generated code imports.
 plugins:
-  # The protoc-gen-go version is pinned in go.mod as a tool, so it always
-  # matches the protobuf runtime the generated code imports.
   - local: ["go", "tool", "protoc-gen-go"]
     out: internal/gen
     opt: paths=source_relative
-# Deletes internal/gen before generating, so code for a removed .proto file
-# doesn't linger.
+  - local: ["go", "tool", "protoc-gen-go-grpc"]
+    out: internal/gen
+    opt: paths=source_relative
+  - local: ["go", "tool", "protoc-gen-grpc-gateway"]
+    out: internal/gen
+    opt: paths=source_relative
+# Deletes each plugin's output directory before generating, so code for a
+# removed .proto file doesn't linger.
 clean: true

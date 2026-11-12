@@ -26,6 +26,81 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) erro
 	return err
 }
 
+const createApplication = `-- name: CreateApplication :one
+INSERT INTO ingest.applications (tenant_id, name)
+VALUES ($1, $2)
+RETURNING id, tenant_id, name, created_at
+`
+
+type CreateApplicationParams struct {
+	TenantID uuid.UUID
+	Name     string
+}
+
+func (q *Queries) CreateApplication(ctx context.Context, arg CreateApplicationParams) (IngestApplication, error) {
+	row := q.db.QueryRow(ctx, createApplication, arg.TenantID, arg.Name)
+	var i IngestApplication
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Name,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createEndpoint = `-- name: CreateEndpoint :one
+INSERT INTO ingest.endpoints (id, application_id, url, filter)
+SELECT $1, a.id, $2, $3::text[]
+FROM ingest.applications a
+WHERE a.tenant_id = $4 AND a.id = $5
+RETURNING id, application_id, url, filter, created_at
+`
+
+type CreateEndpointParams struct {
+	ID            uuid.UUID
+	URL           string
+	Filter        []string
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+}
+
+// Creates the Endpoint only if its Application belongs to the Tenant, so that
+// no row comes back for another Tenant's Application.
+func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (IngestEndpoint, error) {
+	row := q.db.QueryRow(ctx, createEndpoint,
+		arg.ID,
+		arg.URL,
+		arg.Filter,
+		arg.TenantID,
+		arg.ApplicationID,
+	)
+	var i IngestEndpoint
+	err := row.Scan(
+		&i.ID,
+		&i.ApplicationID,
+		&i.URL,
+		&i.Filter,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createSigningSecret = `-- name: CreateSigningSecret :exec
+INSERT INTO ingest.signing_secrets (endpoint_id, ciphertext)
+VALUES ($1, $2)
+`
+
+type CreateSigningSecretParams struct {
+	EndpointID uuid.UUID
+	Ciphertext []byte
+}
+
+func (q *Queries) CreateSigningSecret(ctx context.Context, arg CreateSigningSecretParams) error {
+	_, err := q.db.Exec(ctx, createSigningSecret, arg.EndpointID, arg.Ciphertext)
+	return err
+}
+
 const createTenant = `-- name: CreateTenant :one
 INSERT INTO ingest.tenants (name)
 VALUES ($1)
@@ -36,6 +111,55 @@ func (q *Queries) CreateTenant(ctx context.Context, name string) (IngestTenant, 
 	row := q.db.QueryRow(ctx, createTenant, name)
 	var i IngestTenant
 	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
+	return i, err
+}
+
+const getApplication = `-- name: GetApplication :one
+SELECT id, tenant_id, name, created_at
+FROM ingest.applications
+WHERE tenant_id = $1 AND id = $2
+`
+
+type GetApplicationParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+func (q *Queries) GetApplication(ctx context.Context, arg GetApplicationParams) (IngestApplication, error) {
+	row := q.db.QueryRow(ctx, getApplication, arg.TenantID, arg.ID)
+	var i IngestApplication
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Name,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getEndpoint = `-- name: GetEndpoint :one
+SELECT e.id, e.application_id, e.url, e.filter, e.created_at
+FROM ingest.endpoints e
+JOIN ingest.applications a ON a.id = e.application_id
+WHERE a.tenant_id = $1 AND e.application_id = $2 AND e.id = $3
+`
+
+type GetEndpointParams struct {
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+	ID            uuid.UUID
+}
+
+func (q *Queries) GetEndpoint(ctx context.Context, arg GetEndpointParams) (IngestEndpoint, error) {
+	row := q.db.QueryRow(ctx, getEndpoint, arg.TenantID, arg.ApplicationID, arg.ID)
+	var i IngestEndpoint
+	err := row.Scan(
+		&i.ID,
+		&i.ApplicationID,
+		&i.URL,
+		&i.Filter,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 
@@ -51,4 +175,93 @@ func (q *Queries) GetTenantByAPIKeyHash(ctx context.Context, keyHash []byte) (In
 	var i IngestTenant
 	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
 	return i, err
+}
+
+const listApplications = `-- name: ListApplications :many
+SELECT id, tenant_id, name, created_at
+FROM ingest.applications
+WHERE tenant_id = $1 AND id > $2
+ORDER BY id
+LIMIT $3
+`
+
+type ListApplicationsParams struct {
+	TenantID   uuid.UUID
+	After      uuid.UUID
+	MaxResults int32
+}
+
+// A page of the Tenant's Applications: those after the ID @after, in ID order.
+func (q *Queries) ListApplications(ctx context.Context, arg ListApplicationsParams) ([]IngestApplication, error) {
+	rows, err := q.db.Query(ctx, listApplications, arg.TenantID, arg.After, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IngestApplication
+	for rows.Next() {
+		var i IngestApplication
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Name,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEndpoints = `-- name: ListEndpoints :many
+SELECT e.id, e.application_id, e.url, e.filter, e.created_at
+FROM ingest.endpoints e
+JOIN ingest.applications a ON a.id = e.application_id
+WHERE a.tenant_id = $1 AND e.application_id = $2 AND e.id > $3
+ORDER BY e.id
+LIMIT $4
+`
+
+type ListEndpointsParams struct {
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+	After         uuid.UUID
+	MaxResults    int32
+}
+
+// A page of the Endpoints under the Tenant's Application: those after the ID
+// @after, in ID order.
+func (q *Queries) ListEndpoints(ctx context.Context, arg ListEndpointsParams) ([]IngestEndpoint, error) {
+	rows, err := q.db.Query(ctx, listEndpoints,
+		arg.TenantID,
+		arg.ApplicationID,
+		arg.After,
+		arg.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IngestEndpoint
+	for rows.Next() {
+		var i IngestEndpoint
+		if err := rows.Scan(
+			&i.ID,
+			&i.ApplicationID,
+			&i.URL,
+			&i.Filter,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
