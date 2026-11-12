@@ -16,7 +16,8 @@
 // IDs are UUIDs in their canonical text form: lowercase hex with hyphens, as
 // in 0190a5e4-7b2c-7d3e-9f40-1a2b3c4d5e6f.
 //
-// List calls return results in pages, oldest first. A response's
+// List calls return results in pages, ordered by ID. IDs are UUIDv7, which
+// begin with a timestamp, so that is about the order of creation. A response's
 // next_page_token is passed as page_token to get the next page, and is empty
 // on the last page. page_size defaults to 50 and is capped at 100.
 

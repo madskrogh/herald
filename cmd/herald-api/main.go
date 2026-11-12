@@ -128,11 +128,12 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	grpcLis, err := net.Listen("tcp", cfg.grpcAddr)
+	var lc net.ListenConfig
+	grpcLis, err := lc.Listen(ctx, "tcp", cfg.grpcAddr)
 	if err != nil {
 		return fmt.Errorf("listen for gRPC: %w", err)
 	}
-	httpLis, err := net.Listen("tcp", cfg.httpAddr)
+	httpLis, err := lc.Listen(ctx, "tcp", cfg.httpAddr)
 	if err != nil {
 		grpcLis.Close()
 		return fmt.Errorf("listen for REST: %w", err)

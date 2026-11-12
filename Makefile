@@ -19,20 +19,26 @@ AGAINST ?= origin/main
 
 # Fails on a change to the protos that breaks compatibility with the merge-base
 # of HEAD and AGAINST: what this branch changed, not what AGAINST changed since
-# the branch started. A commit without buf.yaml has no protos to compare with,
-# which is true of main only until the first protos merge, so that case passes
-# with a message. A ref that doesn't exist fails, so a missing fetch can't pass
-# as "nothing to compare". The commit is resolved here, so that buf, which
-# reads the shared git directory, compares with the same commit whichever
-# worktree runs this.
+# the branch started. Each module in buf.yaml is compared on its own, under its
+# own rule set. A module the merge-base doesn't have is new, with nothing to
+# break yet, so it passes with a message. A ref that doesn't exist fails, so a
+# missing fetch can't pass as "nothing to compare", and so does an empty
+# module list. The commit is resolved here, so that buf, which reads the
+# shared git directory, compares with the same commit whichever worktree runs
+# this.
 breaking:
 	@commit=$$(git merge-base HEAD '$(AGAINST)' 2>/dev/null) || { \
 		echo "breaking: no merge-base of HEAD and $(AGAINST)"; exit 1; }; \
-	if git cat-file -e "$$commit:buf.yaml" 2>/dev/null; then \
-		buf breaking --against "$$(git rev-parse --git-common-dir)#ref=$$commit"; \
-	else \
-		echo "breaking: $(AGAINST) has no buf.yaml, so there are no protos to compare with"; \
-	fi
+	modules=$$(buf config ls-modules) && test -n "$$modules" || { \
+		echo "breaking: no modules in buf.yaml"; exit 1; }; \
+	gitdir=$$(git rev-parse --git-common-dir); \
+	for module in $$modules; do \
+		if git cat-file -e "$$commit:$$module" 2>/dev/null; then \
+			buf breaking "$$module" --against "$$gitdir#ref=$$commit,subdir=$$module" || exit 1; \
+		else \
+			echo "breaking: $(AGAINST) has no $$module module, so there is nothing to compare it with"; \
+		fi; \
+	done
 
 # Regenerates all committed generated code.
 generate:
