@@ -136,8 +136,9 @@ func TestAPIKeys(t *testing.T) {
 		}
 	})
 
-	// The one test that reads a table directly: what is stored is the
-	// property under test, and the Store has no way to show it.
+	// The one test that uses a table directly: what is stored is the
+	// property under test, and the Store has no way to show it or to store a
+	// key in plain. That is also why its SQL lives here and not in sqlc.
 	t.Run("are not stored in plain", func(t *testing.T) {
 		t.Parallel()
 
@@ -193,10 +194,13 @@ func (row apiKeyRow) holdsKey(key string) bool {
 	return strings.Contains(row.Text, secret) || bytes.Contains(row.KeyHash, []byte(secret))
 }
 
-// readAPIKeyRows returns the api_keys rows that q can see.
-func readAPIKeyRows(t *testing.T, q interface {
+// querier is a pool or a transaction.
+type querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}) []apiKeyRow {
+}
+
+// readAPIKeyRows returns the api_keys rows that q can see.
+func readAPIKeyRows(t *testing.T, q querier) []apiKeyRow {
 	t.Helper()
 	rows, err := q.Query(t.Context(), "SELECT k::text, k.key_hash FROM ingest.api_keys k")
 	if err != nil {
