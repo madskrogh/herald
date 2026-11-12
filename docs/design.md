@@ -51,6 +51,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 
 - **Tenant authentication:** API keys stored as hashes, sent as a bearer token (REST) or in metadata (gRPC), each scoped to one Tenant.
 - **Signing:** Standard Webhooks with HMAC-SHA256 ([ADR 0003](adr/0003-standard-webhooks-signing.md)). Each Endpoint has its own signing secrets (`whsec_` prefix), returned by the API when the Endpoint is created.
+- **Endpoint addresses:** herald-dispatcher refuses to connect to loopback, link-local and private addresses, checking the address it actually dials, after DNS resolution. Otherwise an Endpoint such as `http://169.254.169.254/` would make it a proxy into Herald's network. The Tenant API doesn't check this when an Endpoint is created, because a public host name can resolve to a private address later (DNS rebinding). Built with the delivery workers.
 - **Secrets at rest:** AES-GCM, with a key ID stored in each ciphertext and a keyring in config. Deliveries carry the encrypted copy, which the dispatcher decrypts just before signing.
 - **Signing-secret rotation** (M3): the new secret is added and the old one expires after 48 h (longer than the retry window). Deliveries are signed with every secret that hasn't expired, and replays use the Endpoint's current secrets.
 
