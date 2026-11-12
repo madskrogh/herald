@@ -17,6 +17,7 @@ type logRecord struct {
 	Level   string `json:"level"`
 	Msg     string `json:"msg"`
 	Service string `json:"service"`
+	Version int64  `json:"version"`
 }
 
 func TestRunStopsOnCancel(t *testing.T) {
@@ -26,7 +27,7 @@ func TestRunStopsOnCancel(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		var stdout bytes.Buffer
 		errc := make(chan error, 1)
-		go func() { errc <- run(ctx, &stdout) }()
+		go func() { errc <- run(ctx, nil, mapEnv(nil), &stdout) }()
 
 		synctest.Wait()
 		select {
