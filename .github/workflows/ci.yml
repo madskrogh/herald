@@ -20,7 +20,10 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
+      # Two commits, so HEAD^1 is there for `buf breaking` to compare with.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-go@v7
         with:
@@ -40,4 +43,14 @@ jobs:
         with:
           sqlc-version: 1.30.0
 
-      - run: make ci
+      # Installs buf only; `make ci` runs lint, breaking and generate. Pinned
+      # so its lint and breaking rules don't change under a PR.
+      - uses: bufbuild/buf-action@v1
+        with:
+          version: 1.59.0
+          setup_only: true
+
+      # Protos are compared with HEAD^1. On a PR, HEAD is the merge commit and
+      # HEAD^1 the main it was made from; on main, merges are squashed, so
+      # HEAD^1 is main before this merge.
+      - run: make ci AGAINST=HEAD^1

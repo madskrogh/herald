@@ -1,23 +1,46 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test generate check-generated up down admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated up down admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
-ci: lint test check-generated
+ci: lint test breaking check-generated
 
 lint:
 	golangci-lint run ./...
+	buf lint
 
 test:
 	go test -race ./...
 
-# Regenerates all committed generated code. buf adds its step here.
+# The ref breaking compares the protos with. Override it to compare with
+# another commit: make breaking AGAINST=<ref>
+AGAINST ?= origin/main
+
+# Fails on a change to the protos that breaks compatibility with the merge-base
+# of HEAD and AGAINST: what this branch changed, not what AGAINST changed since
+# the branch started. A commit without buf.yaml has no protos to compare with,
+# which is true of main only until the first protos merge, so that case passes
+# with a message. A ref that doesn't exist fails, so a missing fetch can't pass
+# as "nothing to compare". The commit is resolved here, so that buf, which
+# reads the shared git directory, compares with the same commit whichever
+# worktree runs this.
+breaking:
+	@commit=$$(git merge-base HEAD '$(AGAINST)' 2>/dev/null) || { \
+		echo "breaking: no merge-base of HEAD and $(AGAINST)"; exit 1; }; \
+	if git cat-file -e "$$commit:buf.yaml" 2>/dev/null; then \
+		buf breaking --against "$$(git rev-parse --git-common-dir)#ref=$$commit"; \
+	else \
+		echo "breaking: $(AGAINST) has no buf.yaml, so there are no protos to compare with"; \
+	fi
+
+# Regenerates all committed generated code.
 generate:
 	sqlc generate
+	buf generate
 
 # Directories holding committed generated code, checked by check-generated.
-GENERATED_DIRS := internal/ingest/ingestdb
+GENERATED_DIRS := internal/ingest/ingestdb internal/gen
 
 # Fails if go.mod/go.sum are untidy, or if regenerating changes any generated
 # code relative to the index (including new files it would add). Staged

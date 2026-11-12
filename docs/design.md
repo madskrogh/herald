@@ -57,7 +57,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 ## Limits and validation
 
 - Payload: JSON, at most **256 KB** (`413` otherwise).
-- Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Every Delivery in a handoff batch carries its Message's Event type, so the cap bounds what each Delivery adds to a batch.
+- Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Every Message in a handoff batch carries its Event type, so the cap bounds what each Message adds to a batch.
 - Endpoint filter: NATS-style wildcards (`*` matches one token, `>` matches the rest). An empty filter matches everything. At most **32 patterns**, each at most **128 bytes**, which bounds the cost of matching one Endpoint during fan-out on the request path. A pattern may be as long as an Event type, so a filter can name any Event type.
 - Handoff batches stay under the NATS maximum message size (1 MB by default).
 - In v1, an Endpoint's URL and event filter can't be changed after creation (signing secrets can be rotated).
@@ -65,6 +65,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 ## API
 
 - Protobuf first ([ADR 0004](adr/0004-protobuf-first-api.md)): `.proto` files with HTTP annotations, from which `buf` generates the gRPC server, the grpc-gateway REST/JSON gateway and an OpenAPI spec.
+- The handoff between herald-api and herald-dispatcher is the internal protobuf package `herald.handoff.v1`. It has no HTTP annotations and is never served through the gateway. `buf breaking` keeps it wire-compatible, so both services' versions can run side by side during a rollout.
 - Data access with sqlc on pgx ([ADR 0005](adr/0005-sqlc-instead-of-orm.md)).
 
 ## Stack
