@@ -136,13 +136,8 @@ func TestFilterMatches(t *testing.T) {
 // FuzzFilter checks invariants that hold for any Tenant-supplied pattern and
 // Event type: nothing panics, an invalid Event type matches no filter, every
 // valid Event type is a pattern that matches itself, and ">" matches every
-// valid Event type.
+// valid Event type. Seed inputs are in testdata/fuzz/FuzzFilter.
 func FuzzFilter(f *testing.F) {
-	f.Add("invoice.*", "invoice.paid")
-	f.Add("invoice.>", "invoice")
-	f.Add("*.paid.>", "invoice.paid.late")
-	f.Add("invoice.>.late", "invoice.paid.late")
-	f.Add("*", "")
 	f.Fuzz(func(t *testing.T, pattern, eventType string) {
 		valid := eventtype.Validate(eventType) == nil
 		if filter, err := eventtype.ParseFilter([]string{pattern}); err == nil {
