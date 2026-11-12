@@ -22,6 +22,11 @@ func TestCheckEndpointURL(t *testing.T) {
 		{url: "https://203.0.113.7/hook?tenant=acme&v=2", valid: true},
 		{url: "https://[2001:db8::1]:8443/", valid: true},
 		{url: "HTTPS://Example.com/webhooks", valid: true},
+		{url: "https://example.com:1/", valid: true},
+		{url: "https://example.com:65535/", valid: true},
+		{url: "https://example.com:0/"},
+		{url: "https://example.com:65536/"},
+		{url: "https://example.com:99999999999999999999/"},
 		{name: "2048 bytes", url: longest, valid: true},
 		{name: "2049 bytes", url: longest + "a"},
 		{url: ""},
@@ -73,7 +78,7 @@ func FuzzCheckEndpointURL(f *testing.F) {
 			return
 		}
 		// An accepted URL is one Herald can send an Attempt to.
-		req, err := http.NewRequest(http.MethodPost, s, nil)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s, nil)
 		if err != nil {
 			t.Fatalf("accepted %q, but it makes no request: %v", s, err)
 		}

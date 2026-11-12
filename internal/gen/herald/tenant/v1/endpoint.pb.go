@@ -29,8 +29,9 @@ type Endpoint struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	ApplicationId string                 `protobuf:"bytes,2,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
-	// An absolute http or https URL with a host, at most 2048 bytes, without
-	// user information or a fragment.
+	// An absolute http or https URL with a host and, if any, a port from 1 to
+	// 65535. At most 2048 bytes, without user information, a fragment or
+	// unescaped whitespace.
 	Url string `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
 	// The Event types the Endpoint accepts, as patterns: Event types in which
 	// any token may be "*", which matches exactly one token, and whose last

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode"
 	"uuid"
@@ -27,6 +28,10 @@ func checkApplicationName(name string) error {
 	}
 	if len(name) > maxApplicationNameBytes {
 		return fmt.Errorf("application name is %d bytes, want at most %d", len(name), maxApplicationNameBytes)
+	}
+	// Postgres text can't hold one.
+	if strings.ContainsRune(name, 0) {
+		return errors.New("application name contains a NUL byte")
 	}
 	return nil
 }
@@ -52,6 +57,11 @@ func checkEndpointURL(s string) error {
 	}
 	if u.Hostname() == "" {
 		return fmt.Errorf("endpoint URL %q has no host", s)
+	}
+	if port := u.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("endpoint URL %q: port %s is not 1 to 65535", s, port)
+		}
 	}
 	if u.User != nil {
 		return fmt.Errorf("endpoint URL %q has user information", s)

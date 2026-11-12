@@ -59,8 +59,9 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 - Payload: JSON, at most **256 KB** (`413` otherwise).
 - Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Every Message in a handoff batch carries its Event type, so the cap bounds what each Message adds to a batch.
 - Endpoint filter: NATS-style wildcards (`*` matches one token, `>` matches the rest). An empty filter matches everything. At most **32 patterns**, each at most **128 bytes**, which bounds the cost of matching one Endpoint during fan-out on the request path. A pattern may be as long as an Event type, so a filter can name any Event type.
+- Tenant API REST request body: at most **1 MB**, checked before authentication.
 - Application name: not blank, at most **256 bytes**.
-- Endpoint URL: an absolute `http` or `https` URL with a host, at most **2048 bytes**, without user information (it would be stored in plain), a fragment (never sent) or unescaped whitespace.
+- Endpoint URL: an absolute `http` or `https` URL with a host and, if any, a port from 1 to 65535, at most **2048 bytes**, without user information (it would be stored in plain), a fragment (never sent) or unescaped whitespace.
 - Handoff batches stay under the NATS maximum message size (1 MB by default).
 - In v1, an Endpoint's URL and event filter can't be changed after creation (signing secrets can be rotated).
 

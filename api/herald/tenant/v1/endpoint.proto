@@ -33,8 +33,9 @@ service EndpointService {
 message Endpoint {
   string id = 1;
   string application_id = 2;
-  // An absolute http or https URL with a host, at most 2048 bytes, without
-  // user information or a fragment.
+  // An absolute http or https URL with a host and, if any, a port from 1 to
+  // 65535. At most 2048 bytes, without user information, a fragment or
+  // unescaped whitespace.
   string url = 3;
   // The Event types the Endpoint accepts, as patterns: Event types in which
   // any token may be "*", which matches exactly one token, and whose last

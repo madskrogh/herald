@@ -155,7 +155,14 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		httpLis.Close()
 		return err
 	}
-	httpServer := &http.Server{Handler: gateway, ReadHeaderTimeout: 10 * time.Second}
+	httpServer := &http.Server{
+		Handler:           gateway,
+		ReadHeaderTimeout: 10 * time.Second,
+		// Bounds how long a slow client can hold a connection while sending
+		// a request, and how long an idle one stays open.
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 2 * time.Minute,
+	}
 
 	errc := make(chan error, 2)
 	go func() { errc <- grpcServer.Serve(grpcLis) }()

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -56,7 +57,6 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 		"HERALD_HTTP_ADDR": "127.0.0.1:0",
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	logr, logw := io.Pipe()
 	errc := make(chan error, 1)
 	go func() {
@@ -76,15 +76,29 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 			logs <- rec
 		}
 	}()
+	// stop cancels run, reads the log lines left, and waits for run to
+	// return. It runs on every exit, so a test that fails early doesn't leave
+	// run blocked writing to the log, holding the database open.
+	var rest []logRecord
+	stop := sync.OnceValue(func() error {
+		cancel()
+		for rec := range logs {
+			rest = append(rest, rec)
+		}
+		return <-errc
+	})
+	defer stop() //nolint:errcheck // Only for an early return; checked below.
 
 	started, ok := <-logs
 	if !ok {
-		t.Fatalf("run exited before it started: %v", <-errc)
+		t.Fatalf("run exited before it started: %v", stop())
 	}
 	if started.Msg != "started" {
 		t.Fatalf("first log line is %+v, want started", started)
 	}
 
+	// The subtests aren't parallel: they must finish before stop shuts the
+	// service down.
 	t.Run("REST", func(t *testing.T) {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+started.HTTPAddr+"/v1/applications", nil)
 		if err != nil {
@@ -113,12 +127,7 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 		}
 	})
 
-	cancel()
-	var rest []logRecord
-	for rec := range logs {
-		rest = append(rest, rec)
-	}
-	if err := <-errc; err != nil {
+	if err := stop(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	want := []logRecord{{Level: "INFO", Msg: "stopped", Service: "herald-api"}}

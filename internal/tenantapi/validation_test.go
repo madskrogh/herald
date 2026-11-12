@@ -1,6 +1,7 @@
 package tenantapi_test
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
@@ -28,6 +29,8 @@ func TestInvalidArguments(t *testing.T) {
 		{name: "empty Application name", call: createApplication("")},
 		{name: "blank Application name", call: createApplication(" \t ")},
 		{name: "Application name over 256 bytes", call: createApplication(strings.Repeat("é", 129))},
+		// Postgres text can't hold a NUL byte.
+		{name: "Application name with a NUL byte", call: createApplication("Customer\x00A")},
 		{name: "Application ID not a UUID", call: getApplication("customer-a")},
 		{name: "negative page size", call: listApplications(-1, "")},
 		{name: "page token not base64", call: listApplications(0, "!!!")},
@@ -63,5 +66,57 @@ func TestInvalidArguments(t *testing.T) {
 				tr.mustInvoke(t, a, key, c, nil)
 			})
 		}
+	}
+}
+
+func TestRESTRequestBodies(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	a := newAPI(t)
+	key := a.newTenant(t, "Acme")
+	var application tenantv1.CreateApplicationResponse
+	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
+	endpoints := "/v1/applications/" + application.GetApplication().GetId() + "/endpoints"
+
+	// padded returns a valid CreateApplication body of exactly n bytes.
+	padded := func(n int) string {
+		const head, tail = `{"name":"Customer B"`, `}`
+		return head + strings.Repeat(" ", n-len(head)-len(tail)) + tail
+	}
+	const maxBody = 1 << 20
+
+	tests := []struct {
+		name     string
+		path     string
+		body     string
+		wantCode codes.Code
+	}{
+		{name: "at the size limit", path: "/v1/applications", body: padded(maxBody), wantCode: codes.OK},
+		{name: "over the size limit", path: "/v1/applications", body: padded(maxBody + 1), wantCode: codes.InvalidArgument},
+		{
+			name:     "known fields",
+			path:     endpoints,
+			body:     `{"url":"https://example.com/a","filter":["invoice.paid"]}`,
+			wantCode: codes.OK,
+		},
+		{
+			// Dropping the misspelled field would leave an empty filter,
+			// which accepts every Event type.
+			name:     "unknown field",
+			path:     endpoints,
+			body:     `{"url":"https://example.com/a","filters":["invoice.paid"]}`,
+			wantCode: codes.InvalidArgument,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := call{httpMethod: http.MethodPost, path: tt.path, body: tt.body}
+			if code, body := doREST(t, a, "Bearer "+key, c); code != tt.wantCode {
+				t.Errorf("code = %s, want %s: %s", code, tt.wantCode, body)
+			}
+		})
 	}
 }
