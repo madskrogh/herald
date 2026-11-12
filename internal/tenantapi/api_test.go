@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	tenantv1 "github.com/madskrogh/herald/internal/gen/herald/tenant/v1"
 	"github.com/madskrogh/herald/internal/ingest"
@@ -135,9 +136,10 @@ func jsonString(s string) string {
 // transport makes calls to the Tenant API over one protocol.
 type transport struct {
 	name string
-	// invoke makes c with an API key (none if key is empty), decodes a
-	// successful response into resp, and returns the call's gRPC status code.
-	invoke func(t *testing.T, a *api, key string, c call, resp proto.Message) codes.Code
+	// invoke makes c with authorization as its "authorization" metadata or
+	// HTTP header (none if empty), decodes a successful response into resp
+	// unless resp is nil, and returns the call's gRPC status code.
+	invoke func(t *testing.T, a *api, authorization string, c call, resp proto.Message) codes.Code
 }
 
 var transports = []transport{
@@ -145,11 +147,15 @@ var transports = []transport{
 	{name: "REST", invoke: invokeREST},
 }
 
-func invokeGRPC(t *testing.T, a *api, key string, c call, resp proto.Message) codes.Code {
+func invokeGRPC(t *testing.T, a *api, authorization string, c call, resp proto.Message) codes.Code {
 	t.Helper()
 	ctx := t.Context()
-	if key != "" {
-		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+key)
+	if authorization != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", authorization)
+	}
+	if resp == nil {
+		// Any response decodes into Empty, as unknown fields.
+		resp = &emptypb.Empty{}
 	}
 	err := a.conn.Invoke(ctx, c.grpcMethod, c.req, resp)
 	return status.Code(err)
@@ -164,10 +170,10 @@ var restCodes = map[int]codes.Code{
 	http.StatusNotFound:     codes.NotFound,
 }
 
-func invokeREST(t *testing.T, a *api, key string, c call, resp proto.Message) codes.Code {
+func invokeREST(t *testing.T, a *api, authorization string, c call, resp proto.Message) codes.Code {
 	t.Helper()
-	code, body := doREST(t, a, key, c)
-	if code == codes.OK {
+	code, body := doREST(t, a, authorization, c)
+	if code == codes.OK && resp != nil {
 		if err := protojson.Unmarshal(body, resp); err != nil {
 			t.Fatalf("%s %s: decode response %s: %v", c.httpMethod, c.path, body, err)
 		}
@@ -176,7 +182,7 @@ func invokeREST(t *testing.T, a *api, key string, c call, resp proto.Message) co
 }
 
 // doREST makes c over REST and returns its gRPC code and the response body.
-func doREST(t *testing.T, a *api, key string, c call) (codes.Code, []byte) {
+func doREST(t *testing.T, a *api, authorization string, c call) (codes.Code, []byte) {
 	t.Helper()
 	var body io.Reader
 	if c.body != "" {
@@ -186,8 +192,8 @@ func doREST(t *testing.T, a *api, key string, c call) (codes.Code, []byte) {
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	if key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -205,10 +211,10 @@ func doREST(t *testing.T, a *api, key string, c call) (codes.Code, []byte) {
 	return code, buf.Bytes()
 }
 
-// mustInvoke makes c and fails the test unless it succeeds.
+// mustInvoke makes c with an API key and fails the test unless it succeeds.
 func (tr transport) mustInvoke(t *testing.T, a *api, key string, c call, resp proto.Message) {
 	t.Helper()
-	if code := tr.invoke(t, a, key, c, resp); code != codes.OK {
+	if code := tr.invoke(t, a, "Bearer "+key, c, resp); code != codes.OK {
 		t.Fatalf("%s: %s, want OK", c.grpcMethod, code)
 	}
 }
