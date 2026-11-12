@@ -34,5 +34,6 @@ When the shape of that interface is itself in question (how deep the module is, 
 ## Rules of the loop
 
 - **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.
+- **Red for the reason the test names.** Read the failure: it must come from the missing behaviour the test describes, not from a compile error, a typo or a fixture. A test that passes on its first run has proved nothing yet, and it may pass by coincidence (an input that fails for some other reason than the one under test). Break the code it covers until the test fails for its stated reason, then restore it. A test written for behaviour that already exists is characterization, not red: say so, and still see it fail once.
 - **One slice at a time.** One seam, one test, one minimal implementation per cycle.
 - **Refactoring is not part of the loop.** It belongs to the review stage (see the `standards-review` skill), not the red → green implementation cycle.

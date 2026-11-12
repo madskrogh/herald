@@ -28,8 +28,8 @@ Closes #
 
 <!--
 Every finding from the standards, spec and bug reviews. Rejected findings first, then fixed;
-each group ordered by severity, most severe first. A rejection says why; deferring to a later
-issue counts as rejected, with that issue's number.
+each group ordered by severity, most severe first. A rejection says why, and what the rejection
+review concluded; deferring to a later issue counts as rejected, with that issue's number.
 -->
 
 | Finding | Review | Outcome |
