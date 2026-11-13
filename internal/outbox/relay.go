@@ -88,6 +88,12 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (int, error) {
 // round is RunOnce, and also reports whether more Messages may be waiting:
 // it claimed as many as it could, or sent fewer than it claimed.
 func (r *Relay) round(ctx context.Context, now time.Time) (handedOff int, more bool, err error) {
+	// Without a connection there is no one to send to, and no maximum payload
+	// to pack against, so don't claim rows. A connection that drops after
+	// this check fails the request, which rolls the round back.
+	if !r.nc.IsConnected() {
+		return 0, false, fmt.Errorf("not connected to NATS (%s)", r.nc.Status())
+	}
 	h, err := r.store.HandOff(ctx, r.cfg.MaxMessages, now, r.send)
 	more = h.Claimed == r.cfg.MaxMessages || h.HandedOff < h.Claimed
 	return h.HandedOff, more, err

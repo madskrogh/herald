@@ -158,6 +158,35 @@ func TestRelayKeepsMessagesWhenTheBatchIsNotCommitted(t *testing.T) {
 	}
 }
 
+// TestRelayReportsANATSConnectionNotYetMade runs a round on a connection that
+// has never reached NATS, as herald-api's is when it starts while NATS is
+// away.
+func TestRelayReportsANATSConnectionNotYetMade(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	env := newEnv(t)
+	app := env.application(t)
+	app.endpoint(t, "https://example.com/webhooks", nil)
+	app.message(t, "invoice.paid", []byte(`{"invoice": 42}`))
+	// Nothing listens on port 1.
+	nc, err := nats.Connect("nats://127.0.0.1:1", nats.RetryOnFailedConnect(true), nats.MaxReconnects(-1))
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(nc.Close)
+	relay := outbox.NewRelay(env.ingest, nc, outbox.Config{Subject: env.subject}, slog.New(slog.DiscardHandler))
+
+	n, err := relay.RunOnce(t.Context(), handedOff)
+	if err == nil || !strings.Contains(err.Error(), "not connected to NATS") {
+		t.Errorf("RunOnce error = %v, want one saying it is not connected to NATS", err)
+	}
+	if n != 0 {
+		t.Errorf("RunOnce handed off %d Messages, want 0", n)
+	}
+}
+
 // TestRelayResendsABatchWhoseReplyIsLost loses the reply to a Batch the
 // dispatcher committed. The relay sends it again, and the dispatcher keeps
 // one copy of each Delivery.

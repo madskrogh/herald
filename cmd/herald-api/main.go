@@ -188,6 +188,11 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		IdleTimeout: 2 * time.Minute,
 	}
 
+	errc := make(chan error, 2)
+	go func() { errc <- grpcServer.Serve(grpcLis) }()
+	go func() { errc <- httpServer.Serve(httpLis) }()
+	logger.InfoContext(ctx, "started", "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
+
 	// One relay per process (ADR 0002): replicas each run one, and claim
 	// different Messages.
 	relay := outbox.NewRelay(store, nc, outbox.Config{Subject: handoff.Subject}, logger)
@@ -197,11 +202,6 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		relay.Run(relayCtx)
 		close(relayDone)
 	}()
-
-	errc := make(chan error, 2)
-	go func() { errc <- grpcServer.Serve(grpcLis) }()
-	go func() { errc <- httpServer.Serve(httpLis) }()
-	logger.InfoContext(ctx, "started", "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
 
 	// Both servers run until shutdown, so anything they return before it is a
 	// failure.

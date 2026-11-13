@@ -39,7 +39,11 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	testRunServes(t, natstest.URL(t))
+	rest := testRunServes(t, natstest.URL(t))
+	want := []logRecord{{Level: "INFO", Msg: "stopped", Service: "herald-api"}}
+	if diff := cmp.Diff(want, rest); diff != "" {
+		t.Errorf("log after started (-want +got):\n%s", diff)
+	}
 }
 
 // TestRunServesWithoutNATS starts the service while NATS is unreachable.
@@ -51,13 +55,25 @@ func TestRunServesWithoutNATS(t *testing.T) {
 		t.Skip("integration")
 	}
 	// Nothing listens on port 1.
-	testRunServes(t, "nats://127.0.0.1:1")
+	rest := testRunServes(t, "nats://127.0.0.1:1")
+	// The relay warns of each round that fails for want of NATS, as many as
+	// ran before the service stopped.
+	var got []logRecord
+	for _, rec := range rest {
+		if rec != (logRecord{Level: "WARN", Msg: "outbox round failed", Service: "herald-api"}) {
+			got = append(got, rec)
+		}
+	}
+	want := []logRecord{{Level: "INFO", Msg: "stopped", Service: "herald-api"}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("log after started, apart from the relay's warnings (-want +got):\n%s", diff)
+	}
 }
 
 // testRunServes runs the service with NATS at natsURL, checks that it serves
 // the Tenant API over REST and gRPC, and that it stops cleanly when
-// cancelled.
-func testRunServes(t *testing.T, natsURL string) {
+// cancelled. It returns the log lines after the "started" line.
+func testRunServes(t *testing.T, natsURL string) []logRecord {
 	t.Helper()
 	dbURL := ingesttest.NewDatabase(t)
 	store, _ := ingesttest.NewStore(t, dbURL)
@@ -152,10 +168,7 @@ func testRunServes(t *testing.T, natsURL string) {
 	if err := stop(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	want := []logRecord{{Level: "INFO", Msg: "stopped", Service: "herald-api"}}
-	if diff := cmp.Diff(want, rest); diff != "" {
-		t.Errorf("log after started (-want +got):\n%s", diff)
-	}
+	return rest
 }
 
 // decodeLog parses r as a stream of JSON log lines and fails the test if any

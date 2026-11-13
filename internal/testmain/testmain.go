@@ -21,7 +21,7 @@ type Start func(ctx context.Context) (stop func(), err error)
 // containers and exits. Call it from TestMain. With -short it runs the tests
 // without containers, and integration tests skip themselves.
 func Run(m *testing.M, starts ...Start) {
-	os.Exit(run(m, starts))
+	os.Exit(RunCode(m, starts...))
 }
 
 // RunCode is Run without the exit: it returns the exit code. It is for a
