@@ -93,7 +93,7 @@ func TestRESTRequestBodies(t *testing.T) {
 		const head, tail = `{"name":"Customer B"`, `}`
 		return head + strings.Repeat(" ", n-len(head)-len(tail)) + tail
 	}
-	const maxBody = 1 << 20
+	const maxBody = 1600 << 10
 
 	tests := []struct {
 		name     string

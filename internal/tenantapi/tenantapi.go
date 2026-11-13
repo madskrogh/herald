@@ -45,7 +45,12 @@ func NewGRPCServer(store *ingest.Store, kr *keyring.Keyring, logger *slog.Logger
 // maxRequestBody is the most a REST request body may hold. The gateway reads
 // and decodes the whole body before the gRPC server authenticates the call,
 // so the limit applies to callers without a valid API key too.
-const maxRequestBody = 1 << 20
+//
+// The largest valid body is a CreateMessage request. Its payload travels as a
+// JSON string, in which each byte may be escaped as the six bytes \u00XX
+// (encoding/json escapes <, > and & this way by default), so the limit is six
+// times the largest payload, with 64 KiB for the other fields.
+const maxRequestBody = 6*maxPayloadBytes + 64<<10
 
 // NewGateway returns a handler that serves the Tenant API over REST/JSON by
 // calling the gRPC server at the other end of conn.

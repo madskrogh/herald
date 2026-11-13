@@ -94,7 +94,17 @@ func (s *Store) CreateMessage(ctx context.Context, m NewMessage, now time.Time) 
 			HasDeliveries:  len(endpointIDs) > 0,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
-			msg, err = messageByIdempotencyKey(ctx, q, m)
+			// No row: the Application isn't the Tenant's, or another Message
+			// holds the key. A key identifies the request, so its Message is
+			// returned whichever Application the repeat names.
+			notFound := fmt.Errorf("application %s: %w", m.ApplicationID, ErrNotFound)
+			if m.IdempotencyKey == "" {
+				return notFound
+			}
+			msg, err = messageByIdempotencyKey(ctx, q, m.TenantID, m.IdempotencyKey)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return notFound
+			}
 			return err
 		}
 		if err != nil {
@@ -108,9 +118,7 @@ func (s *Store) CreateMessage(ctx context.Context, m NewMessage, now time.Time) 
 		if err != nil {
 			return fmt.Errorf("insert deliveries: %w", err)
 		}
-		for _, d := range deliveries {
-			msg.Deliveries = append(msg.Deliveries, Delivery(d))
-		}
+		msg.Deliveries = toDeliveries(deliveries)
 		return nil
 	})
 	if err != nil {
@@ -119,32 +127,22 @@ func (s *Store) CreateMessage(ctx context.Context, m NewMessage, now time.Time) 
 	return msg, created, nil
 }
 
-// messageByIdempotencyKey returns the Message, with its Deliveries, that stopped
-// m from being inserted: the Tenant's Message that holds m's Idempotency-Key.
-// If there is none, m's Application doesn't belong to the Tenant.
-func messageByIdempotencyKey(ctx context.Context, q *ingestdb.Queries, m NewMessage) (Message, error) {
-	notFound := fmt.Errorf("application %s: %w", m.ApplicationID, ErrNotFound)
-	if m.IdempotencyKey == "" {
-		return Message{}, notFound
-	}
+// messageByIdempotencyKey returns the Tenant's Message that holds key, with its
+// Deliveries. If there is none, it returns pgx.ErrNoRows.
+func messageByIdempotencyKey(ctx context.Context, q *ingestdb.Queries, tenantID uuid.UUID, key string) (Message, error) {
 	row, err := q.GetMessageByIdempotencyKey(ctx, ingestdb.GetMessageByIdempotencyKeyParams{
-		TenantID:       m.TenantID,
-		IdempotencyKey: m.IdempotencyKey,
+		TenantID:       tenantID,
+		IdempotencyKey: key,
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Message{}, notFound
-	}
 	if err != nil {
 		return Message{}, fmt.Errorf("get message by idempotency key: %w", err)
 	}
-	msg := toMessage(row)
 	deliveries, err := q.ListDeliveries(ctx, row.ID)
 	if err != nil {
 		return Message{}, fmt.Errorf("list deliveries of message %s: %w", row.ID, err)
 	}
-	for _, d := range deliveries {
-		msg.Deliveries = append(msg.Deliveries, Delivery(d))
-	}
+	msg := toMessage(row)
+	msg.Deliveries = toDeliveries(deliveries)
 	return msg, nil
 }
 
@@ -182,4 +180,13 @@ func toMessage(row ingestdb.IngestMessage) Message {
 		CreatedAt:     row.CreatedAt,
 		HandedOffAt:   row.HandedOffAt.Time, // Zero when NULL.
 	}
+}
+
+// toDeliveries converts the Delivery rows that the queries return.
+func toDeliveries[Row ingestdb.CreateDeliveriesRow | ingestdb.ListDeliveriesRow](rows []Row) []Delivery {
+	deliveries := make([]Delivery, len(rows))
+	for i, row := range rows {
+		deliveries[i] = Delivery(row)
+	}
+	return deliveries
 }

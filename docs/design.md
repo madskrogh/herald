@@ -35,7 +35,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 ## Delivery semantics
 
 - **At-least-once** ([ADR 0001](adr/0001-at-least-once-delivery.md)). Every webhook carries a stable `webhook-id`, and receivers are expected to drop duplicates by it.
-- **Idempotent submission.** `POST /v1/messages` accepts an optional `Idempotency-Key`, unique per Tenant for 24 hours (unique index on `(tenant_id, idempotency_key)`). A repeat returns the original Message and writes nothing. Concurrent requests with the same key wait on the unique index (`ON CONFLICT DO NOTHING`), so one of them creates the Message. Keys expire lazily: a Message keeps its key after 24 hours, and the next request with that key takes it over, in the same transaction that creates the new Message. No background job is needed, and expiry is decided by herald-api's clock (`created_at` comes from it too).
+- **Idempotent submission.** `POST /v1/messages` accepts an optional `Idempotency-Key`, unique per Tenant for 24 hours (unique index on `(tenant_id, idempotency_key)`). A repeat returns the original Message and writes nothing. Concurrent requests with the same key wait on the unique index (`ON CONFLICT DO NOTHING`), so one of them creates the Message. Keys expire lazily: a Message keeps its key after 24 hours, and the next request with that key takes it over, in the same transaction that creates the new Message. No background sweep is needed, and expiry is decided by herald-api's clock (`created_at` comes from it too).
 - **Success:** any `2xx` response within **15 s**. Anything else (other status codes, timeout, connection error) is retried.
 - **Retry schedule:** 8 Attempts, exponential backoff with jitter: immediately, 5 s, 1 m, 10 m, 1 h, 3 h, 6 h, 12 h (about 24 h in total).
 - **Delivery states:** `pending` → `succeeded` | `failed`. A failed Delivery keeps its full Attempt history (status code, latency, start of the response body).
@@ -61,7 +61,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 - Idempotency-Key: 1 to 256 bytes, which keeps it within what the unique index can hold.
 - Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Every Message in a handoff batch carries its Event type, so the cap bounds what each Message adds to a batch.
 - Endpoint filter: NATS-style wildcards (`*` matches one token, `>` matches the rest). An empty filter matches everything. At most **32 patterns**, each at most **128 bytes**, which bounds the cost of matching one Endpoint during fan-out on the request path. A pattern may be as long as an Event type, so a filter can name any Event type.
-- Tenant API REST request body: at most **1 MB**, checked before authentication.
+- Tenant API REST request body: at most **1600 KiB**, checked before authentication. A payload travels as a JSON string, in which each byte may be escaped as six (`\u00XX`), so this is six times the largest payload plus 64 KiB for the other fields.
 - Application name: not blank, at most **256 bytes**.
 - Endpoint URL: an absolute `http` or `https` URL with a host and, if any, a port from 1 to 65535, at most **2048 bytes**, without user information (it would be stored in plain), a fragment (never sent) or unescaped whitespace.
 - Handoff batches stay under the NATS maximum message size (1 MB by default).

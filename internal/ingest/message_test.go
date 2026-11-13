@@ -222,19 +222,75 @@ func TestConcurrentRequestsWithTheSameKeyCreateOneMessage(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	store, pool := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
-	f := newFixture(t, store)
-	f.endpoint(t, nil)
 
-	const requests = 16
-	type result struct {
-		msg     ingest.Message
-		created bool
-		err     error
+	tests := []struct {
+		name string
+		// expired is whether a Message accepted 24 hours earlier holds the key,
+		// so that every request tries to take it over.
+		expired bool
+	}{
+		{name: "new key"},
+		{name: "expired key", expired: true},
 	}
-	results := make([]result, requests)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store, pool := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+			f := newFixture(t, store)
+			f.endpoint(t, nil)
+			var holder ingest.Message
+			if tt.expired {
+				var err error
+				holder, _, err = store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted.Add(-24*time.Hour))
+				if err != nil {
+					t.Fatalf("CreateMessage 24 h earlier: %v", err)
+				}
+			}
+			before := countMessagesAndDeliveries(t, pool)
+
+			results := createConcurrently(t, pool, 16, func() (ingest.Message, bool, error) {
+				return store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted)
+			})
+
+			var created int
+			for i, r := range results {
+				if r.err != nil {
+					t.Fatalf("request %d: %v", i, r.err)
+				}
+				if r.created {
+					created++
+				}
+				if diff := cmp.Diff(results[0].msg, r.msg); diff != "" {
+					t.Errorf("request %d got another Message than request 0 (-0 +%d):\n%s", i, i, diff)
+				}
+			}
+			if created != 1 {
+				t.Errorf("%d requests report a created Message, want 1", created)
+			}
+			if results[0].msg.ID == holder.ID {
+				t.Errorf("requests got the Message %s that held the expired key, want a new one", holder.ID)
+			}
+			want := rowCounts{Messages: before.Messages + 1, Deliveries: before.Deliveries + 1}
+			if got := countMessagesAndDeliveries(t, pool); got != want {
+				t.Errorf("rows = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+// createResult is what one call of CreateMessage returned.
+type createResult struct {
+	msg     ingest.Message
+	created bool
+	err     error
+}
+
+// createConcurrently makes n calls of create at once, and returns their
+// results.
+func createConcurrently(t *testing.T, pool *pgxpool.Pool, n int, create func() (ingest.Message, bool, error)) []createResult {
+	t.Helper()
 	// Open the pool's connections first. Otherwise opening them staggers the
-	// requests by more than a request takes, and they run one after another.
+	// calls by more than a call takes, and they run one after another.
 	conns := make([]*pgxpool.Conn, pool.Config().MaxConns)
 	for i := range conns {
 		conn, err := pool.Acquire(t.Context())
@@ -246,36 +302,20 @@ func TestConcurrentRequestsWithTheSameKeyCreateOneMessage(t *testing.T) {
 	for _, conn := range conns {
 		conn.Release()
 	}
+
+	results := make([]createResult, n)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := range requests {
+	for i := range n {
 		wg.Go(func() {
 			<-start
-			msg, created, err := store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted)
-			results[i] = result{msg: msg, created: created, err: err}
+			msg, created, err := create()
+			results[i] = createResult{msg: msg, created: created, err: err}
 		})
 	}
 	close(start)
 	wg.Wait()
-
-	var created int
-	for i, r := range results {
-		if r.err != nil {
-			t.Fatalf("request %d: %v", i, r.err)
-		}
-		if r.created {
-			created++
-		}
-		if diff := cmp.Diff(results[0].msg, r.msg); diff != "" {
-			t.Errorf("request %d got another Message than request 0 (-0 +%d):\n%s", i, i, diff)
-		}
-	}
-	if created != 1 {
-		t.Errorf("%d requests report a created Message, want 1", created)
-	}
-	if got, want := countMessagesAndDeliveries(t, pool), (rowCounts{Messages: 1, Deliveries: 1}); got != want {
-		t.Errorf("rows = %+v, want %+v", got, want)
-	}
+	return results
 }
 
 // rowCounts is how many Messages and Deliveries a database holds.
@@ -313,12 +353,6 @@ func newFixture(t *testing.T, store *ingest.Store) fixture {
 	if err != nil {
 		t.Fatalf("CreateTenant: %v", err)
 	}
-	return newApplication(t, store, tenant)
-}
-
-// newApplication returns a fixture with a new Application under tenant.
-func newApplication(t *testing.T, store *ingest.Store, tenant ingest.Tenant) fixture {
-	t.Helper()
 	application, err := store.CreateApplication(t.Context(), tenant.ID, "Customer A")
 	if err != nil {
 		t.Fatalf("CreateApplication: %v", err)

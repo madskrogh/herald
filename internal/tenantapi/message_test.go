@@ -86,7 +86,7 @@ func TestRepeatWithIdempotencyKeyReturnsTheOriginalMessage(t *testing.T) {
 	}
 }
 
-func TestIdempotencyKeyLength(t *testing.T) {
+func TestMessageLimits(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("integration")
@@ -97,59 +97,51 @@ func TestIdempotencyKeyLength(t *testing.T) {
 	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
 	applicationID := application.GetApplication().GetId()
 
-	tests := []struct {
-		name           string
-		idempotencyKey string
-		wantCode       codes.Code
-	}{
-		{name: "at the limit", idempotencyKey: strings.Repeat("k", 256), wantCode: codes.OK},
-		{name: "over the limit", idempotencyKey: strings.Repeat("k", 257), wantCode: codes.InvalidArgument},
-	}
-	for _, tr := range transports {
-		for _, tt := range tests {
-			t.Run(tr.name+"/"+tt.name, func(t *testing.T) {
-				t.Parallel()
-				c := createMessage(applicationID, "invoice.paid", payload, tt.idempotencyKey)
-				if code := tr.invoke(t, a, "Bearer "+key, c, nil); code != tt.wantCode {
-					t.Errorf("code = %s, want %s", code, tt.wantCode)
-				}
-			})
-		}
-	}
-}
-
-func TestPayloadSizeLimit(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("integration")
-	}
-	a := newAPI(t)
-	key := a.newTenant(t, "Acme")
-	var application tenantv1.CreateApplicationResponse
-	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
-	applicationID := application.GetApplication().GetId()
-
-	// jsonOfSize returns a JSON payload of exactly n bytes: a string.
-	jsonOfSize := func(n int) string {
-		return `"` + strings.Repeat("a", n-2) + `"`
+	// jsonOfSize returns a JSON payload of exactly n bytes: a string of c.
+	jsonOfSize := func(n int, c string) string {
+		return `"` + strings.Repeat(c, n-2) + `"`
 	}
 	const maxPayload = 256 << 10
 
 	tests := []struct {
 		name     string
-		payload  string
+		call     call
 		wantCode codes.Code
 	}{
-		{name: "at the limit", payload: jsonOfSize(maxPayload), wantCode: codes.OK},
-		// REST answers 413 Content Too Large.
-		{name: "over the limit", payload: jsonOfSize(maxPayload + 1), wantCode: codes.ResourceExhausted},
+		{
+			name:     "payload at the limit",
+			call:     createMessage(applicationID, "invoice.paid", jsonOfSize(maxPayload, "a"), ""),
+			wantCode: codes.OK,
+		},
+		{
+			// The REST body escapes each "<" as the 6 bytes \u003c, as
+			// encoding/json does by default, so it is 6 times the payload.
+			name:     "payload at the limit, escaped in full",
+			call:     createMessage(applicationID, "invoice.paid", jsonOfSize(maxPayload, "<"), ""),
+			wantCode: codes.OK,
+		},
+		{
+			// REST answers 413 Content Too Large.
+			name:     "payload over the limit",
+			call:     createMessage(applicationID, "invoice.paid", jsonOfSize(maxPayload+1, "a"), ""),
+			wantCode: codes.ResourceExhausted,
+		},
+		{
+			name:     "Idempotency-Key at the limit",
+			call:     createMessage(applicationID, "invoice.paid", payload, strings.Repeat("k", 256)),
+			wantCode: codes.OK,
+		},
+		{
+			name:     "Idempotency-Key over the limit",
+			call:     createMessage(applicationID, "invoice.paid", payload, strings.Repeat("k", 257)),
+			wantCode: codes.InvalidArgument,
+		},
 	}
 	for _, tr := range transports {
 		for _, tt := range tests {
 			t.Run(tr.name+"/"+tt.name, func(t *testing.T) {
 				t.Parallel()
-				c := createMessage(applicationID, "invoice.paid", tt.payload, "")
-				if code := tr.invoke(t, a, "Bearer "+key, c, nil); code != tt.wantCode {
+				if code := tr.invoke(t, a, "Bearer "+key, tt.call, nil); code != tt.wantCode {
 					t.Errorf("code = %s, want %s", code, tt.wantCode)
 				}
 			})
