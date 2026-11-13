@@ -8,11 +8,14 @@
 package tenantapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/textproto"
 	"runtime/debug"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -37,13 +40,19 @@ func NewGRPCServer(store *ingest.Store, kr *keyring.Keyring, logger *slog.Logger
 	))
 	tenantv1.RegisterApplicationServiceServer(srv, &applicationServer{store: store})
 	tenantv1.RegisterEndpointServiceServer(srv, &endpointServer{store: store, keyring: kr})
+	tenantv1.RegisterMessageServiceServer(srv, &messageServer{store: store})
 	return srv
 }
 
 // maxRequestBody is the most a REST request body may hold. The gateway reads
 // and decodes the whole body before the gRPC server authenticates the call,
 // so the limit applies to callers without a valid API key too.
-const maxRequestBody = 1 << 20
+//
+// The largest valid body is a CreateMessage request. Its payload travels as a
+// JSON string, in which each byte may be escaped as the six bytes \u00XX
+// (encoding/json escapes <, > and & this way by default), so the limit is six
+// times the largest payload, with 64 KiB for the other fields.
+const maxRequestBody = 6*maxPayloadBytes + 64<<10
 
 // NewGateway returns a handler that serves the Tenant API over REST/JSON by
 // calling the gRPC server at the other end of conn.
@@ -57,22 +66,110 @@ func NewGateway(ctx context.Context, conn grpc.ClientConnInterface) (http.Handle
 		// misspelled "filter" would otherwise leave an Endpoint's filter empty,
 		// accepting every Event type.
 		UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: false},
-	}))
+	}), runtime.WithErrorHandler(handleError), runtime.WithIncomingHeaderMatcher(matchHeader))
 	if err := tenantv1.RegisterApplicationServiceHandlerClient(ctx, mux, tenantv1.NewApplicationServiceClient(conn)); err != nil {
 		return nil, fmt.Errorf("register application service: %w", err)
 	}
 	if err := tenantv1.RegisterEndpointServiceHandlerClient(ctx, mux, tenantv1.NewEndpointServiceClient(conn)); err != nil {
 		return nil, fmt.Errorf("register endpoint service: %w", err)
 	}
-	return http.MaxBytesHandler(mux, maxRequestBody), nil
+	if err := tenantv1.RegisterMessageServiceHandlerClient(ctx, mux, tenantv1.NewMessageServiceClient(conn)); err != nil {
+		return nil, fmt.Errorf("register message service: %w", err)
+	}
+	return checkIdempotencyKeyHeader(mux, limitBody(mux, mux)), nil
+}
+
+// limitBody reads the request body into memory before next handles it, and
+// fails a body over maxRequestBody with ResourceExhausted, which handleError
+// writes as 413. The gateway would read the whole body anyway, but would
+// report a body over the limit as InvalidArgument.
+func limitBody(mux *runtime.ServeMux, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBody))
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			writeError(mux, w, r, status.Errorf(codes.ResourceExhausted, "request body is over %d bytes", maxRequestBody))
+			return
+		}
+		if err != nil {
+			writeError(mux, w, r, status.Error(codes.InvalidArgument, "read request body"))
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next.ServeHTTP(w, r)
+	})
+}
+
+// checkIdempotencyKeyHeader fails a request whose Idempotency-Key header is
+// not a valid Idempotency-Key, before next handles it. The gateway drops a
+// header value that isn't printable ASCII, so without this check the call
+// would go ahead as if it had no key, and a retry would create a second
+// Message.
+func checkIdempotencyKeyHeader(mux *runtime.ServeMux, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, key := range r.Header.Values("Idempotency-Key") {
+			if err := checkIdempotencyKey(key); err != nil {
+				writeError(mux, w, r, invalidArgument(err))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeError writes err as the gateway writes the errors of the calls it
+// makes, through handleError.
+func writeError(mux *runtime.ServeMux, w http.ResponseWriter, r *http.Request, err error) {
+	_, m := runtime.MarshalerForRequest(mux, r)
+	runtime.HTTPError(r.Context(), mux, m, w, r, err)
+}
+
+// matchHeader forwards the Idempotency-Key header as the metadata the gRPC
+// server reads it from, and every other header as the gateway does by default.
+func matchHeader(key string) (string, bool) {
+	if textproto.CanonicalMIMEHeaderKey(key) == "Idempotency-Key" {
+		return idempotencyKeyMetadata, true
+	}
+	return runtime.DefaultHeaderMatcher(key)
+}
+
+// handleError writes a gRPC error as a REST response, as the gateway's default
+// handler does, except for two codes whose default HTTP status says something
+// the Tenant API doesn't mean:
+//   - ResourceExhausted is 413 Content Too Large rather than 429 Too Many
+//     Requests: the Tenant API returns it only for a request that is too
+//     large, which retrying later won't fix.
+//   - FailedPrecondition is 422 Unprocessable Content rather than 400 Bad
+//     Request: the Tenant API returns it only for a valid request that
+//     conflicts with what is stored.
+func handleError(ctx context.Context, mux *runtime.ServeMux, m runtime.Marshaler, w http.ResponseWriter, r *http.Request, err error) {
+	switch status.Code(err) {
+	case codes.ResourceExhausted:
+		w = statusOverride{ResponseWriter: w, code: http.StatusRequestEntityTooLarge}
+	case codes.FailedPrecondition:
+		w = statusOverride{ResponseWriter: w, code: http.StatusUnprocessableEntity}
+	}
+	runtime.DefaultHTTPErrorHandler(ctx, mux, m, w, r, err)
+}
+
+// statusOverride is a ResponseWriter that writes code as the status, whatever
+// status it is asked to write.
+type statusOverride struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w statusOverride) WriteHeader(int) {
+	w.ResponseWriter.WriteHeader(w.code)
 }
 
 // statusErrors is a gRPC interceptor that turns the errors the services
 // return into gRPC status errors. Errors that are already status errors are
-// the caller's, and pass through. ingest.ErrNotFound becomes NotFound. Any
-// other error is Herald's own: it is logged, and the caller sees only
-// Internal. Neither passes on the error's message, which is written for
-// Herald's logs and may reveal internals.
+// the caller's, and pass through. ingest.ErrNotFound becomes NotFound, and
+// ingest.ErrTooManyEndpoints and ingest.ErrIdempotencyKeyReused become
+// FailedPrecondition. Any other error
+// is Herald's own: it is logged, and the caller sees only Internal. None
+// passes on the error's message, which is written for Herald's logs and may
+// reveal internals.
 func statusErrors(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		resp, err := handler(ctx, req)
@@ -89,6 +186,12 @@ func statusErrors(logger *slog.Logger) grpc.UnaryServerInterceptor {
 		}
 		if errors.Is(err, ingest.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "not found")
+		}
+		if errors.Is(err, ingest.ErrTooManyEndpoints) {
+			return nil, status.Errorf(codes.FailedPrecondition, "the Application has %d Endpoints, the most it may have", ingest.MaxEndpoints)
+		}
+		if errors.Is(err, ingest.ErrIdempotencyKeyReused) {
+			return nil, status.Error(codes.FailedPrecondition, "Idempotency-Key was used for a different request in the last 24 hours")
 		}
 		logger.ErrorContext(ctx, "internal error", "method", info.FullMethod, "error", err)
 		return nil, status.Error(codes.Internal, "internal error")

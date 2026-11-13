@@ -7,6 +7,7 @@ package ingestdb
 import (
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"uuid"
 )
 
@@ -24,12 +25,29 @@ type IngestApplication struct {
 	CreatedAt time.Time
 }
 
+type IngestDelivery struct {
+	ID         uuid.UUID
+	MessageID  uuid.UUID
+	EndpointID uuid.UUID
+}
+
 type IngestEndpoint struct {
 	ID            uuid.UUID
 	ApplicationID uuid.UUID
 	URL           string
 	Filter        []string
 	CreatedAt     time.Time
+}
+
+type IngestMessage struct {
+	ID             uuid.UUID
+	TenantID       uuid.UUID
+	ApplicationID  uuid.UUID
+	EventType      string
+	Payload        []byte
+	IdempotencyKey pgtype.Text
+	CreatedAt      time.Time
+	HandedOffAt    pgtype.Timestamptz
 }
 
 type IngestSigningSecret struct {

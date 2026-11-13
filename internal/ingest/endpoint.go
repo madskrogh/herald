@@ -12,6 +12,12 @@ import (
 	"github.com/madskrogh/herald/internal/ingest/ingestdb"
 )
 
+// MaxEndpoints is how many Endpoints an Application may have. A Message's
+// Deliveries travel in one handoff batch, which must stay under 1 MB (ADR
+// 0002), and each Delivery carries its Endpoint's URL and signing secrets.
+// The limit also bounds fan-out on the request path that accepts a Message.
+const MaxEndpoints = 100
+
 // Endpoint is a URL registered under an Application, to which Herald delivers
 // webhooks.
 type Endpoint struct {
@@ -40,7 +46,8 @@ type NewEndpoint struct {
 
 // CreateEndpoint creates an Endpoint and its signing secret. If the
 // Application doesn't exist or belongs to another Tenant, it returns
-// ErrNotFound.
+// ErrNotFound; if the Application already has MaxEndpoints Endpoints, it
+// returns ErrTooManyEndpoints.
 func (s *Store) CreateEndpoint(ctx context.Context, e NewEndpoint) (Endpoint, error) {
 	filter := e.Filter
 	if filter == nil {
@@ -49,16 +56,29 @@ func (s *Store) CreateEndpoint(ctx context.Context, e NewEndpoint) (Endpoint, er
 	var ep Endpoint
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		row, err := q.CreateEndpoint(ctx, ingestdb.CreateEndpointParams{
-			ID:            e.ID,
-			URL:           e.URL,
-			Filter:        filter,
-			TenantID:      e.TenantID,
-			ApplicationID: e.ApplicationID,
+		_, err := q.LockApplicationForEndpoints(ctx, ingestdb.LockApplicationForEndpointsParams{
+			TenantID: e.TenantID,
+			ID:       e.ApplicationID,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("application %s: %w", e.ApplicationID, ErrNotFound)
 		}
+		if err != nil {
+			return fmt.Errorf("lock application %s: %w", e.ApplicationID, err)
+		}
+		n, err := q.CountEndpoints(ctx, e.ApplicationID)
+		if err != nil {
+			return fmt.Errorf("count endpoints: %w", err)
+		}
+		if n >= MaxEndpoints {
+			return fmt.Errorf("application %s has %d endpoints: %w", e.ApplicationID, n, ErrTooManyEndpoints)
+		}
+		row, err := q.CreateEndpoint(ctx, ingestdb.CreateEndpointParams{
+			ID:            e.ID,
+			URL:           e.URL,
+			Filter:        filter,
+			ApplicationID: e.ApplicationID,
+		})
 		if err != nil {
 			return fmt.Errorf("insert endpoint: %w", err)
 		}

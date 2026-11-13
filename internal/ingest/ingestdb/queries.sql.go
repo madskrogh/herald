@@ -7,9 +7,23 @@ package ingestdb
 
 import (
 	"context"
+	"time"
 
 	"uuid"
 )
+
+const countEndpoints = `-- name: CountEndpoints :one
+SELECT count(*)
+FROM ingest.endpoints
+WHERE application_id = $1
+`
+
+func (q *Queries) CountEndpoints(ctx context.Context, applicationID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countEndpoints, applicationID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const createAPIKey = `-- name: CreateAPIKey :exec
 INSERT INTO ingest.api_keys (tenant_id, key_hash)
@@ -49,31 +63,69 @@ func (q *Queries) CreateApplication(ctx context.Context, arg CreateApplicationPa
 	return i, err
 }
 
+const createDeliveries = `-- name: CreateDeliveries :many
+WITH created AS (
+    INSERT INTO ingest.deliveries (message_id, endpoint_id)
+    SELECT $1, unnest($2::uuid[])
+    RETURNING id, endpoint_id
+)
+SELECT id, endpoint_id
+FROM created
+ORDER BY endpoint_id
+`
+
+type CreateDeliveriesParams struct {
+	MessageID   uuid.UUID
+	EndpointIds []uuid.UUID
+}
+
+type CreateDeliveriesRow struct {
+	ID         uuid.UUID
+	EndpointID uuid.UUID
+}
+
+// A Delivery of the Message to each of the Endpoints, in Endpoint ID order.
+func (q *Queries) CreateDeliveries(ctx context.Context, arg CreateDeliveriesParams) ([]CreateDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, createDeliveries, arg.MessageID, arg.EndpointIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CreateDeliveriesRow
+	for rows.Next() {
+		var i CreateDeliveriesRow
+		if err := rows.Scan(&i.ID, &i.EndpointID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createEndpoint = `-- name: CreateEndpoint :one
 INSERT INTO ingest.endpoints (id, application_id, url, filter)
-SELECT $1, a.id, $2, $3::text[]
-FROM ingest.applications a
-WHERE a.tenant_id = $4 AND a.id = $5
+VALUES ($1, $2, $3, $4::text[])
 RETURNING id, application_id, url, filter, created_at
 `
 
 type CreateEndpointParams struct {
 	ID            uuid.UUID
+	ApplicationID uuid.UUID
 	URL           string
 	Filter        []string
-	TenantID      uuid.UUID
-	ApplicationID uuid.UUID
 }
 
-// Creates the Endpoint only if its Application belongs to the Tenant, so that
-// no row comes back for another Tenant's Application.
+// The caller has checked that the Application belongs to the Tenant, with
+// LockApplicationForEndpoints in the same transaction.
 func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (IngestEndpoint, error) {
 	row := q.db.QueryRow(ctx, createEndpoint,
 		arg.ID,
+		arg.ApplicationID,
 		arg.URL,
 		arg.Filter,
-		arg.TenantID,
-		arg.ApplicationID,
 	)
 	var i IngestEndpoint
 	err := row.Scan(
@@ -82,6 +134,56 @@ func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) 
 		&i.URL,
 		&i.Filter,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createMessage = `-- name: CreateMessage :one
+INSERT INTO ingest.messages (tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at)
+SELECT
+    a.tenant_id, a.id, $1, $2, NULLIF($3::text, ''), $4::timestamptz,
+    CASE WHEN $5::boolean THEN NULL ELSE $4::timestamptz END
+FROM ingest.applications a
+WHERE a.tenant_id = $6 AND a.id = $7
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+RETURNING id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at
+`
+
+type CreateMessageParams struct {
+	EventType      string
+	Payload        []byte
+	IdempotencyKey string
+	Now            time.Time
+	HasDeliveries  bool
+	TenantID       uuid.UUID
+	ApplicationID  uuid.UUID
+}
+
+// Creates the Message only if its Application belongs to the Tenant and no
+// Message of the Tenant's holds its Idempotency-Key (an empty key is none).
+// Otherwise no row comes back. A Message without Deliveries has nothing to
+// hand off, so it is written as handed off already and never enters the
+// outbox.
+func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (IngestMessage, error) {
+	row := q.db.QueryRow(ctx, createMessage,
+		arg.EventType,
+		arg.Payload,
+		arg.IdempotencyKey,
+		arg.Now,
+		arg.HasDeliveries,
+		arg.TenantID,
+		arg.ApplicationID,
+	)
+	var i IngestMessage
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.ApplicationID,
+		&i.EventType,
+		&i.Payload,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.HandedOffAt,
 	)
 	return i, err
 }
@@ -163,6 +265,33 @@ func (q *Queries) GetEndpoint(ctx context.Context, arg GetEndpointParams) (Inges
 	return i, err
 }
 
+const getMessageByIdempotencyKey = `-- name: GetMessageByIdempotencyKey :one
+SELECT id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at
+FROM ingest.messages
+WHERE tenant_id = $1 AND idempotency_key = $2::text
+`
+
+type GetMessageByIdempotencyKeyParams struct {
+	TenantID       uuid.UUID
+	IdempotencyKey string
+}
+
+func (q *Queries) GetMessageByIdempotencyKey(ctx context.Context, arg GetMessageByIdempotencyKeyParams) (IngestMessage, error) {
+	row := q.db.QueryRow(ctx, getMessageByIdempotencyKey, arg.TenantID, arg.IdempotencyKey)
+	var i IngestMessage
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.ApplicationID,
+		&i.EventType,
+		&i.Payload,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.HandedOffAt,
+	)
+	return i, err
+}
+
 const getTenantByAPIKeyHash = `-- name: GetTenantByAPIKeyHash :one
 SELECT t.id, t.name, t.created_at
 FROM ingest.api_keys k
@@ -207,6 +336,79 @@ func (q *Queries) ListApplications(ctx context.Context, arg ListApplicationsPara
 			&i.Name,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeliveries = `-- name: ListDeliveries :many
+SELECT id, endpoint_id
+FROM ingest.deliveries
+WHERE message_id = $1
+ORDER BY endpoint_id
+`
+
+type ListDeliveriesRow struct {
+	ID         uuid.UUID
+	EndpointID uuid.UUID
+}
+
+// The Message's Deliveries, in Endpoint ID order.
+func (q *Queries) ListDeliveries(ctx context.Context, messageID uuid.UUID) ([]ListDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, listDeliveries, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDeliveriesRow
+	for rows.Next() {
+		var i ListDeliveriesRow
+		if err := rows.Scan(&i.ID, &i.EndpointID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEndpointFilters = `-- name: ListEndpointFilters :many
+SELECT e.id, e.filter
+FROM ingest.endpoints e
+JOIN ingest.applications a ON a.id = e.application_id
+WHERE a.tenant_id = $1 AND e.application_id = $2
+ORDER BY e.id
+`
+
+type ListEndpointFiltersParams struct {
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+}
+
+type ListEndpointFiltersRow struct {
+	ID     uuid.UUID
+	Filter []string
+}
+
+// The filters of every Endpoint under the Tenant's Application, for working
+// out a Message's Deliveries.
+func (q *Queries) ListEndpointFilters(ctx context.Context, arg ListEndpointFiltersParams) ([]ListEndpointFiltersRow, error) {
+	rows, err := q.db.Query(ctx, listEndpointFilters, arg.TenantID, arg.ApplicationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEndpointFiltersRow
+	for rows.Next() {
+		var i ListEndpointFiltersRow
+		if err := rows.Scan(&i.ID, &i.Filter); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -264,4 +466,46 @@ func (q *Queries) ListEndpoints(ctx context.Context, arg ListEndpointsParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockApplicationForEndpoints = `-- name: LockApplicationForEndpoints :one
+SELECT id
+FROM ingest.applications
+WHERE tenant_id = $1 AND id = $2
+FOR NO KEY UPDATE
+`
+
+type LockApplicationForEndpointsParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Locks the Tenant's Application while an Endpoint is added to it, so that
+// concurrent additions count its Endpoints one at a time. FOR NO KEY UPDATE
+// rather than FOR UPDATE: a Message insert takes FOR KEY SHARE on the
+// Application through its foreign key, which FOR UPDATE would block.
+func (q *Queries) LockApplicationForEndpoints(ctx context.Context, arg LockApplicationForEndpointsParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockApplicationForEndpoints, arg.TenantID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const releaseIdempotencyKey = `-- name: ReleaseIdempotencyKey :exec
+UPDATE ingest.messages
+SET idempotency_key = NULL
+WHERE tenant_id = $1 AND idempotency_key = $2::text AND created_at <= $3
+`
+
+type ReleaseIdempotencyKeyParams struct {
+	TenantID       uuid.UUID
+	IdempotencyKey string
+	ExpiredBy      time.Time
+}
+
+// Takes the Idempotency-Key from the Tenant's Message that holds it, if that
+// Message was created at or before @expired_by, so the key can be reused.
+func (q *Queries) ReleaseIdempotencyKey(ctx context.Context, arg ReleaseIdempotencyKeyParams) error {
+	_, err := q.db.Exec(ctx, releaseIdempotencyKey, arg.TenantID, arg.IdempotencyKey, arg.ExpiredBy)
+	return err
 }

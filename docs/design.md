@@ -35,7 +35,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 ## Delivery semantics
 
 - **At-least-once** ([ADR 0001](adr/0001-at-least-once-delivery.md)). Every webhook carries a stable `webhook-id`, and receivers are expected to drop duplicates by it.
-- **Idempotent submission.** `POST /v1/messages` accepts an optional `Idempotency-Key`, unique per Tenant for 24 hours (unique index on `(tenant_id, idempotency_key)`). A repeat returns the original Message.
+- **Idempotent submission.** `POST /v1/messages` accepts an optional `Idempotency-Key`, unique per Tenant for 24 hours (unique index on `(tenant_id, idempotency_key)`). A repeat (same Application, Event type and payload, compared byte for byte) returns the original Message and writes nothing. The same key with a different request is refused with `422` (`FAILED_PRECONDITION` over gRPC): returning the original would drop the new Message without telling the Tenant. Comparing bytes rather than parsed JSON errs loudly: a client that re-serializes a payload differently gets a `422`, never a silently dropped Message. Concurrent requests with the same key wait on the unique index (`ON CONFLICT DO NOTHING`), so one of them creates the Message. Keys expire lazily: a Message keeps its key after 24 hours, and the next request with that key takes it over, in the same transaction that creates the new Message. No background sweep is needed, and expiry is decided by herald-api's clock (`created_at` comes from it too).
 - **Success:** any `2xx` response within **15 s**. Anything else (other status codes, timeout, connection error) is retried.
 - **Retry schedule:** 8 Attempts, exponential backoff with jitter: immediately, 5 s, 1 m, 10 m, 1 h, 3 h, 6 h, 12 h (about 24 h in total).
 - **Delivery states:** `pending` → `succeeded` | `failed`. A failed Delivery keeps its full Attempt history (status code, latency, start of the response body).
@@ -57,10 +57,12 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 
 ## Limits and validation
 
-- Payload: JSON, at most **256 KB** (`413` otherwise).
+- Payload: a JSON value, at most **256 KiB** (`413` otherwise; `RESOURCE_EXHAUSTED` over gRPC). The API carries it as JSON text in a string field, and Herald stores and delivers those bytes unchanged: parsing it into `google.protobuf.Value` would turn numbers into `float64`, so integers above 2^53 would silently change.
+- Idempotency-Key: 1 to 256 bytes of printable ASCII, as HTTP defines the header. The length keeps it within what the unique index can hold.
 - Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Every Message in a handoff batch carries its Event type, so the cap bounds what each Message adds to a batch.
+- Endpoints per Application: at most **100** (`422` otherwise; `FAILED_PRECONDITION` over gRPC). A Message's Deliveries travel in one handoff batch, which must stay under the NATS maximum message size, and each Delivery carries its Endpoint's URL (up to 2048 bytes) and signing secrets. With a 256 KiB payload, about 350 Deliveries would fill a 1 MB batch, so a Message to more Endpoints could never be handed off; 100 leaves a margin. Concurrent creates can't exceed it: each locks the Application row (`FOR NO KEY UPDATE`, which doesn't block Message inserts) before counting.
 - Endpoint filter: NATS-style wildcards (`*` matches one token, `>` matches the rest). An empty filter matches everything. At most **32 patterns**, each at most **128 bytes**, which bounds the cost of matching one Endpoint during fan-out on the request path. A pattern may be as long as an Event type, so a filter can name any Event type.
-- Tenant API REST request body: at most **1 MB**, checked before authentication.
+- Tenant API REST request body: at most **1600 KiB** (`413` otherwise), checked before authentication. A payload travels as a JSON string, in which each byte may be escaped as six (`\u00XX`), so this is six times the largest payload plus 64 KiB for the other fields.
 - Application name: not blank, at most **256 bytes**.
 - Endpoint URL: an absolute `http` or `https` URL with a host and, if any, a port from 1 to 65535, at most **2048 bytes**, without user information (it would be stored in plain), a fragment (never sent) or unescaped whitespace.
 - Handoff batches stay under the NATS maximum message size (1 MB by default).

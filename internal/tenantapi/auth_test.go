@@ -30,6 +30,7 @@ func TestCallsNeedAValidAPIKey(t *testing.T) {
 		createEndpoint(applicationID, "https://example.com/other", nil),
 		getEndpoint(applicationID, ep.GetEndpoint().GetId()),
 		listEndpoints(applicationID, 0, ""),
+		createMessage(applicationID, "invoice.paid", `{}`, ""),
 	}
 	authorizations := []struct {
 		name  string

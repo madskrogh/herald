@@ -1,5 +1,6 @@
 // Package ingest owns herald-api's ingest schema: its migrations and the
-// Tenants, API keys, Applications and Endpoints stored in it.
+// Tenants, API keys, Applications, Endpoints, Messages and Deliveries stored
+// in it.
 package ingest
 
 import (
@@ -29,6 +30,15 @@ const foreignKeyViolation = "23503"
 // ErrNotFound is returned when an API key, a Tenant, an Application or an
 // Endpoint doesn't exist, or belongs to another Tenant.
 var ErrNotFound = errors.New("not found")
+
+// ErrTooManyEndpoints is returned when an Application already has
+// MaxEndpoints Endpoints.
+var ErrTooManyEndpoints = errors.New("too many endpoints")
+
+// ErrIdempotencyKeyReused is returned when a Message's Idempotency-Key is held
+// by another Message of the Tenant's, less than 24 hours old, that differs in
+// its Application, Event type or payload.
+var ErrIdempotencyKeyReused = errors.New("idempotency key reused for another request")
 
 // Tenant is an organization that uses Herald to send webhooks.
 type Tenant struct {
