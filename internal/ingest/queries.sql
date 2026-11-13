@@ -47,12 +47,10 @@ FROM ingest.endpoints
 WHERE application_id = @application_id;
 
 -- name: CreateEndpoint :one
--- Creates the Endpoint only if its Application belongs to the Tenant, so that
--- no row comes back for another Tenant's Application.
+-- The caller has checked that the Application belongs to the Tenant, with
+-- LockApplicationForEndpoints in the same transaction.
 INSERT INTO ingest.endpoints (id, application_id, url, filter)
-SELECT @id, a.id, @url, @filter::text[]
-FROM ingest.applications a
-WHERE a.tenant_id = @tenant_id AND a.id = @application_id
+VALUES (@id, @application_id, @url, @filter::text[])
 RETURNING *;
 
 -- name: CreateSigningSecret :exec

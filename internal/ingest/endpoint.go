@@ -77,12 +77,8 @@ func (s *Store) CreateEndpoint(ctx context.Context, e NewEndpoint) (Endpoint, er
 			ID:            e.ID,
 			URL:           e.URL,
 			Filter:        filter,
-			TenantID:      e.TenantID,
 			ApplicationID: e.ApplicationID,
 		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("application %s: %w", e.ApplicationID, ErrNotFound)
-		}
 		if err != nil {
 			return fmt.Errorf("insert endpoint: %w", err)
 		}

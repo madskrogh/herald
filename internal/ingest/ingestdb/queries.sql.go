@@ -107,29 +107,25 @@ func (q *Queries) CreateDeliveries(ctx context.Context, arg CreateDeliveriesPara
 
 const createEndpoint = `-- name: CreateEndpoint :one
 INSERT INTO ingest.endpoints (id, application_id, url, filter)
-SELECT $1, a.id, $2, $3::text[]
-FROM ingest.applications a
-WHERE a.tenant_id = $4 AND a.id = $5
+VALUES ($1, $2, $3, $4::text[])
 RETURNING id, application_id, url, filter, created_at
 `
 
 type CreateEndpointParams struct {
 	ID            uuid.UUID
+	ApplicationID uuid.UUID
 	URL           string
 	Filter        []string
-	TenantID      uuid.UUID
-	ApplicationID uuid.UUID
 }
 
-// Creates the Endpoint only if its Application belongs to the Tenant, so that
-// no row comes back for another Tenant's Application.
+// The caller has checked that the Application belongs to the Tenant, with
+// LockApplicationForEndpoints in the same transaction.
 func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) (IngestEndpoint, error) {
 	row := q.db.QueryRow(ctx, createEndpoint,
 		arg.ID,
+		arg.ApplicationID,
 		arg.URL,
 		arg.Filter,
-		arg.TenantID,
-		arg.ApplicationID,
 	)
 	var i IngestEndpoint
 	err := row.Scan(
