@@ -32,11 +32,11 @@ The brief: "For each rejection, read the code it concerns and answer **Upheld** 
 
 ### 3. Act on the verdicts
 
-- **Upheld**: the finding stays rejected.
+- **Upheld**: the finding stays rejected. If the reason rests on the issue, the spec, a non-goal or "not needed yet", the judge could check the issue's wording, not what the human meant: `write-pr` decides whether it also goes to the PR's **Decide** block.
 - **Disputed**: fix it, test-first like any other change. Only if you have an argument the judge didn't address does it go to the PR's **Decide** block instead, with both sides in one line each, for the human to settle.
 
 Run `make ci` after any fixes.
 
 ### 4. Record it
 
-In the Review notes, each rejected finding's outcome says what the rejection review concluded: "Rejected, upheld: <reason>", "Fixed after rejection review", or "See Decide <n>".
+In the Review notes, each rejected finding's outcome says what the rejection review concluded: "Rejected, upheld: <reason>", "Fixed after rejection review", or "See Decide <n>". An upheld rejection that rests on the issue's intent adds "see Decide <n>" or "settled by reading the issue".
