@@ -11,10 +11,20 @@ x-herald-api: &herald-api
   environment:
     HERALD_DATABASE_URL: postgres://herald:herald@postgres:5432/herald?sslmode=disable
 
+# herald-dispatcher's image and configuration, shared by its migrate step.
+x-herald-dispatcher: &herald-dispatcher
+  build:
+    context: .
+    args:
+      CMD: herald-dispatcher
+  environment:
+    HERALD_DATABASE_URL: postgres://herald:herald@postgres:5432/herald?sslmode=disable
+    HERALD_NATS_URL: nats://nats:4222
+
 services:
-  # Applies the ingest schema's migrations and exits. herald-api starts only
-  # after it succeeds; the service never migrates on its own.
-  migrate:
+  # Each service's migrate step applies its schema's migrations and exits.
+  # The service starts only after it succeeds; it never migrates on its own.
+  api-migrate:
     <<: *herald-api
     command: ["migrate"]
     depends_on:
@@ -32,8 +42,23 @@ services:
       - "127.0.0.1:${HERALD_API_HTTP_PORT:-8080}:8080"
       - "127.0.0.1:${HERALD_API_GRPC_PORT:-9090}:9090"
     depends_on:
-      migrate:
+      api-migrate:
         condition: service_completed_successfully
+
+  dispatcher-migrate:
+    <<: *herald-dispatcher
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  herald-dispatcher:
+    <<: *herald-dispatcher
+    depends_on:
+      dispatcher-migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
 
   postgres:
     image: postgres:18-alpine

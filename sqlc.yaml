@@ -20,3 +20,23 @@ sql:
             go_type:
               import: time
               type: Time
+  - engine: postgresql
+    schema: internal/delivery/migrations
+    queries: internal/delivery/queries.sql
+    gen:
+      go:
+        package: deliverydb
+        out: internal/delivery/deliverydb
+        sql_package: pgx/v5
+        rename:
+          url: URL
+          endpoint_url: EndpointURL
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: uuid
+              type: UUID
+          - db_type: timestamptz
+            go_type:
+              import: time
+              type: Time
