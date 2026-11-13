@@ -33,23 +33,32 @@ type OutboxDelivery struct {
 	SigningSecrets [][]byte
 }
 
+// Handoff is what one HandOff did.
+type Handoff struct {
+	// Claimed is how many Messages it claimed from the outbox.
+	Claimed int
+	// HandedOff is how many of them it handed off.
+	HandedOff int
+}
+
 // HandOff claims up to limit of the Messages waiting in the outbox, oldest
 // first, and passes them to send. send returns how many of them, from the
-// start, it handed off; HandOff marks those handed off at now, and returns
-// that count.
+// start, it handed off; HandOff marks those handed off at now.
 //
 // The claim and the mark are one transaction, which stays open while send
 // runs. The claimed Messages stay locked until it ends, so a concurrent
 // HandOff skips them and claims others. If send returns an error, nothing is
 // marked, and the Messages wait in the outbox for a later round.
-func (s *Store) HandOff(ctx context.Context, limit int32, now time.Time, send func(context.Context, []OutboxMessage) (int, error)) (int, error) {
-	var handedOff int
+func (s *Store) HandOff(ctx context.Context, limit int, now time.Time, send func(context.Context, []OutboxMessage) (int, error)) (Handoff, error) {
+	var h Handoff
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		messages, err := claimOutbox(ctx, q, limit)
+		// limit is a small configured count, well within int32.
+		messages, err := claimOutbox(ctx, q, int32(limit))
 		if err != nil || len(messages) == 0 {
 			return err
 		}
+		h.Claimed = len(messages)
 		n, err := send(ctx, messages)
 		if err != nil {
 			return err
@@ -61,13 +70,13 @@ func (s *Store) HandOff(ctx context.Context, limit int32, now time.Time, send fu
 		if err := q.MarkHandedOff(ctx, ingestdb.MarkHandedOffParams{Now: now, Ids: ids}); err != nil {
 			return fmt.Errorf("mark handed off: %w", err)
 		}
-		handedOff = n
+		h.HandedOff = n
 		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("hand off outbox: %w", err)
+		return Handoff{}, fmt.Errorf("hand off outbox: %w", err)
 	}
-	return handedOff, nil
+	return h, nil
 }
 
 // claimOutbox claims up to limit outbox Messages, with their Deliveries.

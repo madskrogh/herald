@@ -39,6 +39,26 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
+	testRunServes(t, natstest.URL(t))
+}
+
+// TestRunServesWithoutNATS starts the service while NATS is unreachable.
+// Accepting Messages doesn't need NATS: they wait in the outbox until the
+// relay can hand them off (ADR 0002).
+func TestRunServesWithoutNATS(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	// Nothing listens on port 1.
+	testRunServes(t, "nats://127.0.0.1:1")
+}
+
+// testRunServes runs the service with NATS at natsURL, checks that it serves
+// the Tenant API over REST and gRPC, and that it stops cleanly when
+// cancelled.
+func testRunServes(t *testing.T, natsURL string) {
+	t.Helper()
 	dbURL := ingesttest.NewDatabase(t)
 	store, _ := ingesttest.NewStore(t, dbURL)
 	tenant, err := store.CreateTenant(t.Context(), "Acme")
@@ -53,7 +73,7 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 	env := map[string]string{
 		"HERALD_DATABASE_URL": dbURL,
 		"HERALD_KEYRING":      testKeyring,
-		"HERALD_NATS_URL":     natstest.URL(t),
+		"HERALD_NATS_URL":     natsURL,
 		// Port 0 picks a free port; the "started" log line says which.
 		"HERALD_GRPC_ADDR": "127.0.0.1:0",
 		"HERALD_HTTP_ADDR": "127.0.0.1:0",

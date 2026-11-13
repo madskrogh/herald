@@ -45,8 +45,6 @@ services:
     depends_on:
       api-migrate:
         condition: service_completed_successfully
-      nats:
-        condition: service_healthy
 
   dispatcher-migrate:
     <<: *herald-dispatcher

@@ -37,7 +37,7 @@ type Config struct {
 	// Subject is the NATS subject the dispatchers take Batches on.
 	Subject string
 	// MaxMessages is the most Messages a round claims and sends.
-	MaxMessages int32
+	MaxMessages int
 	// RequestTimeout is how long a round waits for a dispatcher's reply. The
 	// round's transaction stays open for as long.
 	RequestTimeout time.Duration
@@ -88,30 +88,24 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (int, error) {
 // round is RunOnce, and also reports whether more Messages may be waiting:
 // it claimed as many as it could, or sent fewer than it claimed.
 func (r *Relay) round(ctx context.Context, now time.Time) (handedOff int, more bool, err error) {
-	handedOff, err = r.store.HandOff(ctx, r.cfg.MaxMessages, now, func(ctx context.Context, messages []ingest.OutboxMessage) (int, error) {
-		n, err := r.send(ctx, messages)
-		more = len(messages) == int(r.cfg.MaxMessages) || n < len(messages)
-		return n, err
-	})
-	return handedOff, more, err
+	h, err := r.store.HandOff(ctx, r.cfg.MaxMessages, now, r.send)
+	more = h.Claimed == r.cfg.MaxMessages || h.HandedOff < h.Claimed
+	return h.HandedOff, more, err
 }
 
 // send sends as many of messages as fit, from the start, to the dispatchers
 // as one Batch, and returns how many it sent. The rest stay in the outbox for
 // a later round.
 func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (int, error) {
-	encoded := make([]*handoffv1.Message, len(messages))
-	for i, m := range messages {
-		encoded[i] = toProto(m)
-	}
 	// The server's maximum payload, which it told the connection.
-	n := pack(encoded, int(r.nc.MaxPayload()))
+	batch := pack(messages, int(r.nc.MaxPayload()))
+	n := len(batch.GetMessages())
 	if n == 0 {
 		// The limits on payloads and Endpoints keep every Message well under
 		// the maximum, so this means a limit was raised without the other.
 		return 0, fmt.Errorf("message %s is too large for a batch of at most %d bytes", messages[0].ID, r.nc.MaxPayload())
 	}
-	data, err := proto.Marshal(&handoffv1.Batch{Messages: encoded[:n]})
+	data, err := proto.Marshal(batch)
 	if err != nil {
 		return 0, fmt.Errorf("encode batch: %w", err)
 	}
@@ -168,20 +162,23 @@ func poll(ctx context.Context, round func(context.Context) (more bool, err error
 	}
 }
 
-// pack returns how many of messages, from the start, fit in a Batch of at
-// most maxBytes.
-func pack(messages []*handoffv1.Message, maxBytes int) int {
+// pack returns a Batch of as many of messages, from the start, as fit in at
+// most maxBytes. It encodes a Message only if every one before it fitted.
+func pack(messages []ingest.OutboxMessage, maxBytes int) *handoffv1.Batch {
+	batch := &handoffv1.Batch{}
 	size := 0
-	for i, m := range messages {
+	for _, m := range messages {
+		msg := toProto(m)
 		// A Message in a Batch is its encoding, preceded by the tag of
 		// Batch.messages (field 1, one byte) and its length.
-		n := proto.Size(m)
+		n := proto.Size(msg)
 		size += 1 + protowire.SizeVarint(uint64(n)) + n
 		if size > maxBytes {
-			return i
+			break
 		}
+		batch.Messages = append(batch.Messages, msg)
 	}
-	return len(messages)
+	return batch
 }
 
 // toProto returns m as it travels in a Batch.

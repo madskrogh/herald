@@ -24,10 +24,10 @@ func Run(m *testing.M, starts ...Start) {
 	os.Exit(run(m, starts))
 }
 
-// Tests is Run without the exit: it returns the exit code. It is for a
+// RunCode is Run without the exit: it returns the exit code. It is for a
 // TestMain that checks something once the containers are gone, as
 // goleak.VerifyTestMain does for leaked goroutines.
-func Tests(m *testing.M, starts ...Start) int {
+func RunCode(m *testing.M, starts ...Start) int {
 	return run(m, starts)
 }
 

@@ -109,7 +109,7 @@ func TestPollStopsWhenCancelled(t *testing.T) {
 
 		// Cancelled while it waits for the next round, poll returns at once
 		// rather than at the end of the wait.
-		time.Sleep(time.Second)
+		synctest.Wait()
 		cancel()
 		synctest.Wait()
 		select {

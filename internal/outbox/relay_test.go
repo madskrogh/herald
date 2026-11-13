@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 	// The leak check runs once the containers are gone, so their clients'
 	// goroutines have stopped.
 	goleak.VerifyTestMain(testRun(func() int {
-		return testmain.Tests(m, pgtest.Start, natstest.Start)
+		return testmain.RunCode(m, pgtest.Start, natstest.Start)
 	}))
 }
 

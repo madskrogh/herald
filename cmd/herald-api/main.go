@@ -141,8 +141,10 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 
 	nc, err := nats.Connect(cfg.natsURL,
 		nats.Name("herald-api"),
-		// Keep reconnecting however long NATS is away. Meanwhile the relay's
-		// rounds fail, and Messages wait in the outbox.
+		// Start without NATS, and keep reconnecting however long it is away:
+		// accepting Messages doesn't need it (ADR 0002). Meanwhile the
+		// relay's rounds fail, and Messages wait in the outbox.
+		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
 	)
 	if err != nil {
