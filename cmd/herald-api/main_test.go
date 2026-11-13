@@ -18,6 +18,7 @@ import (
 
 	tenantv1 "github.com/madskrogh/herald/internal/gen/herald/tenant/v1"
 	"github.com/madskrogh/herald/internal/ingest/ingesttest"
+	"github.com/madskrogh/herald/internal/natstest"
 )
 
 // logRecord holds the fields of a JSON log line that the tests check.
@@ -38,6 +39,42 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
+	rest := testRunServes(t, natstest.URL(t))
+	want := []logRecord{{Level: "INFO", Msg: "stopped", Service: "herald-api"}}
+	if diff := cmp.Diff(want, rest); diff != "" {
+		t.Errorf("log after started (-want +got):\n%s", diff)
+	}
+}
+
+// TestRunServesWithoutNATS starts the service while NATS is unreachable.
+// Accepting Messages doesn't need NATS: they wait in the outbox until the
+// relay can hand them off (ADR 0002).
+func TestRunServesWithoutNATS(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	// Nothing listens on port 1.
+	rest := testRunServes(t, "nats://127.0.0.1:1")
+	// The relay warns of each round that fails for want of NATS, as many as
+	// ran before the service stopped.
+	var got []logRecord
+	for _, rec := range rest {
+		if rec != (logRecord{Level: "WARN", Msg: "outbox round failed", Service: "herald-api"}) {
+			got = append(got, rec)
+		}
+	}
+	want := []logRecord{{Level: "INFO", Msg: "stopped", Service: "herald-api"}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("log after started, apart from the relay's warnings (-want +got):\n%s", diff)
+	}
+}
+
+// testRunServes runs the service with NATS at natsURL, checks that it serves
+// the Tenant API over REST and gRPC, and that it stops cleanly when
+// cancelled. It returns the log lines after the "started" line.
+func testRunServes(t *testing.T, natsURL string) []logRecord {
+	t.Helper()
 	dbURL := ingesttest.NewDatabase(t)
 	store, _ := ingesttest.NewStore(t, dbURL)
 	tenant, err := store.CreateTenant(t.Context(), "Acme")
@@ -52,6 +89,7 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 	env := map[string]string{
 		"HERALD_DATABASE_URL": dbURL,
 		"HERALD_KEYRING":      testKeyring,
+		"HERALD_NATS_URL":     natsURL,
 		// Port 0 picks a free port; the "started" log line says which.
 		"HERALD_GRPC_ADDR": "127.0.0.1:0",
 		"HERALD_HTTP_ADDR": "127.0.0.1:0",
@@ -130,10 +168,7 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 	if err := stop(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	want := []logRecord{{Level: "INFO", Msg: "stopped", Service: "herald-api"}}
-	if diff := cmp.Diff(want, rest); diff != "" {
-		t.Errorf("log after started (-want +got):\n%s", diff)
-	}
+	return rest
 }
 
 // decodeLog parses r as a stream of JSON log lines and fails the test if any

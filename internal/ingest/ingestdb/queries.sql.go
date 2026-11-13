@@ -12,6 +12,51 @@ import (
 	"uuid"
 )
 
+const claimOutbox = `-- name: ClaimOutbox :many
+SELECT id, tenant_id, event_type, payload
+FROM ingest.messages
+WHERE handed_off_at IS NULL
+ORDER BY id
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+type ClaimOutboxRow struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	EventType string
+	Payload   []byte
+}
+
+// Claims up to @max_messages of the Messages waiting in the outbox, oldest
+// first, for the relay's transaction. Rows another relay has claimed are
+// skipped rather than waited for, so concurrent relays claim different
+// Messages.
+func (q *Queries) ClaimOutbox(ctx context.Context, maxMessages int32) ([]ClaimOutboxRow, error) {
+	rows, err := q.db.Query(ctx, claimOutbox, maxMessages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ClaimOutboxRow
+	for rows.Next() {
+		var i ClaimOutboxRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.EventType,
+			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countEndpoints = `-- name: CountEndpoints :one
 SELECT count(*)
 FROM ingest.endpoints
@@ -468,6 +513,53 @@ func (q *Queries) ListEndpoints(ctx context.Context, arg ListEndpointsParams) ([
 	return items, nil
 }
 
+const listOutboxDeliveries = `-- name: ListOutboxDeliveries :many
+SELECT d.id, d.message_id, e.id AS endpoint_id, e.url,
+       (SELECT array_agg(s.ciphertext ORDER BY s.id)
+        FROM ingest.signing_secrets s
+        WHERE s.endpoint_id = e.id)::bytea[] AS signing_secrets
+FROM ingest.deliveries d
+JOIN ingest.endpoints e ON e.id = d.endpoint_id
+WHERE d.message_id = ANY($1::uuid[])
+ORDER BY d.message_id, e.id
+`
+
+type ListOutboxDeliveriesRow struct {
+	ID             uuid.UUID
+	MessageID      uuid.UUID
+	EndpointID     uuid.UUID
+	URL            string
+	SigningSecrets [][]byte
+}
+
+// The Deliveries of the Messages, each with its Endpoint's URL and signing
+// secrets (oldest first), in Message and then Endpoint ID order.
+func (q *Queries) ListOutboxDeliveries(ctx context.Context, messageIds []uuid.UUID) ([]ListOutboxDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, listOutboxDeliveries, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOutboxDeliveriesRow
+	for rows.Next() {
+		var i ListOutboxDeliveriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.EndpointID,
+			&i.URL,
+			&i.SigningSecrets,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockApplicationForEndpoints = `-- name: LockApplicationForEndpoints :one
 SELECT id
 FROM ingest.applications
@@ -489,6 +581,23 @@ func (q *Queries) LockApplicationForEndpoints(ctx context.Context, arg LockAppli
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const markHandedOff = `-- name: MarkHandedOff :exec
+UPDATE ingest.messages
+SET handed_off_at = $1::timestamptz
+WHERE id = ANY($2::uuid[])
+`
+
+type MarkHandedOffParams struct {
+	Now time.Time
+	Ids []uuid.UUID
+}
+
+// Takes the Messages out of the outbox.
+func (q *Queries) MarkHandedOff(ctx context.Context, arg MarkHandedOffParams) error {
+	_, err := q.db.Exec(ctx, markHandedOff, arg.Now, arg.Ids)
+	return err
 }
 
 const releaseIdempotencyKey = `-- name: ReleaseIdempotencyKey :exec

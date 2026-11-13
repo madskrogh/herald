@@ -38,6 +38,7 @@ services:
       # A key for the local stack only. It is public, so nothing it encrypts
       # is secret.
       HERALD_KEYRING: local:ioEj3L2kOoSLD5CgHhOxHIJpq/rigH1TSXUCJaDZFRs=
+      HERALD_NATS_URL: nats://nats:4222
     ports:
       - "127.0.0.1:${HERALD_API_HTTP_PORT:-8080}:8080"
       - "127.0.0.1:${HERALD_API_GRPC_PORT:-9090}:9090"

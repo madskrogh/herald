@@ -7,11 +7,13 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/madskrogh/herald/internal/ingest/ingesttest"
+	"github.com/madskrogh/herald/internal/natstest"
 	"github.com/madskrogh/herald/internal/pgtest"
+	"github.com/madskrogh/herald/internal/testmain"
 )
 
 func TestMain(m *testing.M) {
-	pgtest.Main(m)
+	testmain.Run(m, pgtest.Start, natstest.Start)
 }
 
 func TestMigrate(t *testing.T) {
@@ -86,6 +88,11 @@ func TestRunUsageErrors(t *testing.T) {
 			name:    "serve with an invalid keyring",
 			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": "test:c2VjcmV0"},
 			wantErr: `HERALD_KEYRING: keyring entry 0: key "test" has 6 bytes, want 32`,
+		},
+		{
+			name:    "serve without a NATS URL",
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": testKeyring},
+			wantErr: "HERALD_NATS_URL is not set",
 		},
 		{
 			name:    "unknown command",

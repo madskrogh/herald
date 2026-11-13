@@ -12,6 +12,8 @@
 //	HERALD_DATABASE_URL   Postgres connection URL (required)
 //	HERALD_KEYRING        keys that encrypt signing secrets, as described in
 //	                      internal/keyring (required to run the service)
+//	HERALD_NATS_URL       NATS server URL, for handing Deliveries off to
+//	                      herald-dispatcher (required to run the service)
 //	HERALD_GRPC_ADDR      address the Tenant API serves gRPC on (default :9090)
 //	HERALD_HTTP_ADDR      address the Tenant API serves REST on (default :8080)
 package main
@@ -30,11 +32,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/madskrogh/herald/internal/handoff"
 	"github.com/madskrogh/herald/internal/ingest"
 	"github.com/madskrogh/herald/internal/keyring"
+	"github.com/madskrogh/herald/internal/outbox"
 	"github.com/madskrogh/herald/internal/tenantapi"
 )
 
@@ -88,6 +93,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 type config struct {
 	databaseURL string
 	keyring     *keyring.Keyring
+	natsURL     string
 	grpcAddr    string
 	httpAddr    string
 }
@@ -110,6 +116,10 @@ func loadConfig(getenv func(string) string) (config, error) {
 		return config{}, fmt.Errorf("HERALD_KEYRING: %w", err)
 	}
 	cfg.keyring = kr
+	cfg.natsURL = getenv("HERALD_NATS_URL")
+	if cfg.natsURL == "" {
+		return config{}, errors.New("HERALD_NATS_URL is not set")
+	}
 	if cfg.grpcAddr == "" {
 		cfg.grpcAddr = ":9090"
 	}
@@ -127,6 +137,20 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return fmt.Errorf("connect to database: %w", err)
 	}
 	defer pool.Close()
+	store := ingest.NewStore(pool)
+
+	nc, err := nats.Connect(cfg.natsURL,
+		nats.Name("herald-api"),
+		// Start without NATS, and keep reconnecting however long it is away:
+		// accepting Messages doesn't need it (ADR 0002). Meanwhile the
+		// relay's rounds fail, and Messages wait in the outbox.
+		nats.RetryOnFailedConnect(true),
+		nats.MaxReconnects(-1),
+	)
+	if err != nil {
+		return fmt.Errorf("connect to NATS: %w", err)
+	}
+	defer nc.Close()
 
 	var lc net.ListenConfig
 	grpcLis, err := lc.Listen(ctx, "tcp", cfg.grpcAddr)
@@ -139,7 +163,7 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return fmt.Errorf("listen for REST: %w", err)
 	}
 
-	grpcServer := tenantapi.NewGRPCServer(ingest.NewStore(pool), cfg.keyring, logger)
+	grpcServer := tenantapi.NewGRPCServer(store, cfg.keyring, logger)
 	// The gateway calls the gRPC server like any other client, so REST calls
 	// pass through the same interceptors.
 	conn, err := grpc.NewClient(loopback(grpcLis.Addr()), grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -169,6 +193,16 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	go func() { errc <- httpServer.Serve(httpLis) }()
 	logger.InfoContext(ctx, "started", "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
 
+	// One relay per process (ADR 0002): replicas each run one, and claim
+	// different Messages.
+	relay := outbox.NewRelay(store, nc, outbox.Config{Subject: handoff.Subject}, logger)
+	relayCtx, stopRelay := context.WithCancel(ctx)
+	relayDone := make(chan struct{})
+	go func() {
+		relay.Run(relayCtx)
+		close(relayDone)
+	}()
+
 	// Both servers run until shutdown, so anything they return before it is a
 	// failure.
 	var serveErr error
@@ -176,6 +210,11 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	case <-ctx.Done():
 	case serveErr = <-errc:
 	}
+
+	// A round in progress is rolled back, and its Messages wait in the outbox
+	// for the next relay to run.
+	stopRelay()
+	<-relayDone
 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()

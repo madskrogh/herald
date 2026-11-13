@@ -126,3 +126,33 @@ WITH created AS (
 SELECT id, endpoint_id
 FROM created
 ORDER BY endpoint_id;
+
+-- name: ClaimOutbox :many
+-- Claims up to @max_messages of the Messages waiting in the outbox, oldest
+-- first, for the relay's transaction. Rows another relay has claimed are
+-- skipped rather than waited for, so concurrent relays claim different
+-- Messages.
+SELECT id, tenant_id, event_type, payload
+FROM ingest.messages
+WHERE handed_off_at IS NULL
+ORDER BY id
+LIMIT @max_messages
+FOR UPDATE SKIP LOCKED;
+
+-- name: ListOutboxDeliveries :many
+-- The Deliveries of the Messages, each with its Endpoint's URL and signing
+-- secrets (oldest first), in Message and then Endpoint ID order.
+SELECT d.id, d.message_id, e.id AS endpoint_id, e.url,
+       (SELECT array_agg(s.ciphertext ORDER BY s.id)
+        FROM ingest.signing_secrets s
+        WHERE s.endpoint_id = e.id)::bytea[] AS signing_secrets
+FROM ingest.deliveries d
+JOIN ingest.endpoints e ON e.id = d.endpoint_id
+WHERE d.message_id = ANY(@message_ids::uuid[])
+ORDER BY d.message_id, e.id;
+
+-- name: MarkHandedOff :exec
+-- Takes the Messages out of the outbox.
+UPDATE ingest.messages
+SET handed_off_at = @now::timestamptz
+WHERE id = ANY(@ids::uuid[]);
