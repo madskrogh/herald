@@ -57,17 +57,11 @@ func (in *Intake) Subscribe(ctx context.Context, nc *nats.Conn, subject, queue s
 	return sub, nil
 }
 
-// handle stores the Batch in m in one transaction and answers it. The reply
-// is sent only after the commit.
+// handle stores the Batch in m and answers it. The reply is sent only after
+// the commit.
 func (in *Intake) handle(ctx context.Context, m *nats.Msg) {
-	messages, deliveries, err := decodeBatch(m.Data, in.now())
-	if err == nil {
-		storeCtx, cancel := context.WithTimeout(ctx, storeTimeout)
-		err = in.store.insert(storeCtx, messages, deliveries)
-		cancel()
-	}
 	reply := &handoffv1.BatchReply{Committed: true}
-	if err != nil {
+	if err := in.storeBatch(ctx, m.Data); err != nil {
 		in.logger.WarnContext(ctx, "batch not stored", "error", err)
 		reply = &handoffv1.BatchReply{Error: err.Error()}
 	}
@@ -79,6 +73,18 @@ func (in *Intake) handle(ctx context.Context, m *nats.Msg) {
 	if err := m.Respond(data); err != nil {
 		in.logger.ErrorContext(ctx, "send batch reply", "error", err)
 	}
+}
+
+// storeBatch stores the Batch encoded in data in one transaction, within
+// storeTimeout.
+func (in *Intake) storeBatch(ctx context.Context, data []byte) error {
+	messages, deliveries, err := decodeBatch(data, in.now())
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
+	defer cancel()
+	return in.store.insert(ctx, messages, deliveries)
 }
 
 // decodeBatch decodes the Batch in data into the rows that store it. Its
