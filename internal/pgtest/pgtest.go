@@ -6,7 +6,6 @@ package pgtest
 import (
 	"context"
 	"crypto/rand"
-	"flag"
 	"fmt"
 	"net/url"
 	"os"
@@ -15,50 +14,45 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
+
+	"github.com/madskrogh/herald/internal/testmain"
 )
 
 // image matches the Postgres version in compose.yaml.
 const image = "postgres:18-alpine"
 
 // serverURL connects to the container's maintenance database. It is empty
-// until Main has started the container.
+// until Start has started the container.
 var serverURL string
 
-// Main starts a Postgres container, runs the package's tests and removes the
-// container. Call it from TestMain. With -short it runs the tests without a
-// container, and integration tests skip themselves.
+// Main runs the package's tests with a Postgres container. Call it from
+// TestMain. A package that needs other containers too passes Start to
+// testmain.Run instead.
 func Main(m *testing.M) {
-	os.Exit(run(m))
+	testmain.Run(m, Start)
 }
 
-func run(m *testing.M) int {
-	flag.Parse()
-	if testing.Short() {
-		return m.Run()
-	}
-
-	ctx := context.Background()
+// Start starts the package's Postgres container. It is a testmain.Start.
+func Start(ctx context.Context) (stop func(), err error) {
 	ctr, err := postgres.Run(ctx, image,
 		postgres.WithDatabase("postgres"),
 		postgres.WithUsername("herald"),
 		postgres.WithPassword("herald"),
 		postgres.BasicWaitStrategies(),
 	)
-	defer func() {
+	stop = func() {
 		if err := testcontainers.TerminateContainer(ctr); err != nil {
 			fmt.Fprintln(os.Stderr, "pgtest: terminate container:", err)
 		}
-	}()
+	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pgtest: start postgres:", err)
-		return 1
+		return stop, fmt.Errorf("pgtest: start postgres: %w", err)
 	}
 	serverURL, err = ctr.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "pgtest: connection string:", err)
-		return 1
+		return stop, fmt.Errorf("pgtest: connection string: %w", err)
 	}
-	return m.Run()
+	return stop, nil
 }
 
 // NewDatabase creates an empty database for t, drops it when t finishes, and
