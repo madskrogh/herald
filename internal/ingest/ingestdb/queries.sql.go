@@ -12,6 +12,19 @@ import (
 	"uuid"
 )
 
+const countEndpoints = `-- name: CountEndpoints :one
+SELECT count(*)
+FROM ingest.endpoints
+WHERE application_id = $1
+`
+
+func (q *Queries) CountEndpoints(ctx context.Context, applicationID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countEndpoints, applicationID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAPIKey = `-- name: CreateAPIKey :exec
 INSERT INTO ingest.api_keys (tenant_id, key_hash)
 VALUES ($1, $2)
@@ -457,6 +470,29 @@ func (q *Queries) ListEndpoints(ctx context.Context, arg ListEndpointsParams) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockApplicationForEndpoints = `-- name: LockApplicationForEndpoints :one
+SELECT id
+FROM ingest.applications
+WHERE tenant_id = $1 AND id = $2
+FOR NO KEY UPDATE
+`
+
+type LockApplicationForEndpointsParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+// Locks the Tenant's Application while an Endpoint is added to it, so that
+// concurrent additions count its Endpoints one at a time. FOR NO KEY UPDATE
+// rather than FOR UPDATE: a Message insert takes FOR KEY SHARE on the
+// Application through its foreign key, which FOR UPDATE would block.
+func (q *Queries) LockApplicationForEndpoints(ctx context.Context, arg LockApplicationForEndpointsParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockApplicationForEndpoints, arg.TenantID, arg.ID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const releaseIdempotencyKey = `-- name: ReleaseIdempotencyKey :exec

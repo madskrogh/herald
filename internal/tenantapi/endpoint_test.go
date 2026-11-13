@@ -170,3 +170,30 @@ func endpointURLs(page *tenantv1.ListEndpointsResponse) []string {
 	}
 	return urls
 }
+
+func TestApplicationHasAtMost100Endpoints(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	a := newAPI(t)
+	key := a.newTenant(t, "Acme")
+
+	for _, tr := range transports {
+		t.Run(tr.name, func(t *testing.T) {
+			t.Parallel()
+			var application tenantv1.CreateApplicationResponse
+			setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
+			applicationID := application.GetApplication().GetId()
+			for range 100 {
+				setup.mustInvoke(t, a, key, createEndpoint(applicationID, "https://example.com/webhooks", nil), nil)
+			}
+
+			// REST answers 422 Unprocessable Content.
+			c := createEndpoint(applicationID, "https://example.com/webhooks", nil)
+			if code := tr.invoke(t, a, "Bearer "+key, c, nil); code != codes.FailedPrecondition {
+				t.Errorf("Endpoint 101: code = %s, want FailedPrecondition", code)
+			}
+		})
+	}
+}

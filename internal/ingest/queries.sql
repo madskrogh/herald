@@ -31,6 +31,21 @@ WHERE tenant_id = @tenant_id AND id > @after
 ORDER BY id
 LIMIT @max_results;
 
+-- name: LockApplicationForEndpoints :one
+-- Locks the Tenant's Application while an Endpoint is added to it, so that
+-- concurrent additions count its Endpoints one at a time. FOR NO KEY UPDATE
+-- rather than FOR UPDATE: a Message insert takes FOR KEY SHARE on the
+-- Application through its foreign key, which FOR UPDATE would block.
+SELECT id
+FROM ingest.applications
+WHERE tenant_id = @tenant_id AND id = @id
+FOR NO KEY UPDATE;
+
+-- name: CountEndpoints :one
+SELECT count(*)
+FROM ingest.endpoints
+WHERE application_id = @application_id;
+
 -- name: CreateEndpoint :one
 -- Creates the Endpoint only if its Application belongs to the Tenant, so that
 -- no row comes back for another Tenant's Application.

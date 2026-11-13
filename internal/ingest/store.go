@@ -31,6 +31,10 @@ const foreignKeyViolation = "23503"
 // Endpoint doesn't exist, or belongs to another Tenant.
 var ErrNotFound = errors.New("not found")
 
+// ErrTooManyEndpoints is returned when an Application already has
+// MaxEndpoints Endpoints.
+var ErrTooManyEndpoints = errors.New("too many endpoints")
+
 // ErrIdempotencyKeyReused is returned when a Message's Idempotency-Key is held
 // by another Message of the Tenant's, less than 24 hours old, that differs in
 // its Application, Event type or payload.

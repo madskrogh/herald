@@ -2,13 +2,11 @@ package ingest_test
 
 import (
 	"errors"
-	"sync"
 	"testing"
 	"time"
 	"uuid"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/madskrogh/herald/internal/eventtype"
 	"github.com/madskrogh/herald/internal/ingest"
@@ -302,8 +300,15 @@ func TestConcurrentRequestsWithTheSameKeyCreateOneMessage(t *testing.T) {
 			}
 			before := countMessagesAndDeliveries(t, pool)
 
-			results := createConcurrently(t, pool, 16, func() (ingest.Message, bool, error) {
-				return store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted)
+			type result struct {
+				msg     ingest.Message
+				created bool
+				err     error
+			}
+			results := make([]result, 16)
+			concurrently(t, pool, len(results), func(i int) {
+				msg, created, err := store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted)
+				results[i] = result{msg: msg, created: created, err: err}
 			})
 
 			var created int
@@ -330,46 +335,6 @@ func TestConcurrentRequestsWithTheSameKeyCreateOneMessage(t *testing.T) {
 			}
 		})
 	}
-}
-
-// createResult is what one call of CreateMessage returned.
-type createResult struct {
-	msg     ingest.Message
-	created bool
-	err     error
-}
-
-// createConcurrently makes n calls of create at once, and returns their
-// results.
-func createConcurrently(t *testing.T, pool *pgxpool.Pool, n int, create func() (ingest.Message, bool, error)) []createResult {
-	t.Helper()
-	// Open the pool's connections first. Otherwise opening them staggers the
-	// calls by more than a call takes, and they run one after another.
-	conns := make([]*pgxpool.Conn, pool.Config().MaxConns)
-	for i := range conns {
-		conn, err := pool.Acquire(t.Context())
-		if err != nil {
-			t.Fatalf("acquire connection: %v", err)
-		}
-		conns[i] = conn
-	}
-	for _, conn := range conns {
-		conn.Release()
-	}
-
-	results := make([]createResult, n)
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	for i := range n {
-		wg.Go(func() {
-			<-start
-			msg, created, err := create()
-			results[i] = createResult{msg: msg, created: created, err: err}
-		})
-	}
-	close(start)
-	wg.Wait()
-	return results
 }
 
 // rowCounts is how many Messages and Deliveries a database holds.
@@ -418,7 +383,18 @@ func newFixture(t *testing.T, store *ingest.Store) fixture {
 // and returns its ID.
 func (f fixture) endpoint(t *testing.T, filter []string) uuid.UUID {
 	t.Helper()
-	ep, err := f.store.CreateEndpoint(t.Context(), ingest.NewEndpoint{
+	ep, err := f.createEndpoint(t, filter)
+	if err != nil {
+		t.Fatalf("CreateEndpoint: %v", err)
+	}
+	return ep.ID
+}
+
+// createEndpoint creates an Endpoint with filter under the fixture's
+// Application, and returns what CreateEndpoint returns.
+func (f fixture) createEndpoint(t *testing.T, filter []string) (ingest.Endpoint, error) {
+	t.Helper()
+	return f.store.CreateEndpoint(t.Context(), ingest.NewEndpoint{
 		ID:                      uuid.NewV7(),
 		TenantID:                f.tenant.ID,
 		ApplicationID:           f.application.ID,
@@ -426,10 +402,6 @@ func (f fixture) endpoint(t *testing.T, filter []string) uuid.UUID {
 		Filter:                  filter,
 		SigningSecretCiphertext: []byte("ciphertext"),
 	})
-	if err != nil {
-		t.Fatalf("CreateEndpoint: %v", err)
-	}
-	return ep.ID
 }
 
 // message returns a Message of the given Event type for the fixture's

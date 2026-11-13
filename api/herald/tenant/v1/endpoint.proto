@@ -8,7 +8,9 @@ import "google/protobuf/timestamp.proto";
 // EndpointService manages the Endpoints registered under an Application.
 service EndpointService {
   // CreateEndpoint registers an Endpoint and generates its signing secret. The
-  // response is the only time the signing secret is returned.
+  // response is the only time the signing secret is returned. An Application
+  // has at most 100 Endpoints; creating another fails with
+  // FAILED_PRECONDITION (422 over REST).
   rpc CreateEndpoint(CreateEndpointRequest) returns (CreateEndpointResponse) {
     option (google.api.http) = {
       post: "/v1/applications/{application_id}/endpoints"

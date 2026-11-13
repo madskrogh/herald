@@ -165,7 +165,8 @@ func (w statusOverride) WriteHeader(int) {
 // statusErrors is a gRPC interceptor that turns the errors the services
 // return into gRPC status errors. Errors that are already status errors are
 // the caller's, and pass through. ingest.ErrNotFound becomes NotFound, and
-// ingest.ErrIdempotencyKeyReused becomes FailedPrecondition. Any other error
+// ingest.ErrTooManyEndpoints and ingest.ErrIdempotencyKeyReused become
+// FailedPrecondition. Any other error
 // is Herald's own: it is logged, and the caller sees only Internal. None
 // passes on the error's message, which is written for Herald's logs and may
 // reveal internals.
@@ -185,6 +186,9 @@ func statusErrors(logger *slog.Logger) grpc.UnaryServerInterceptor {
 		}
 		if errors.Is(err, ingest.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "not found")
+		}
+		if errors.Is(err, ingest.ErrTooManyEndpoints) {
+			return nil, status.Errorf(codes.FailedPrecondition, "the Application has %d Endpoints, the most it may have", ingest.MaxEndpoints)
 		}
 		if errors.Is(err, ingest.ErrIdempotencyKeyReused) {
 			return nil, status.Error(codes.FailedPrecondition, "Idempotency-Key was used for a different request in the last 24 hours")

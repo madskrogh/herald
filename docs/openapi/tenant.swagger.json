@@ -138,7 +138,7 @@
         ]
       },
       "post": {
-        "summary": "CreateEndpoint registers an Endpoint and generates its signing secret. The\nresponse is the only time the signing secret is returned.",
+        "summary": "CreateEndpoint registers an Endpoint and generates its signing secret. The\nresponse is the only time the signing secret is returned. An Application\nhas at most 100 Endpoints; creating another fails with\nFAILED_PRECONDITION (422 over REST).",
         "operationId": "EndpointService_CreateEndpoint",
         "responses": {
           "200": {

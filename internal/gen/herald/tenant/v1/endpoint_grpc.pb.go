@@ -31,7 +31,9 @@ const (
 // EndpointService manages the Endpoints registered under an Application.
 type EndpointServiceClient interface {
 	// CreateEndpoint registers an Endpoint and generates its signing secret. The
-	// response is the only time the signing secret is returned.
+	// response is the only time the signing secret is returned. An Application
+	// has at most 100 Endpoints; creating another fails with
+	// FAILED_PRECONDITION (422 over REST).
 	CreateEndpoint(ctx context.Context, in *CreateEndpointRequest, opts ...grpc.CallOption) (*CreateEndpointResponse, error)
 	// GetEndpoint returns one Endpoint, without its signing secret.
 	GetEndpoint(ctx context.Context, in *GetEndpointRequest, opts ...grpc.CallOption) (*GetEndpointResponse, error)
@@ -85,7 +87,9 @@ func (c *endpointServiceClient) ListEndpoints(ctx context.Context, in *ListEndpo
 // EndpointService manages the Endpoints registered under an Application.
 type EndpointServiceServer interface {
 	// CreateEndpoint registers an Endpoint and generates its signing secret. The
-	// response is the only time the signing secret is returned.
+	// response is the only time the signing secret is returned. An Application
+	// has at most 100 Endpoints; creating another fails with
+	// FAILED_PRECONDITION (422 over REST).
 	CreateEndpoint(context.Context, *CreateEndpointRequest) (*CreateEndpointResponse, error)
 	// GetEndpoint returns one Endpoint, without its signing secret.
 	GetEndpoint(context.Context, *GetEndpointRequest) (*GetEndpointResponse, error)
