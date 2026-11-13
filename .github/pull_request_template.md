@@ -1,30 +1,56 @@
-> [!IMPORTANT]
-> **Decide**
-> 1. _The choice this PR makes_, because _reason_. Alternative: _the other option_, which _trades what for what_.
->
-> Approve as is, or reply with the number of each alternative you want.
+<!-- 1–2 sentences: what changes, for whom, why it matters. -->
 
-<!--
-Choices made in this PR that the reviewer may want the other way. The PR is the recommendation;
-each item names the choice it made and the one good alternative. Leave out a choice with no good
-alternative, and delete the block if none are left. At most 3. Work for later goes in an issue,
-not here.
--->
-
-**Read closely:** _files where a mistake is expensive (migrations, key and secret handling), and what to check in each; or "nothing"._
-
-## What
-
-<!-- 3–5 bullets. -->
-
--
+<!-- Plain explanation: at most 5 sentences, no lists, for someone new to the codebase. -->
 
 Closes #
 
-## Review notes
+## Decide
+
+<!--
+Only what is hard to reverse, surprising without context, and a real trade-off. Ordered by cost
+of being wrong. Each item is a question in the reviewer's terms, not an implementation choice.
+Options are neutral; the lean is one separate sentence. Work for later goes in an issue, not here.
+-->
+
+**1. _The question_**
+_Who notices, and when. Reversible or not._ _Lean, in one sentence._
+
+<details><summary>Details</summary>
+
+_The options and the consequence of each; mechanics and reasoning._
+
+</details>
+
+## Read closely
+
+<!-- Files where a mistake is costly, and what makes it costly. Don't explain the code. -->
+
+- `_file or function_`: _what makes a mistake there costly_
+
+## Surprises
+
+<!-- Where reality didn't match the issue or plan, and what was done about it. -->
+
+-
+
+## Not covered
+
+<!-- Scope deliberately left out. -->
+
+-
+
+<details><summary>How it works</summary>
+
+</details>
+
+<details><summary>Assumptions and evidence</summary>
+
+<!-- Each load-bearing claim marked checked (with a pointer) or inferred. Assumptions you know you made. -->
+
+</details>
 
 <details>
-<summary>N findings: F fixed, R rejected</summary>
+<summary>Review notes: N findings, F fixed, R rejected</summary>
 
 <!--
 Every finding from the standards, spec and bug reviews. Rejected findings first, then fixed;

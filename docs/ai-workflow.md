@@ -15,7 +15,7 @@ Herald is built with Claude Code as a pair programmer. This document describes t
 |---|---|
 | `CLAUDE.md` | Entry point for agents: what Herald is, where the spec is, commands, the workflow |
 | `.claude/rules/` | Conventions loaded by file path: Go style (`*.go`), testing (`*_test.go`), SQL and sqlc (`*.sql`) |
-| `.claude/skills/` | On-demand procedures: `tdd`, `codebase-design`, `standards-review` (adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT), `rejection-review` and `implement-issue` |
+| `.claude/skills/` | On-demand procedures: `tdd`, `codebase-design`, `standards-review` (adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT), `rejection-review`, `write-pr` and `implement-issue` |
 | `.claude/hooks/` | Scripts run by Claude Code on events |
 | `.claude/settings.json` | Sandbox, hooks, worktree settings |
 | `scripts/worktree-env.sh` | Per-worktree `.env` (compose project name, ports) |
@@ -29,8 +29,8 @@ One GitHub issue = one branch = one worktree = one agent session = one PR.
 3. **Build test-first** with the `tdd` skill: agree the seams to test, then red → green in vertical slices.
 4. **Design review.** With tests green, `standards-review` checks the diff on two axes: does it follow the documented standards (plus a baseline of code smells), and does it match the issue? The agent refactors on its findings, with the tests as a safety net.
 5. **Bug review.** The built-in `/code-review` runs on the final diff. It comes after the refactor so it reviews the code that ships.
-6. **Rejection review.** The `rejection-review` skill gives every finding the author rejected to a fresh-context reviewer, which upholds or disputes the stated reason. A disputed rejection is fixed, or goes to the PR's Decide block if the author has an argument the reviewer didn't address.
-7. **Gate.** `make ci`, then push and open a PR from `.github/pull_request_template.md`. It puts what the reviewer must act on first (decisions, files to read closely) and folds the **Review notes**, every review finding and how it was resolved, into a collapsed section.
+6. **Rejection review.** The `rejection-review` skill gives every finding the author rejected to a fresh-context reviewer, which upholds or disputes the stated reason. A disputed rejection is fixed, or goes to the PR's Decide block if the author has an argument the reviewer didn't address. A rejection that rests on the issue's intent ("not needed yet", a non-goal) goes to Decide even when upheld: a reviewer can check the issue's wording, not what the person who wrote it meant.
+7. **Gate.** `make ci`, then push and open a PR. The `write-pr` skill fills in `.github/pull_request_template.md` for a reviewer who works like a coach: they hold the context and ask the questions, so the description points them where to look rather than arguing for the change. It opens with a plain explanation, so the reviewer forms a view before seeing the author's. Then come the decisions, each posed as a question in the reviewer's terms with neutral options, and the files to read closely. Mechanics, evidence and the **Review notes**, every review finding and how it was resolved, fold into collapsed sections.
 
 The two reviews are kept separate on purpose: a design smell and a correctness bug call for different actions, and mixing them in one list buries the bugs.
 
