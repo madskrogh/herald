@@ -14,6 +14,12 @@ import (
 	handoffv1 "github.com/madskrogh/herald/internal/gen/herald/handoff/v1"
 )
 
+// storeTimeout bounds how long storing one Batch may take. Batches are
+// handled one at a time, so a hung database call would otherwise hold up
+// every Batch after it, and shutdown with it. It stays under the time a
+// dispatcher gets to drain its Batches at shutdown.
+const storeTimeout = 5 * time.Second
+
 // Intake stores the Batches the relay in herald-api hands off, and answers
 // each one with a BatchReply.
 type Intake struct {
@@ -43,6 +49,9 @@ func (in *Intake) Subscribe(ctx context.Context, nc *nats.Conn, subject, queue s
 		return nil, fmt.Errorf("subscribe to %s: %w", subject, err)
 	}
 	if err := nc.Flush(); err != nil {
+		// The server may never have seen the subscription. Remove it, so a
+		// failed Subscribe leaves no handler behind.
+		_ = sub.Unsubscribe()
 		return nil, fmt.Errorf("subscribe to %s: %w", subject, err)
 	}
 	return sub, nil
@@ -53,7 +62,9 @@ func (in *Intake) Subscribe(ctx context.Context, nc *nats.Conn, subject, queue s
 func (in *Intake) handle(ctx context.Context, m *nats.Msg) {
 	messages, deliveries, err := decodeBatch(m.Data, in.now())
 	if err == nil {
-		err = in.store.insert(ctx, messages, deliveries)
+		storeCtx, cancel := context.WithTimeout(ctx, storeTimeout)
+		err = in.store.insert(storeCtx, messages, deliveries)
+		cancel()
 	}
 	reply := &handoffv1.BatchReply{Committed: true}
 	if err != nil {

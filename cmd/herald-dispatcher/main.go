@@ -116,6 +116,9 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	closed := make(chan struct{})
 	nc, err := nats.Connect(cfg.natsURL,
 		nats.Name("herald-dispatcher"),
+		// Keep reconnecting however long NATS is away. Giving up would leave
+		// the service running with no subscription, taking no Batches.
+		nats.MaxReconnects(-1),
 		nats.DrainTimeout(shutdownTimeout),
 		nats.ClosedHandler(func(*nats.Conn) { close(closed) }),
 	)
