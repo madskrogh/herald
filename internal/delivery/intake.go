@@ -63,7 +63,7 @@ func (in *Intake) handle(ctx context.Context, m *nats.Msg) {
 	reply := &handoffv1.BatchReply{Committed: true}
 	if err := in.storeBatch(ctx, m.Data); err != nil {
 		in.logger.WarnContext(ctx, "batch not stored", "error", err)
-		reply = &handoffv1.BatchReply{Error: err.Error()}
+		reply = &handoffv1.BatchReply{Committed: false, Error: err.Error()}
 	}
 	data, err := proto.Marshal(reply)
 	if err != nil {
