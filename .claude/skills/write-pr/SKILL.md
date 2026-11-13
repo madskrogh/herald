@@ -36,13 +36,14 @@ Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply 
 
 ## Decide
 
-A decision goes here only if it passes all three gates: hard to reverse, surprising to someone without context, a real trade-off. Everything else is yours.
+A decision goes here only if it passes all three gates: hard to reverse, surprising to someone without context, a real trade-off. No other rule overrides the gates. Everything else is yours.
 
+- **Check the stakes before posing the question.** State the worst case of each option and when it happens. If every worst case is rare or small, it is not a Decide item. "Old URL or new URL" for an in-flight Message sounds like a data leak, but the leak needs an outage and a URL change at the same moment.
 - **Pose the question in the human's terms.** "When Endpoints become editable, should an in-flight Message go to the old URL or the new one?" not "store endpoint_id or copy the URL". If the technical framing hides a product question, ask the product question.
 - **One decision per item.** A limit change and a status-code change are two decisions.
 - **Stakes and reversibility first.** Order items by cost of being wrong.
 - **Neutral alternatives.** Each option gets its consequence; none gets a defence. State your lean separately, in one sentence.
-- **No default-yes endings.** Never write "approve as is" or anything that turns thinking into a vote.
+- **No default-yes endings.** Never write "approve as is" or anything that turns thinking into a vote. Keep the template's line on how to answer.
 - **Undecided means Decide.** Anything the issue or spec marks as undecided, or never discussed, is escalated here. Never settle it by reading the issue literally.
 - **Changes to your own rules are decisions.** A proposed change to `CLAUDE.md`, `.claude/rules/` or a skill goes at the top of Decide, not the bottom of the PR. If the reviewer agrees, it lands in its own PR.
 
@@ -61,12 +62,12 @@ Each item is a location plus what makes a mistake there costly: it can't be chan
 Every finding from the standards, spec and bug reviews goes in the Review notes table. Route rejected findings by the reason given:
 
 - **Justified by how the code works** (a transaction, a library's behaviour, a test's needs): stays in the Review notes.
-- **Justified by the issue, the spec, a non-goal or "not needed yet"**: becomes a Decide item as well, even when the rejection review upheld it. Agents can check their reading of the human's words, not the human's intent, however many reviewers agree.
+- **Justified by the issue, the spec, a non-goal or "not needed yet"**: agents can check their reading of the human's words, not the human's intent, however many reviewers agree. So it goes to Decide if it passes the three gates, even when the rejection review upheld it. If it fails them, it stays in the Review notes, marked "settled by reading the issue", so the reviewer can still pull it up.
 
 ## Before publishing, check
 
 - Could someone new to the codebase understand the opening?
 - Is every Decide item a question in human terms, with stakes and reversibility?
-- Is any rejection that rests on intent still hidden in the review notes?
+- Is every rejection that rests on intent either in Decide or marked "settled by reading the issue"?
 - Does every reassuring word have a pointer?
 - Is anything in the main text that belongs in details?
