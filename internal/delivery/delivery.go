@@ -41,12 +41,9 @@ var ErrNotFound = errors.New("not found")
 // succeeds or the retry schedule runs out.
 type State string
 
-// The states of a Delivery.
-const (
-	StatePending   State = "pending"
-	StateSucceeded State = "succeeded"
-	StateFailed    State = "failed"
-)
+// StatePending is the state of a Delivery that is waiting for its next
+// Attempt.
+const StatePending State = "pending"
 
 // Delivery is one Message on its way to one Endpoint.
 type Delivery struct {

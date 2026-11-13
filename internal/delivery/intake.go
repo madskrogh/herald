@@ -30,9 +30,14 @@ func NewIntake(store *Store, now func() time.Time, logger *slog.Logger) *Intake 
 
 // Subscribe subscribes the intake to Batches sent to subject, in queue group
 // queue, and returns once the NATS server has the subscription.
+//
+// Batches are handled with ctx's values but not its cancellation: when
+// shutdown cancels ctx and drains the connection, the Batches already
+// received are still stored and answered.
 func (in *Intake) Subscribe(ctx context.Context, nc *nats.Conn, subject, queue string) (*nats.Subscription, error) {
-	sub, err := nc.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
-		in.handle(ctx, msg)
+	ctx = context.WithoutCancel(ctx)
+	sub, err := nc.QueueSubscribe(subject, queue, func(m *nats.Msg) {
+		in.handle(ctx, m)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("subscribe to %s: %w", subject, err)
@@ -43,10 +48,15 @@ func (in *Intake) Subscribe(ctx context.Context, nc *nats.Conn, subject, queue s
 	return sub, nil
 }
 
-// handle stores the Batch in msg and answers it.
-func (in *Intake) handle(ctx context.Context, msg *nats.Msg) {
+// handle stores the Batch in m in one transaction and answers it. The reply
+// is sent only after the commit.
+func (in *Intake) handle(ctx context.Context, m *nats.Msg) {
+	messages, deliveries, err := decodeBatch(m.Data, in.now())
+	if err == nil {
+		err = in.store.insert(ctx, messages, deliveries)
+	}
 	reply := &handoffv1.BatchReply{Committed: true}
-	if err := in.store.storeBatch(ctx, msg.Data, in.now()); err != nil {
+	if err != nil {
 		in.logger.WarnContext(ctx, "batch not stored", "error", err)
 		reply = &handoffv1.BatchReply{Error: err.Error()}
 	}
@@ -55,37 +65,37 @@ func (in *Intake) handle(ctx context.Context, msg *nats.Msg) {
 		in.logger.ErrorContext(ctx, "encode batch reply", "error", err)
 		return
 	}
-	if err := msg.Respond(data); err != nil {
+	if err := m.Respond(data); err != nil {
 		in.logger.ErrorContext(ctx, "send batch reply", "error", err)
 	}
 }
 
-// storeBatch stores the Batch encoded in data in one transaction. Its
+// decodeBatch decodes the Batch in data into the rows that store it. Its
 // Deliveries are pending and due at now.
-func (s *Store) storeBatch(ctx context.Context, data []byte, now time.Time) error {
+func decodeBatch(data []byte, now time.Time) ([]deliverydb.InsertMessageParams, []deliverydb.InsertDeliveryParams, error) {
 	var batch handoffv1.Batch
 	if err := proto.Unmarshal(data, &batch); err != nil {
-		return fmt.Errorf("decode batch: %w", err)
+		return nil, nil, fmt.Errorf("decode batch: %w", err)
 	}
 	var (
 		messages   []deliverydb.InsertMessageParams
 		deliveries []deliverydb.InsertDeliveryParams
 	)
 	for _, m := range batch.GetMessages() {
-		msg, err := parseMessage(m)
+		message, err := parseMessage(m)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
-		messages = append(messages, msg)
+		messages = append(messages, message)
 		for _, d := range m.GetDeliveries() {
-			del, err := parseDelivery(d, msg.ID, now)
+			delivery, err := parseDelivery(d, message.ID, now)
 			if err != nil {
-				return fmt.Errorf("message %s: %w", msg.ID, err)
+				return nil, nil, fmt.Errorf("message %s: %w", message.ID, err)
 			}
-			deliveries = append(deliveries, del)
+			deliveries = append(deliveries, delivery)
 		}
 	}
-	return s.insert(ctx, messages, deliveries)
+	return messages, deliveries, nil
 }
 
 func parseMessage(m *handoffv1.Message) (deliverydb.InsertMessageParams, error) {

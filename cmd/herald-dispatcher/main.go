@@ -134,6 +134,7 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	// closes the connection. The relay sends any it didn't get a reply for
 	// again.
 	if err := nc.Drain(); err != nil {
+		logger.ErrorContext(ctx, "drain NATS connection", "error", err)
 		nc.Close()
 	}
 	<-closed

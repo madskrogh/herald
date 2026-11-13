@@ -1,6 +1,7 @@
 package delivery_test
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 	"time"
@@ -126,7 +127,7 @@ func TestIntakeStoresABatch(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	in := newTestIntake(t)
+	in := newTestIntake(t.Context(), t)
 
 	got := in.send(t, testBatch())
 
@@ -159,7 +160,7 @@ func TestIntakeStoresAResentBatchOnce(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	in := newTestIntake(t)
+	in := newTestIntake(t.Context(), t)
 
 	for i := range 2 {
 		got := in.send(t, testBatch())
@@ -228,7 +229,7 @@ func TestIntakeRejectsABatchItCannotStore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			in := newTestIntake(t)
+			in := newTestIntake(t.Context(), t)
 
 			got := in.sendBytes(t, tt.data(t))
 
@@ -242,8 +243,30 @@ func TestIntakeRejectsABatchItCannotStore(t *testing.T) {
 	}
 }
 
+// TestIntakeStoresBatchesWhileShuttingDown sends a Batch after the intake's
+// context is cancelled, as when shutdown has started and the connection is
+// draining the Batches already received.
+func TestIntakeStoresBatchesWhileShuttingDown(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	in := newTestIntake(ctx, t)
+	cancel()
+
+	got := in.send(t, testBatch())
+
+	if diff := cmp.Diff(&handoffv1.BatchReply{Committed: true}, got, cmpProto); diff != "" {
+		t.Errorf("reply (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(rowCounts{Messages: 2, Deliveries: 3}, in.countRows(t)); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
+}
+
 // testIntake is an Intake subscribed to a subject of its own, on a database
-// of its own.
+// of its own. ctx is the context the intake subscribes with.
 type testIntake struct {
 	nc      *nats.Conn
 	subject string
@@ -251,7 +274,7 @@ type testIntake struct {
 	store   *delivery.Store
 }
 
-func newTestIntake(t *testing.T) *testIntake {
+func newTestIntake(ctx context.Context, t *testing.T) *testIntake {
 	t.Helper()
 	dbURL := pgtest.NewDatabase(t)
 	if err := delivery.Migrate(t.Context(), dbURL, slog.New(slog.DiscardHandler)); err != nil {
@@ -264,7 +287,7 @@ func newTestIntake(t *testing.T) *testIntake {
 	nc := natstest.Connect(t)
 	subject := natstest.Subject(t)
 	intake := delivery.NewIntake(delivery.NewStore(intakePool), func() time.Time { return now }, slog.New(slog.DiscardHandler))
-	sub, err := intake.Subscribe(t.Context(), nc, subject, "herald-dispatcher")
+	sub, err := intake.Subscribe(ctx, nc, subject, "herald-dispatcher")
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
