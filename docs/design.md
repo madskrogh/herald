@@ -58,10 +58,10 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 ## Limits and validation
 
 - Payload: a JSON value, at most **256 KiB** (`413` otherwise; `RESOURCE_EXHAUSTED` over gRPC). The API carries it as JSON text in a string field, and Herald stores and delivers those bytes unchanged: parsing it into `google.protobuf.Value` would turn numbers into `float64`, so integers above 2^53 would silently change.
-- Idempotency-Key: 1 to 256 bytes, which keeps it within what the unique index can hold.
+- Idempotency-Key: 1 to 256 bytes of printable ASCII, as HTTP defines the header. The length keeps it within what the unique index can hold.
 - Event type: `^[a-z0-9_]+(\.[a-z0-9_]+)*$`, at most **128 bytes**. Every Message in a handoff batch carries its Event type, so the cap bounds what each Message adds to a batch.
 - Endpoint filter: NATS-style wildcards (`*` matches one token, `>` matches the rest). An empty filter matches everything. At most **32 patterns**, each at most **128 bytes**, which bounds the cost of matching one Endpoint during fan-out on the request path. A pattern may be as long as an Event type, so a filter can name any Event type.
-- Tenant API REST request body: at most **1600 KiB**, checked before authentication. A payload travels as a JSON string, in which each byte may be escaped as six (`\u00XX`), so this is six times the largest payload plus 64 KiB for the other fields.
+- Tenant API REST request body: at most **1600 KiB** (`413` otherwise), checked before authentication. A payload travels as a JSON string, in which each byte may be escaped as six (`\u00XX`), so this is six times the largest payload plus 64 KiB for the other fields.
 - Application name: not blank, at most **256 bytes**.
 - Endpoint URL: an absolute `http` or `https` URL with a host and, if any, a port from 1 to 65535, at most **2048 bytes**, without user information (it would be stored in plain), a fragment (never sent) or unescaped whitespace.
 - Handoff batches stay under the NATS maximum message size (1 MB by default).

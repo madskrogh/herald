@@ -246,7 +246,7 @@
     "/v1/messages": {
       "post": {
         "summary": "CreateMessage accepts a Message for one of the Tenant's Applications.\nHerald delivers it to each of the Application's Endpoints whose filter\nmatches its Event type.",
-        "description": "An optional Idempotency-Key (an HTTP header, or gRPC metadata\n\"idempotency-key\") makes retrying safe: for 24 hours, another call with\nthe same key returns the Message the key was first sent with, and creates\nnothing. Keys are 1 to 256 bytes, and unique per Tenant.",
+        "description": "An optional Idempotency-Key (an HTTP header, or gRPC metadata\n\"idempotency-key\") makes retrying safe: for 24 hours, another call with\nthe same key returns the Message the key was first sent with, and creates\nnothing. Keys are 1 to 256 bytes of printable ASCII, and unique per Tenant.",
         "operationId": "MessageService_CreateMessage",
         "responses": {
           "200": {
@@ -273,7 +273,7 @@
           },
           {
             "name": "Idempotency-Key",
-            "description": "Makes retrying safe: for 24 hours, another call with the same key returns the Message the key was first sent with, and creates nothing. 1 to 256 bytes, unique per Tenant.",
+            "description": "Makes retrying safe: for 24 hours, another call with the same key returns the Message the key was first sent with, and creates nothing. 1 to 256 bytes of printable ASCII, unique per Tenant.",
             "in": "header",
             "required": false,
             "type": "string"

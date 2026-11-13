@@ -86,6 +86,40 @@ func TestRepeatWithIdempotencyKeyReturnsTheOriginalMessage(t *testing.T) {
 	}
 }
 
+func TestIdempotencyKeyMustBePrintableASCII(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	a := newAPI(t)
+	key := a.newTenant(t, "Acme")
+	var application tenantv1.CreateApplicationResponse
+	setup.mustInvoke(t, a, key, createApplication("Customer A"), &application)
+	applicationID := application.GetApplication().GetId()
+
+	// Only over REST: gRPC clients refuse to send metadata that isn't
+	// printable ASCII.
+	tests := []struct {
+		name           string
+		idempotencyKey string
+		wantCode       codes.Code
+	}{
+		{name: "non-ASCII", idempotencyKey: "café", wantCode: codes.InvalidArgument},
+		// Postgres text can't hold it.
+		{name: "invalid UTF-8", idempotencyKey: "caf\xe9", wantCode: codes.InvalidArgument},
+		{name: "printable ASCII", idempotencyKey: "order 1/~!", wantCode: codes.OK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := createMessage(applicationID, "invoice.paid", payload, tt.idempotencyKey)
+			if code, body := doREST(t, a, "Bearer "+key, c); code != tt.wantCode {
+				t.Errorf("code = %s, want %s: %s", code, tt.wantCode, body)
+			}
+		})
+	}
+}
+
 func TestMessageLimits(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

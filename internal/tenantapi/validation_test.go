@@ -102,7 +102,8 @@ func TestRESTRequestBodies(t *testing.T) {
 		wantCode codes.Code
 	}{
 		{name: "at the size limit", path: "/v1/applications", body: padded(maxBody), wantCode: codes.OK},
-		{name: "over the size limit", path: "/v1/applications", body: padded(maxBody + 1), wantCode: codes.InvalidArgument},
+		// 413 Content Too Large.
+		{name: "over the size limit", path: "/v1/applications", body: padded(maxBody + 1), wantCode: codes.ResourceExhausted},
 		{
 			name:     "known fields",
 			path:     endpoints,

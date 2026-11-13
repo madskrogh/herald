@@ -8,9 +8,11 @@
 package tenantapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/textproto"
@@ -74,7 +76,51 @@ func NewGateway(ctx context.Context, conn grpc.ClientConnInterface) (http.Handle
 	if err := tenantv1.RegisterMessageServiceHandlerClient(ctx, mux, tenantv1.NewMessageServiceClient(conn)); err != nil {
 		return nil, fmt.Errorf("register message service: %w", err)
 	}
-	return http.MaxBytesHandler(mux, maxRequestBody), nil
+	return checkIdempotencyKeyHeader(mux, limitBody(mux, mux)), nil
+}
+
+// limitBody reads the request body into memory before next handles it, and
+// fails a body over maxRequestBody with ResourceExhausted, which handleError
+// writes as 413. The gateway would read the whole body anyway, but would
+// report a body over the limit as InvalidArgument.
+func limitBody(mux *runtime.ServeMux, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBody))
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			writeError(mux, w, r, status.Errorf(codes.ResourceExhausted, "request body is over %d bytes", maxRequestBody))
+			return
+		}
+		if err != nil {
+			writeError(mux, w, r, status.Error(codes.InvalidArgument, "read request body"))
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next.ServeHTTP(w, r)
+	})
+}
+
+// checkIdempotencyKeyHeader fails a request whose Idempotency-Key header is
+// not a valid Idempotency-Key, before next handles it. The gateway drops a
+// header value that isn't printable ASCII, so without this check the call
+// would go ahead as if it had no key, and a retry would create a second
+// Message.
+func checkIdempotencyKeyHeader(mux *runtime.ServeMux, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, key := range r.Header.Values("Idempotency-Key") {
+			if err := checkIdempotencyKey(key); err != nil {
+				writeError(mux, w, r, invalidArgument(err))
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeError writes err as the gateway writes the errors of the calls it
+// makes, through handleError.
+func writeError(mux *runtime.ServeMux, w http.ResponseWriter, r *http.Request, err error) {
+	_, m := runtime.MarshalerForRequest(mux, r)
+	runtime.HTTPError(r.Context(), mux, m, w, r, err)
 }
 
 // matchHeader forwards the Idempotency-Key header as the metadata the gRPC

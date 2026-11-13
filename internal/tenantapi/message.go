@@ -2,12 +2,10 @@ package tenantapi
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/madskrogh/herald/internal/eventtype"
@@ -54,11 +52,6 @@ func (s *messageServer) CreateMessage(ctx context.Context, req *tenantv1.CreateM
 // Idempotency-Key. The REST gateway forwards the Idempotency-Key header as it.
 const idempotencyKeyMetadata = "idempotency-key"
 
-// maxIdempotencyKeyBytes is the longest Idempotency-Key, as documented in the
-// protos. Without a limit, a long key would fail to fit in the database's
-// unique index, and the call with it.
-const maxIdempotencyKeyBytes = 256
-
 // idempotencyKey returns the call's Idempotency-Key, or empty if it has none.
 func idempotencyKey(ctx context.Context) (string, error) {
 	values := metadata.ValueFromIncomingContext(ctx, idempotencyKeyMetadata)
@@ -66,16 +59,12 @@ func idempotencyKey(ctx context.Context) (string, error) {
 	case len(values) == 0:
 		return "", nil
 	case len(values) > 1:
-		return "", status.Error(codes.InvalidArgument, "want at most one Idempotency-Key")
+		return "", invalidArgument(errors.New("want at most one Idempotency-Key"))
 	}
-	key := values[0]
-	if key == "" {
-		return "", status.Error(codes.InvalidArgument, "Idempotency-Key is empty")
+	if err := checkIdempotencyKey(values[0]); err != nil {
+		return "", invalidArgument(err)
 	}
-	if len(key) > maxIdempotencyKeyBytes {
-		return "", invalidArgument(fmt.Errorf("Idempotency-Key is %d bytes, want at most %d", len(key), maxIdempotencyKeyBytes))
-	}
-	return key, nil
+	return values[0], nil
 }
 
 func toMessage(msg ingest.Message) *tenantv1.Message {

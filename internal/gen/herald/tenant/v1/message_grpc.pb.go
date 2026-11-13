@@ -35,7 +35,7 @@ type MessageServiceClient interface {
 	// An optional Idempotency-Key (an HTTP header, or gRPC metadata
 	// "idempotency-key") makes retrying safe: for 24 hours, another call with
 	// the same key returns the Message the key was first sent with, and creates
-	// nothing. Keys are 1 to 256 bytes, and unique per Tenant.
+	// nothing. Keys are 1 to 256 bytes of printable ASCII, and unique per Tenant.
 	CreateMessage(ctx context.Context, in *CreateMessageRequest, opts ...grpc.CallOption) (*CreateMessageResponse, error)
 }
 
@@ -70,7 +70,7 @@ type MessageServiceServer interface {
 	// An optional Idempotency-Key (an HTTP header, or gRPC metadata
 	// "idempotency-key") makes retrying safe: for 24 hours, another call with
 	// the same key returns the Message the key was first sent with, and creates
-	// nothing. Keys are 1 to 256 bytes, and unique per Tenant.
+	// nothing. Keys are 1 to 256 bytes of printable ASCII, and unique per Tenant.
 	CreateMessage(context.Context, *CreateMessageRequest) (*CreateMessageResponse, error)
 	mustEmbedUnimplementedMessageServiceServer()
 }

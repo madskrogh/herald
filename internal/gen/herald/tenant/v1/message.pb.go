@@ -230,11 +230,11 @@ const file_herald_tenant_v1_message_proto_rawDesc = "" +
 	"event_type\x18\x02 \x01(\tR\teventType\x12\x18\n" +
 	"\apayload\x18\x03 \x01(\tR\apayload\"L\n" +
 	"\x15CreateMessageResponse\x123\n" +
-	"\amessage\x18\x01 \x01(\v2\x19.herald.tenant.v1.MessageR\amessage2\xd7\x02\n" +
-	"\x0eMessageService\x12\xc4\x02\n" +
-	"\rCreateMessage\x12&.herald.tenant.v1.CreateMessageRequest\x1a'.herald.tenant.v1.CreateMessageResponse\"\xe1\x01\x92A\xc6\x01r\xc3\x01\n" +
-	"\xc0\x01\n" +
-	"\x0fIdempotency-Key\x12\xaa\x01Makes retrying safe: for 24 hours, another call with the same key returns the Message the key was first sent with, and creates nothing. 1 to 256 bytes, unique per Tenant.\x18\x01\x82\xd3\xe4\x93\x02\x11:\x01*\"\f/v1/messagesB\xca\x01\n" +
+	"\amessage\x18\x01 \x01(\v2\x19.herald.tenant.v1.MessageR\amessage2\xea\x02\n" +
+	"\x0eMessageService\x12\xd7\x02\n" +
+	"\rCreateMessage\x12&.herald.tenant.v1.CreateMessageRequest\x1a'.herald.tenant.v1.CreateMessageResponse\"\xf4\x01\x92A\xd9\x01r\xd6\x01\n" +
+	"\xd3\x01\n" +
+	"\x0fIdempotency-Key\x12\xbd\x01Makes retrying safe: for 24 hours, another call with the same key returns the Message the key was first sent with, and creates nothing. 1 to 256 bytes of printable ASCII, unique per Tenant.\x18\x01\x82\xd3\xe4\x93\x02\x11:\x01*\"\f/v1/messagesB\xca\x01\n" +
 	"\x14com.herald.tenant.v1B\fMessageProtoP\x01ZBgithub.com/madskrogh/herald/internal/gen/herald/tenant/v1;tenantv1\xa2\x02\x03HTX\xaa\x02\x10Herald.Tenant.V1\xca\x02\x10Herald\\Tenant\\V1\xe2\x02\x1cHerald\\Tenant\\V1\\GPBMetadata\xea\x02\x12Herald::Tenant::V1b\x06proto3"
 
 var (

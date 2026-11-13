@@ -74,6 +74,30 @@ func checkEndpointURL(s string) error {
 	return nil
 }
 
+// maxIdempotencyKeyBytes is the longest Idempotency-Key, as documented in the
+// protos. Without a limit, a long key would fail to fit in the database's
+// unique index, and the call with it.
+const maxIdempotencyKeyBytes = 256
+
+// checkIdempotencyKey reports whether key can be an Idempotency-Key: 1 to
+// maxIdempotencyKeyBytes of printable ASCII, as HTTP defines the header (a
+// structured-field string). Other bytes could also be invalid UTF-8, which
+// Postgres text can't hold.
+func checkIdempotencyKey(key string) error {
+	if key == "" {
+		return errors.New("Idempotency-Key is empty")
+	}
+	if len(key) > maxIdempotencyKeyBytes {
+		return fmt.Errorf("Idempotency-Key is %d bytes, want at most %d", len(key), maxIdempotencyKeyBytes)
+	}
+	for i := range len(key) {
+		if key[i] < ' ' || key[i] > '~' {
+			return fmt.Errorf("Idempotency-Key %q: want printable ASCII", key)
+		}
+	}
+	return nil
+}
+
 // maxPayloadBytes is the largest Message payload, as documented in the
 // protos.
 const maxPayloadBytes = 256 << 10
