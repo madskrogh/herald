@@ -31,7 +31,8 @@ func Migrate(ctx context.Context, databaseURL string, logger *slog.Logger) error
 	if err != nil {
 		return fmt.Errorf("read embedded migrations: %w", err)
 	}
-	return migrate.Run(ctx, databaseURL, "delivery", fsys, logger)
+	schema := migrate.Schema{Name: "delivery", Create: "CREATE SCHEMA IF NOT EXISTS delivery"}
+	return migrate.Run(ctx, databaseURL, schema, fsys, logger)
 }
 
 // ErrNotFound is returned when a Delivery doesn't exist.

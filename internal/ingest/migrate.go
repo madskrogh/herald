@@ -21,5 +21,6 @@ func Migrate(ctx context.Context, databaseURL string, logger *slog.Logger) error
 	if err != nil {
 		return fmt.Errorf("read embedded migrations: %w", err)
 	}
-	return migrate.Run(ctx, databaseURL, "ingest", fsys, logger)
+	schema := migrate.Schema{Name: "ingest", Create: "CREATE SCHEMA IF NOT EXISTS ingest"}
+	return migrate.Run(ctx, databaseURL, schema, fsys, logger)
 }
