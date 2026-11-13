@@ -18,6 +18,7 @@ import (
 
 	tenantv1 "github.com/madskrogh/herald/internal/gen/herald/tenant/v1"
 	"github.com/madskrogh/herald/internal/ingest/ingesttest"
+	"github.com/madskrogh/herald/internal/natstest"
 )
 
 // logRecord holds the fields of a JSON log line that the tests check.
@@ -52,6 +53,7 @@ func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 	env := map[string]string{
 		"HERALD_DATABASE_URL": dbURL,
 		"HERALD_KEYRING":      testKeyring,
+		"HERALD_NATS_URL":     natstest.URL(t),
 		// Port 0 picks a free port; the "started" log line says which.
 		"HERALD_GRPC_ADDR": "127.0.0.1:0",
 		"HERALD_HTTP_ADDR": "127.0.0.1:0",
