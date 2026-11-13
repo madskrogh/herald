@@ -13,9 +13,12 @@ service MessageService {
   // matches its Event type.
   //
   // An optional Idempotency-Key (an HTTP header, or gRPC metadata
-  // "idempotency-key") makes retrying safe: for 24 hours, another call with
-  // the same key returns the Message the key was first sent with, and creates
-  // nothing. Keys are 1 to 256 bytes of printable ASCII, and unique per Tenant.
+  // "idempotency-key") makes retrying safe: for 24 hours, a call with the same
+  // key and the same request (Application, Event type and payload, byte for
+  // byte) returns the Message the key was first sent with, and creates
+  // nothing. The same key with a different request fails with
+  // FAILED_PRECONDITION (422 over REST). Keys are 1 to 256 bytes of printable
+  // ASCII, and unique per Tenant.
   rpc CreateMessage(CreateMessageRequest) returns (CreateMessageResponse) {
     option (google.api.http) = {
       post: "/v1/messages"
@@ -26,7 +29,7 @@ service MessageService {
         headers: {
           name: "Idempotency-Key"
           type: STRING
-          description: "Makes retrying safe: for 24 hours, another call with the same key returns the Message the key was first sent with, and creates nothing. 1 to 256 bytes of printable ASCII, unique per Tenant."
+          description: "Makes retrying safe: for 24 hours, a call with the same key and the same request (Application, Event type and payload, byte for byte) returns the Message the key was first sent with, and creates nothing. The same key with a different request fails with 422. 1 to 256 bytes of printable ASCII, unique per Tenant."
         }
       }
     };

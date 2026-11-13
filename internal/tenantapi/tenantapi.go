@@ -133,12 +133,20 @@ func matchHeader(key string) (string, bool) {
 }
 
 // handleError writes a gRPC error as a REST response, as the gateway's default
-// handler does, except that ResourceExhausted is 413 Content Too Large rather
-// than 429 Too Many Requests: the Tenant API returns it only for a payload
-// that is too large, which retrying later won't fix.
+// handler does, except for two codes whose default HTTP status says something
+// the Tenant API doesn't mean:
+//   - ResourceExhausted is 413 Content Too Large rather than 429 Too Many
+//     Requests: the Tenant API returns it only for a request that is too
+//     large, which retrying later won't fix.
+//   - FailedPrecondition is 422 Unprocessable Content rather than 400 Bad
+//     Request: the Tenant API returns it only for a valid request that
+//     conflicts with what is stored.
 func handleError(ctx context.Context, mux *runtime.ServeMux, m runtime.Marshaler, w http.ResponseWriter, r *http.Request, err error) {
-	if status.Code(err) == codes.ResourceExhausted {
+	switch status.Code(err) {
+	case codes.ResourceExhausted:
 		w = statusOverride{ResponseWriter: w, code: http.StatusRequestEntityTooLarge}
+	case codes.FailedPrecondition:
+		w = statusOverride{ResponseWriter: w, code: http.StatusUnprocessableEntity}
 	}
 	runtime.DefaultHTTPErrorHandler(ctx, mux, m, w, r, err)
 }
@@ -156,10 +164,11 @@ func (w statusOverride) WriteHeader(int) {
 
 // statusErrors is a gRPC interceptor that turns the errors the services
 // return into gRPC status errors. Errors that are already status errors are
-// the caller's, and pass through. ingest.ErrNotFound becomes NotFound. Any
-// other error is Herald's own: it is logged, and the caller sees only
-// Internal. Neither passes on the error's message, which is written for
-// Herald's logs and may reveal internals.
+// the caller's, and pass through. ingest.ErrNotFound becomes NotFound, and
+// ingest.ErrIdempotencyKeyReused becomes FailedPrecondition. Any other error
+// is Herald's own: it is logged, and the caller sees only Internal. None
+// passes on the error's message, which is written for Herald's logs and may
+// reveal internals.
 func statusErrors(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		resp, err := handler(ctx, req)
@@ -176,6 +185,9 @@ func statusErrors(logger *slog.Logger) grpc.UnaryServerInterceptor {
 		}
 		if errors.Is(err, ingest.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "not found")
+		}
+		if errors.Is(err, ingest.ErrIdempotencyKeyReused) {
+			return nil, status.Error(codes.FailedPrecondition, "Idempotency-Key was used for a different request in the last 24 hours")
 		}
 		logger.ErrorContext(ctx, "internal error", "method", info.FullMethod, "error", err)
 		return nil, status.Error(codes.Internal, "internal error")

@@ -163,6 +163,60 @@ func TestRepeatWithIdempotencyKeyReturnsTheOriginalMessage(t *testing.T) {
 	}
 }
 
+func TestRepeatWithADifferentRequestIsRefused(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, pool := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+	f := newFixture(t, store)
+	f.endpoint(t, nil)
+	other, err := store.CreateApplication(t.Context(), f.tenant.ID, "Customer B")
+	if err != nil {
+		t.Fatalf("CreateApplication: %v", err)
+	}
+	if _, _, err := store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted); err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	before := countMessagesAndDeliveries(t, pool)
+
+	// Each differs from the original in one way. The original's payload is
+	// {"invoice_id": "in_1"}.
+	tests := []struct {
+		name   string
+		change func(m *ingest.NewMessage)
+	}{
+		{name: "another Application", change: func(m *ingest.NewMessage) { m.ApplicationID = other.ID }},
+		{name: "another Event type", change: func(m *ingest.NewMessage) { m.EventType = mustParseEventType("invoice.created") }},
+		{name: "a payload one byte apart", change: func(m *ingest.NewMessage) { m.Payload = []byte(`{"invoice_id": "in_2"}`) }},
+		// The same JSON, written differently: the comparison is byte for byte.
+		{name: "a payload spaced differently", change: func(m *ingest.NewMessage) { m.Payload = []byte(`{"invoice_id":"in_1"}`) }},
+	}
+	// Not parallel: the positive control below takes the key over.
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := f.message("invoice.paid", "order-1")
+			tt.change(&m)
+			msg, _, err := store.CreateMessage(t.Context(), m, accepted.Add(time.Minute))
+			if !errors.Is(err, ingest.ErrIdempotencyKeyReused) {
+				t.Errorf("CreateMessage = Message %s, error %v; want ingest.ErrIdempotencyKeyReused", msg.ID, err)
+			}
+		})
+	}
+	if after := countMessagesAndDeliveries(t, pool); after != before {
+		t.Errorf("rows after the refused repeats = %+v, want %+v as before them", after, before)
+	}
+
+	// Positive control: once the key has expired, a different request takes
+	// it over.
+	t.Run("after the key expired", func(t *testing.T) {
+		m := f.message("invoice.created", "order-1")
+		if _, created, err := store.CreateMessage(t.Context(), m, accepted.Add(24*time.Hour)); err != nil || !created {
+			t.Errorf("CreateMessage after 24 h: created %t, error %v; want a new Message", created, err)
+		}
+	})
+}
+
 func TestIdempotencyKeyExpiresAfter24Hours(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -381,17 +435,22 @@ func (f fixture) endpoint(t *testing.T, filter []string) uuid.UUID {
 // message returns a Message of the given Event type for the fixture's
 // Application, with the Idempotency-Key key (none if empty).
 func (f fixture) message(eventType, key string) ingest.NewMessage {
-	et, err := eventtype.ParseEventType(eventType)
-	if err != nil {
-		panic(err) // The tests' Event types are literals.
-	}
 	return ingest.NewMessage{
 		TenantID:       f.tenant.ID,
 		ApplicationID:  f.application.ID,
-		EventType:      et,
+		EventType:      mustParseEventType(eventType),
 		Payload:        []byte(`{"invoice_id": "in_1"}`),
 		IdempotencyKey: key,
 	}
+}
+
+// mustParseEventType parses one of the tests' Event types, which are literals.
+func mustParseEventType(s string) eventtype.EventType {
+	et, err := eventtype.ParseEventType(s)
+	if err != nil {
+		panic(err)
+	}
+	return et
 }
 
 // endpointIDs returns the IDs of the Endpoints the Deliveries go to.

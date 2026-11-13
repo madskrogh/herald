@@ -54,6 +54,8 @@ func TestRESTResponses(t *testing.T) {
 		{name: "not_found", call: getApplication("0193a1b2-0000-7000-8000-000000000000")},
 		{name: "invalid_argument", call: createEndpoint(applicationID, "https://example.com/b", []string{"invoice..paid"})},
 		{name: "create_message", call: createMessage(applicationID, "invoice.paid", payload, "order-1")},
+		// After create_message, which sent the key with another Event type.
+		{name: "idempotency_key_reused", call: createMessage(applicationID, "invoice.refunded", payload, "order-1")},
 		{name: "payload_too_large", call: createMessage(applicationID, "invoice.paid", `"`+strings.Repeat("a", 256<<10)+`"`, "")},
 	}
 	// Not parallel: the calls create resources, and the placeholders are

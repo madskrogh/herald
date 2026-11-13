@@ -31,6 +31,11 @@ const foreignKeyViolation = "23503"
 // Endpoint doesn't exist, or belongs to another Tenant.
 var ErrNotFound = errors.New("not found")
 
+// ErrIdempotencyKeyReused is returned when a Message's Idempotency-Key is held
+// by another Message of the Tenant's, less than 24 hours old, that differs in
+// its Application, Event type or payload.
+var ErrIdempotencyKeyReused = errors.New("idempotency key reused for another request")
+
 // Tenant is an organization that uses Herald to send webhooks.
 type Tenant struct {
 	ID        uuid.UUID

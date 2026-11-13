@@ -33,9 +33,12 @@ type MessageServiceClient interface {
 	// matches its Event type.
 	//
 	// An optional Idempotency-Key (an HTTP header, or gRPC metadata
-	// "idempotency-key") makes retrying safe: for 24 hours, another call with
-	// the same key returns the Message the key was first sent with, and creates
-	// nothing. Keys are 1 to 256 bytes of printable ASCII, and unique per Tenant.
+	// "idempotency-key") makes retrying safe: for 24 hours, a call with the same
+	// key and the same request (Application, Event type and payload, byte for
+	// byte) returns the Message the key was first sent with, and creates
+	// nothing. The same key with a different request fails with
+	// FAILED_PRECONDITION (422 over REST). Keys are 1 to 256 bytes of printable
+	// ASCII, and unique per Tenant.
 	CreateMessage(ctx context.Context, in *CreateMessageRequest, opts ...grpc.CallOption) (*CreateMessageResponse, error)
 }
 
@@ -68,9 +71,12 @@ type MessageServiceServer interface {
 	// matches its Event type.
 	//
 	// An optional Idempotency-Key (an HTTP header, or gRPC metadata
-	// "idempotency-key") makes retrying safe: for 24 hours, another call with
-	// the same key returns the Message the key was first sent with, and creates
-	// nothing. Keys are 1 to 256 bytes of printable ASCII, and unique per Tenant.
+	// "idempotency-key") makes retrying safe: for 24 hours, a call with the same
+	// key and the same request (Application, Event type and payload, byte for
+	// byte) returns the Message the key was first sent with, and creates
+	// nothing. The same key with a different request fails with
+	// FAILED_PRECONDITION (422 over REST). Keys are 1 to 256 bytes of printable
+	// ASCII, and unique per Tenant.
 	CreateMessage(context.Context, *CreateMessageRequest) (*CreateMessageResponse, error)
 	mustEmbedUnimplementedMessageServiceServer()
 }

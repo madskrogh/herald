@@ -251,6 +251,8 @@ var restCodes = map[int]codes.Code{
 	http.StatusNotFound:     codes.NotFound,
 	// The gateway's default is 429, which means "slow down".
 	http.StatusRequestEntityTooLarge: codes.ResourceExhausted,
+	// The gateway's default is 400, which means the request itself is wrong.
+	http.StatusUnprocessableEntity: codes.FailedPrecondition,
 }
 
 func invokeREST(t *testing.T, a *api, authorization string, c call, resp proto.Message) codes.Code {

@@ -74,13 +74,40 @@ func TestRepeatWithIdempotencyKeyReturnsTheOriginalMessage(t *testing.T) {
 				return resp.GetMessage()
 			}
 
-			original := send("order-1")
-			if diff := cmp.Diff(original, send("order-1"), protocmp.Transform()); diff != "" {
+			// The transports share the Tenant, so each uses keys of its own.
+			original := send(tr.name + "-order-1")
+			if diff := cmp.Diff(original, send(tr.name+"-order-1"), protocmp.Transform()); diff != "" {
 				t.Errorf("repeat returned another Message (-original +repeat):\n%s", diff)
 			}
 			// Positive control: another key is another Message.
-			if other := send("order-2"); other.GetId() == original.GetId() {
+			if other := send(tr.name + "-order-2"); other.GetId() == original.GetId() {
 				t.Errorf("another key returned the original Message %s", original.GetId())
+			}
+		})
+	}
+}
+
+func TestRepeatWithADifferentRequestIsRefused(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	a := newAPI(t)
+	key := a.newTenant(t, "Acme")
+
+	for _, tr := range transports {
+		t.Run(tr.name, func(t *testing.T) {
+			t.Parallel()
+			var application tenantv1.CreateApplicationResponse
+			tr.mustInvoke(t, a, key, createApplication("Customer A"), &application)
+			applicationID := application.GetApplication().GetId()
+			// The transports share the Tenant, so each uses a key of its own.
+			tr.mustInvoke(t, a, key, createMessage(applicationID, "invoice.paid", payload, tr.name+"-order-1"), nil)
+
+			// REST answers 422 Unprocessable Content.
+			c := createMessage(applicationID, "invoice.refunded", payload, tr.name+"-order-1")
+			if code := tr.invoke(t, a, "Bearer "+key, c, nil); code != codes.FailedPrecondition {
+				t.Errorf("code = %s, want FailedPrecondition", code)
 			}
 		})
 	}

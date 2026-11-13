@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -57,8 +58,9 @@ type Delivery struct {
 // waiting in the outbox for the relay.
 //
 // If one of the Tenant's Messages created less than 24 hours before now holds
-// m's Idempotency-Key, CreateMessage writes nothing and returns that Message
-// instead. It reports whether it created the Message.
+// m's Idempotency-Key, CreateMessage writes nothing. It returns that Message
+// if m repeats its request, and ErrIdempotencyKeyReused if m differs from it.
+// It reports whether it created the Message.
 func (s *Store) CreateMessage(ctx context.Context, m NewMessage, now time.Time) (Message, bool, error) {
 	var (
 		msg     Message
@@ -95,8 +97,7 @@ func (s *Store) CreateMessage(ctx context.Context, m NewMessage, now time.Time) 
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			// No row: the Application isn't the Tenant's, or another Message
-			// holds the key. A key identifies the request, so its Message is
-			// returned whichever Application the repeat names.
+			// holds the key.
 			notFound := fmt.Errorf("application %s: %w", m.ApplicationID, ErrNotFound)
 			if m.IdempotencyKey == "" {
 				return notFound
@@ -105,7 +106,13 @@ func (s *Store) CreateMessage(ctx context.Context, m NewMessage, now time.Time) 
 			if errors.Is(err, pgx.ErrNoRows) {
 				return notFound
 			}
-			return err
+			if err != nil {
+				return err
+			}
+			if !sameRequest(msg, m) {
+				return fmt.Errorf("idempotency key of message %s: %w", msg.ID, ErrIdempotencyKeyReused)
+			}
+			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("insert message: %w", err)
@@ -144,6 +151,16 @@ func messageByIdempotencyKey(ctx context.Context, q *ingestdb.Queries, tenantID 
 	msg := toMessage(row)
 	msg.Deliveries = toDeliveries(deliveries)
 	return msg, nil
+}
+
+// sameRequest reports whether m repeats the request that created msg: the
+// same Application, Event type and payload. Payloads are compared byte for
+// byte, since that is how they are stored and delivered: a payload that is
+// the same JSON written differently is another request.
+func sameRequest(msg Message, m NewMessage) bool {
+	return msg.ApplicationID == m.ApplicationID &&
+		msg.EventType == m.EventType.String() &&
+		bytes.Equal(msg.Payload, m.Payload)
 }
 
 // matchingEndpoints returns the IDs of the Endpoints under m's Application
