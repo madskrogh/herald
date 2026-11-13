@@ -28,20 +28,13 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/handoff"
 )
 
-const (
-	// handoffSubject is the NATS subject the relay in herald-api sends
-	// handoff Batches to (ADR 0002).
-	handoffSubject = "herald.handoff.v1"
-	// queueGroup spreads the Batches across the running dispatchers: each
-	// Batch goes to one of them.
-	queueGroup = "herald-dispatcher"
-	// shutdownTimeout is how long the Batches already received get to finish
-	// once shutdown starts. It stays under the 10 seconds Docker and
-	// Kubernetes wait before killing a container.
-	shutdownTimeout = 8 * time.Second
-)
+// shutdownTimeout is how long the Batches already received get to finish once
+// shutdown starts. It stays under the 10 seconds Docker and Kubernetes wait
+// before killing a container.
+const shutdownTimeout = 8 * time.Second
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
@@ -126,7 +119,7 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return fmt.Errorf("connect to NATS: %w", err)
 	}
 	intake := delivery.NewIntake(delivery.NewStore(pool), time.Now, logger)
-	if _, err := intake.Subscribe(ctx, nc, handoffSubject, queueGroup); err != nil {
+	if _, err := intake.Subscribe(ctx, nc, handoff.Subject, handoff.QueueGroup); err != nil {
 		nc.Close()
 		return err
 	}
