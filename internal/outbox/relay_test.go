@@ -440,6 +440,98 @@ func TestRelayKeepsBatchesUnderTheMaximumMessageSize(t *testing.T) {
 	}
 }
 
+// TestRelayClaimsNoMoreThanFitsAfterAFullBatch has a relay hand off large
+// Messages, two to a Batch. Once a round has shown how many fit, the next
+// claims only one more than that, leaving the rest unlocked for another relay.
+func TestRelayClaimsNoMoreThanFitsAfterAFullBatch(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	env := newEnv(t)
+	app := env.application(t)
+	app.endpoint(t, "https://example.com/webhooks", nil)
+	// About 400 KB each, so two fit under NATS's 1 MB maximum and three don't.
+	payload := []byte(`"` + strings.Repeat("x", 400_000) + `"`)
+	var messages []ingest.Message
+	for range 6 {
+		messages = append(messages, app.message(t, "invoice.paid", payload))
+	}
+	relay1, relay2 := env.relay(t, outbox.Config{}), env.relay(t, outbox.Config{})
+
+	// In front of the dispatcher, a responder holds the second Batch until it
+	// is released.
+	dispatcherSubject := natstest.Subject(t)
+	env.dispatcher(t, dispatcherSubject)
+	var batches atomic.Int32
+	held, release := make(chan struct{}), make(chan struct{})
+	nc := natstest.Connect(t)
+	sub, err := nc.Subscribe(env.subject, func(m *nats.Msg) {
+		// Answered on a goroutine of its own, so holding one Batch doesn't
+		// hold up the next.
+		go func() {
+			var batch handoffv1.Batch
+			if err := proto.Unmarshal(m.Data, &batch); err != nil {
+				t.Errorf("decode batch: %v", err)
+				return
+			}
+			if batches.Add(1) == 2 {
+				close(held)
+				<-release
+			}
+			data, err := proto.Marshal(env.forward(t, dispatcherSubject, &batch))
+			if err != nil {
+				t.Errorf("encode reply: %v", err)
+				return
+			}
+			_ = m.Respond(data)
+		}()
+	})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	if err := nc.Flush(); err != nil {
+		t.Fatalf("flush subscription: %v", err)
+	}
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+
+	// The first round claims every Message and learns that two fit.
+	n, err := relay1.RunOnce(t.Context(), handedOff)
+	if err != nil {
+		t.Fatalf("first round: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("first round handed off %d Messages, want 2", n)
+	}
+	// The second claims three (Messages 3 to 5), and is held in flight.
+	type result struct {
+		n   int
+		err error
+	}
+	second := make(chan result, 1)
+	go func() {
+		n, err := relay1.RunOnce(t.Context(), handedOff)
+		second <- result{n, err}
+	}()
+	<-held
+	// Message 6 is not locked by the round in flight, so another relay hands
+	// it off meanwhile.
+	n, err = relay2.RunOnce(t.Context(), handedOff)
+	close(release)
+	if err != nil {
+		t.Errorf("other relay's round: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("other relay handed off %d Messages, want 1", n)
+	}
+	if got := len(env.storedDeliveries(t, messages[5])); got != 1 {
+		t.Errorf("Message 6: stored %d Deliveries, want 1", got)
+	}
+	if r := <-second; r.err != nil || r.n != 2 {
+		t.Errorf("second round handed off %d Messages (error %v), want 2", r.n, r.err)
+	}
+}
+
 // byEndpointURL compares Deliveries in any order: a Message's Deliveries are
 // in Endpoint ID order, and the tests' Endpoint IDs are random.
 var byEndpointURL = cmpopts.SortSlices(func(a, b delivery.Delivery) bool {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -49,6 +50,12 @@ type Relay struct {
 	nc     *nats.Conn
 	cfg    Config
 	logger *slog.Logger
+
+	// mu makes the Relay's rounds take turns, and guards claimLimit.
+	mu sync.Mutex
+	// claimLimit is how many Messages the next round claims: MaxMessages,
+	// or fewer after rounds that couldn't send all they claimed (see round).
+	claimLimit int
 }
 
 // NewRelay returns a Relay that claims Messages from store and sends them
@@ -60,7 +67,7 @@ func NewRelay(store *ingest.Store, nc *nats.Conn, cfg Config, logger *slog.Logge
 	if cfg.RequestTimeout == 0 {
 		cfg.RequestTimeout = defaultRequestTimeout
 	}
-	return &Relay{store: store, nc: nc, cfg: cfg, logger: logger}
+	return &Relay{store: store, nc: nc, cfg: cfg, logger: logger, claimLimit: cfg.MaxMessages}
 }
 
 // Run hands off Messages until ctx is cancelled, one round at a time. A round
@@ -87,15 +94,32 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (int, error) {
 
 // round is RunOnce, and also reports whether more Messages may be waiting:
 // it claimed as many as it could, or sent fewer than it claimed.
+//
+// A round claims claimLimit Messages. Every Message it claims is read and
+// held locked until the reply, so claiming many more than fit in a Batch
+// would read their payloads for nothing, and keep other relays from them.
+// After a round that sent fewer than it claimed, the next claims one more
+// than it sent, to see whether that one fits too. After one that sent all it
+// claimed, the next claims twice as many, up to MaxMessages.
 func (r *Relay) round(ctx context.Context, now time.Time) (handedOff int, more bool, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	// Without a connection there is no one to send to, and no maximum payload
 	// to pack against, so don't claim rows. A connection that drops after
 	// this check fails the request, which rolls the round back.
 	if !r.nc.IsConnected() {
 		return 0, false, fmt.Errorf("not connected to NATS (%s)", r.nc.Status())
 	}
-	h, err := r.store.HandOff(ctx, r.cfg.MaxMessages, now, r.send)
-	more = h.Claimed == r.cfg.MaxMessages || h.HandedOff < h.Claimed
+	h, err := r.store.HandOff(ctx, r.claimLimit, now, r.send)
+	more = h.Claimed == r.claimLimit || h.HandedOff < h.Claimed
+	switch {
+	case err != nil:
+		// A failed round says nothing about how many fit.
+	case h.HandedOff < h.Claimed:
+		r.claimLimit = h.HandedOff + 1
+	case h.Claimed == r.claimLimit:
+		r.claimLimit = min(2*r.claimLimit, r.cfg.MaxMessages)
+	}
 	return h.HandedOff, more, err
 }
 
