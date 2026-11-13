@@ -1,6 +1,7 @@
 package tenantapi
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -69,6 +70,24 @@ func checkEndpointURL(s string) error {
 	// Checked on the string: Parse drops an empty fragment.
 	if strings.Contains(s, "#") {
 		return fmt.Errorf("endpoint URL %q has a fragment", s)
+	}
+	return nil
+}
+
+// maxPayloadBytes is the largest Message payload, as documented in the
+// protos.
+const maxPayloadBytes = 256 << 10
+
+// checkPayload reports, as a status error, whether payload can be a Message's
+// payload: a single JSON value of at most maxPayloadBytes. A payload that is
+// too large is ResourceExhausted, as for a gRPC message over the server's
+// limit, which the REST gateway answers with 413.
+func checkPayload(payload string) error {
+	if len(payload) > maxPayloadBytes {
+		return status.Errorf(codes.ResourceExhausted, "message payload is %d bytes, want at most %d", len(payload), maxPayloadBytes)
+	}
+	if !json.Valid([]byte(payload)) {
+		return status.Error(codes.InvalidArgument, "message payload is not a JSON value")
 	}
 	return nil
 }

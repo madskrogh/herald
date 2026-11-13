@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package herald.tenant.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+// MessageService accepts the Messages a Tenant sends to its Applications.
+service MessageService {
+  // CreateMessage accepts a Message for one of the Tenant's Applications.
+  // Herald delivers it to each of the Application's Endpoints whose filter
+  // matches its Event type.
+  //
+  // An optional Idempotency-Key (an HTTP header, or gRPC metadata
+  // "idempotency-key") makes retrying safe: for 24 hours, another call with
+  // the same key returns the Message the key was first sent with, and creates
+  // nothing. Keys are 1 to 256 bytes, and unique per Tenant.
+  rpc CreateMessage(CreateMessageRequest) returns (CreateMessageResponse) {
+    option (google.api.http) = {
+      post: "/v1/messages"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      parameters: {
+        headers: {
+          name: "Idempotency-Key"
+          type: STRING
+          description: "Makes retrying safe: for 24 hours, another call with the same key returns the Message the key was first sent with, and creates nothing. 1 to 256 bytes, unique per Tenant."
+        }
+      }
+    };
+  }
+}
+
+// Message is a single notification for one Application: an Event type and a
+// payload.
+message Message {
+  string id = 1;
+  string application_id = 2;
+  // Dot-separated tokens of lowercase letters, digits and underscores, such
+  // as "invoice.paid". At most 128 bytes.
+  string event_type = 3;
+  // A JSON document, at most 256 KiB, as text. Herald delivers it byte for
+  // byte as sent; it is never parsed and re-encoded, so no number loses
+  // precision and no key changes order.
+  string payload = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message CreateMessageRequest {
+  string application_id = 1;
+  string event_type = 2;
+  string payload = 3;
+}
+
+message CreateMessageResponse {
+  Message message = 1;
+}

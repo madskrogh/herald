@@ -1,0 +1,5 @@
+{
+  "code": 8,
+  "message": "message payload is 262146 bytes, want at most 262144",
+  "details": []
+}

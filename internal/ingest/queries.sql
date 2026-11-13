@@ -59,3 +59,57 @@ JOIN ingest.applications a ON a.id = e.application_id
 WHERE a.tenant_id = @tenant_id AND e.application_id = @application_id AND e.id > @after
 ORDER BY e.id
 LIMIT @max_results;
+
+-- name: ListEndpointFilters :many
+-- The filters of every Endpoint under the Tenant's Application, for working
+-- out a Message's Deliveries.
+SELECT e.id, e.filter
+FROM ingest.endpoints e
+JOIN ingest.applications a ON a.id = e.application_id
+WHERE a.tenant_id = @tenant_id AND e.application_id = @application_id
+ORDER BY e.id;
+
+-- name: CreateMessage :one
+-- Creates the Message only if its Application belongs to the Tenant and no
+-- Message of the Tenant's holds its Idempotency-Key (an empty key is none).
+-- Otherwise no row comes back. A Message without Deliveries has nothing to
+-- hand off, so it is written as handed off already and never enters the
+-- outbox.
+INSERT INTO ingest.messages (tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at)
+SELECT
+    a.tenant_id, a.id, @event_type, @payload, NULLIF(@idempotency_key::text, ''), @now::timestamptz,
+    CASE WHEN @has_deliveries::boolean THEN NULL ELSE @now::timestamptz END
+FROM ingest.applications a
+WHERE a.tenant_id = @tenant_id AND a.id = @application_id
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+RETURNING *;
+
+-- name: ReleaseIdempotencyKey :exec
+-- Takes the Idempotency-Key from the Tenant's Message that holds it, if that
+-- Message was created at or before @expired_by, so the key can be reused.
+UPDATE ingest.messages
+SET idempotency_key = NULL
+WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key::text AND created_at <= @expired_by;
+
+-- name: GetMessageByIdempotencyKey :one
+SELECT *
+FROM ingest.messages
+WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key::text;
+
+-- name: ListDeliveries :many
+-- The Message's Deliveries, in Endpoint ID order.
+SELECT id, endpoint_id
+FROM ingest.deliveries
+WHERE message_id = @message_id
+ORDER BY endpoint_id;
+
+-- name: CreateDeliveries :many
+-- A Delivery of the Message to each of the Endpoints, in Endpoint ID order.
+WITH created AS (
+    INSERT INTO ingest.deliveries (message_id, endpoint_id)
+    SELECT @message_id, unnest(@endpoint_ids::uuid[])
+    RETURNING id, endpoint_id
+)
+SELECT id, endpoint_id
+FROM created
+ORDER BY endpoint_id;

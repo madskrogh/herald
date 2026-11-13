@@ -1,0 +1,9 @@
+{
+  "message": {
+    "id": "ID_5",
+    "application_id": "ID_1",
+    "event_type": "invoice.paid",
+    "payload": "{\"invoice_id\": 9007199254740993, \"amount\": 100,  \"currency\":\"eur\"}",
+    "created_at": "TIMESTAMP"
+  }
+}

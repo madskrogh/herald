@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/textproto"
 	"runtime/debug"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -37,6 +38,7 @@ func NewGRPCServer(store *ingest.Store, kr *keyring.Keyring, logger *slog.Logger
 	))
 	tenantv1.RegisterApplicationServiceServer(srv, &applicationServer{store: store})
 	tenantv1.RegisterEndpointServiceServer(srv, &endpointServer{store: store, keyring: kr})
+	tenantv1.RegisterMessageServiceServer(srv, &messageServer{store: store})
 	return srv
 }
 
@@ -57,14 +59,48 @@ func NewGateway(ctx context.Context, conn grpc.ClientConnInterface) (http.Handle
 		// misspelled "filter" would otherwise leave an Endpoint's filter empty,
 		// accepting every Event type.
 		UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: false},
-	}))
+	}), runtime.WithErrorHandler(handleError), runtime.WithIncomingHeaderMatcher(matchHeader))
 	if err := tenantv1.RegisterApplicationServiceHandlerClient(ctx, mux, tenantv1.NewApplicationServiceClient(conn)); err != nil {
 		return nil, fmt.Errorf("register application service: %w", err)
 	}
 	if err := tenantv1.RegisterEndpointServiceHandlerClient(ctx, mux, tenantv1.NewEndpointServiceClient(conn)); err != nil {
 		return nil, fmt.Errorf("register endpoint service: %w", err)
 	}
+	if err := tenantv1.RegisterMessageServiceHandlerClient(ctx, mux, tenantv1.NewMessageServiceClient(conn)); err != nil {
+		return nil, fmt.Errorf("register message service: %w", err)
+	}
 	return http.MaxBytesHandler(mux, maxRequestBody), nil
+}
+
+// matchHeader forwards the Idempotency-Key header as the metadata the gRPC
+// server reads it from, and every other header as the gateway does by default.
+func matchHeader(key string) (string, bool) {
+	if textproto.CanonicalMIMEHeaderKey(key) == "Idempotency-Key" {
+		return idempotencyKeyMetadata, true
+	}
+	return runtime.DefaultHeaderMatcher(key)
+}
+
+// handleError writes a gRPC error as a REST response, as the gateway's default
+// handler does, except that ResourceExhausted is 413 Content Too Large rather
+// than 429 Too Many Requests: the Tenant API returns it only for a payload
+// that is too large, which retrying later won't fix.
+func handleError(ctx context.Context, mux *runtime.ServeMux, m runtime.Marshaler, w http.ResponseWriter, r *http.Request, err error) {
+	if status.Code(err) == codes.ResourceExhausted {
+		w = statusOverride{ResponseWriter: w, code: http.StatusRequestEntityTooLarge}
+	}
+	runtime.DefaultHTTPErrorHandler(ctx, mux, m, w, r, err)
+}
+
+// statusOverride is a ResponseWriter that writes code as the status, whatever
+// status it is asked to write.
+type statusOverride struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w statusOverride) WriteHeader(int) {
+	w.ResponseWriter.WriteHeader(w.code)
 }
 
 // statusErrors is a gRPC interceptor that turns the errors the services

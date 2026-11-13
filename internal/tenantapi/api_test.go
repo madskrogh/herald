@@ -106,6 +106,9 @@ type call struct {
 	httpMethod string
 	path       string // REST path, with any query
 	body       string // REST JSON body; empty for none
+	// idempotencyKey is sent as the Idempotency-Key HTTP header or the
+	// "idempotency-key" metadata; empty for none.
+	idempotencyKey string
 }
 
 func createApplication(name string) call {
@@ -168,6 +171,21 @@ func listEndpoints(applicationID string, pageSize int32, pageToken string) call 
 	}
 }
 
+func createMessage(applicationID, eventType, payload, idempotencyKey string) call {
+	body, err := json.Marshal(map[string]any{"application_id": applicationID, "event_type": eventType, "payload": payload})
+	if err != nil {
+		panic(err) // Strings always marshal.
+	}
+	return call{
+		grpcMethod:     "/herald.tenant.v1.MessageService/CreateMessage",
+		req:            &tenantv1.CreateMessageRequest{ApplicationId: applicationID, EventType: eventType, Payload: payload},
+		httpMethod:     http.MethodPost,
+		path:           "/v1/messages",
+		body:           string(body),
+		idempotencyKey: idempotencyKey,
+	}
+}
+
 // pageQuery returns the query parameters of a REST list call.
 func pageQuery(pageSize int32, pageToken string) string {
 	q := url.Values{}
@@ -213,6 +231,9 @@ func invokeGRPC(t *testing.T, a *api, authorization string, c call, resp proto.M
 	if authorization != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", authorization)
 	}
+	if c.idempotencyKey != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "idempotency-key", c.idempotencyKey)
+	}
 	if resp == nil {
 		// Any response decodes into Empty, as unknown fields.
 		resp = &emptypb.Empty{}
@@ -228,6 +249,8 @@ var restCodes = map[int]codes.Code{
 	http.StatusBadRequest:   codes.InvalidArgument,
 	http.StatusUnauthorized: codes.Unauthenticated,
 	http.StatusNotFound:     codes.NotFound,
+	// The gateway's default is 429, which means "slow down".
+	http.StatusRequestEntityTooLarge: codes.ResourceExhausted,
 }
 
 func invokeREST(t *testing.T, a *api, authorization string, c call, resp proto.Message) codes.Code {
@@ -254,6 +277,9 @@ func doREST(t *testing.T, a *api, authorization string, c call) (codes.Code, []b
 	}
 	if authorization != "" {
 		req.Header.Set("Authorization", authorization)
+	}
+	if c.idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", c.idempotencyKey)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

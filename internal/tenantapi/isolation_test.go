@@ -28,6 +28,7 @@ func TestOtherTenantsResourcesAreNotFound(t *testing.T) {
 		createEndpoint(applicationID, "https://example.com/other", nil),
 		getEndpoint(applicationID, ep.GetEndpoint().GetId()),
 		listEndpoints(applicationID, 0, ""),
+		createMessage(applicationID, "invoice.paid", `{}`, ""),
 	}
 	for _, tr := range transports {
 		for _, op := range operations {

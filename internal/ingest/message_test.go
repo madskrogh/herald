@@ -1,0 +1,370 @@
+package ingest_test
+
+import (
+	"errors"
+	"sync"
+	"testing"
+	"time"
+	"uuid"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/madskrogh/herald/internal/eventtype"
+	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/ingest/ingestdb"
+	"github.com/madskrogh/herald/internal/ingest/ingesttest"
+)
+
+// accepted is when the tests' Messages are accepted, unless a test says
+// otherwise.
+var accepted = time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+
+func TestMessageFansOutToMatchingEndpoints(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+	f := newFixture(t, store)
+	all := f.endpoint(t, nil)
+	invoices := f.endpoint(t, []string{"invoice.*"})
+	f.endpoint(t, []string{"customer.>"})
+	paidOnly := f.endpoint(t, []string{"customer.created", "invoice.paid"})
+	// Another Application's Endpoint, with a filter that matches.
+	newFixture(t, store).endpoint(t, nil)
+
+	msg, created, err := store.CreateMessage(t.Context(), f.message("invoice.paid", ""), accepted)
+	if err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	if !created {
+		t.Error("CreateMessage reports the Message as a repeat, want created")
+	}
+	want := []uuid.UUID{all, invoices, paidOnly}
+	if diff := cmp.Diff(want, endpointIDs(msg.Deliveries)); diff != "" {
+		t.Errorf("Deliveries' Endpoints (-want +got):\n%s", diff)
+	}
+	if !msg.HandedOffAt.IsZero() {
+		t.Errorf("HandedOffAt = %v, want zero: the Deliveries wait for the relay", msg.HandedOffAt)
+	}
+}
+
+func TestMessageWithoutDeliveriesIsHandedOffAlready(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+
+	tests := []struct {
+		name    string
+		filters [][]string // one Endpoint per filter
+	}{
+		{name: "no Endpoints"},
+		{name: "no matching Endpoints", filters: [][]string{{"customer.>"}, {"invoice.created"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t, store)
+			for _, filter := range tt.filters {
+				f.endpoint(t, filter)
+			}
+
+			msg, _, err := store.CreateMessage(t.Context(), f.message("invoice.paid", ""), accepted)
+			if err != nil {
+				t.Fatalf("CreateMessage: %v", err)
+			}
+			if len(msg.Deliveries) != 0 {
+				t.Errorf("Deliveries = %v, want none", msg.Deliveries)
+			}
+			if !msg.HandedOffAt.Equal(accepted) {
+				t.Errorf("HandedOffAt = %v, want %v: there is nothing to hand off", msg.HandedOffAt, accepted)
+			}
+		})
+	}
+}
+
+func TestMessageForAnotherTenantsApplicationIsNotFound(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+	owner := newFixture(t, store)
+	owner.endpoint(t, nil)
+	other := newFixture(t, store)
+
+	tests := []struct {
+		name          string
+		applicationID uuid.UUID
+	}{
+		{name: "another Tenant's Application", applicationID: owner.application.ID},
+		{name: "Application that doesn't exist", applicationID: uuid.MustParse("0193a1b2-0000-7000-8000-000000000000")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := other.message("invoice.paid", "")
+			m.ApplicationID = tt.applicationID
+			if msg, _, err := store.CreateMessage(t.Context(), m, accepted); !errors.Is(err, ingest.ErrNotFound) {
+				t.Errorf("CreateMessage = Message %s, error %v; want ingest.ErrNotFound", msg.ID, err)
+			}
+		})
+	}
+
+	// Positive control: the owner can create the same Message.
+	if _, _, err := store.CreateMessage(t.Context(), owner.message("invoice.paid", ""), accepted); err != nil {
+		t.Errorf("owner's CreateMessage: %v", err)
+	}
+}
+
+func TestRepeatWithIdempotencyKeyReturnsTheOriginalMessage(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, pool := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+	f := newFixture(t, store)
+	f.endpoint(t, nil)
+
+	original, _, err := store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted)
+	if err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	// A repeat that worked out Deliveries afresh would add one to this
+	// Endpoint.
+	f.endpoint(t, nil)
+	before := countMessagesAndDeliveries(t, pool)
+
+	repeat, created, err := store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("repeat CreateMessage: %v", err)
+	}
+	if created {
+		t.Error("repeat CreateMessage reports the Message as created, want a repeat")
+	}
+	if diff := cmp.Diff(original, repeat); diff != "" {
+		t.Errorf("repeat returned another Message (-original +repeat):\n%s", diff)
+	}
+	if after := countMessagesAndDeliveries(t, pool); after != before {
+		t.Errorf("rows after the repeat = %+v, want %+v as before it", after, before)
+	}
+
+	// Positive control: without a key, the same check sees a second Message
+	// and its Deliveries.
+	if _, _, err := store.CreateMessage(t.Context(), f.message("invoice.paid", ""), accepted); err != nil {
+		t.Fatalf("CreateMessage without a key: %v", err)
+	}
+	want := rowCounts{Messages: before.Messages + 1, Deliveries: before.Deliveries + 2}
+	if got := countMessagesAndDeliveries(t, pool); got != want {
+		t.Fatalf("rows after a Message without a key = %+v, want %+v", got, want)
+	}
+}
+
+func TestIdempotencyKeyExpiresAfter24Hours(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+	f := newFixture(t, store)
+	f.endpoint(t, nil)
+	create := func(t *testing.T, at time.Time) (ingest.Message, bool) {
+		t.Helper()
+		msg, created, err := store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), at)
+		if err != nil {
+			t.Fatalf("CreateMessage at %v: %v", at, err)
+		}
+		return msg, created
+	}
+
+	original, _ := create(t, accepted)
+	// Postgres stores microseconds, so this is the last moment the key holds.
+	if repeat, created := create(t, accepted.Add(24*time.Hour-time.Microsecond)); created || repeat.ID != original.ID {
+		t.Errorf("CreateMessage just before 24 h = Message %s (created %t), want the original %s", repeat.ID, created, original.ID)
+	}
+
+	reused, created := create(t, accepted.Add(24*time.Hour))
+	if !created || reused.ID == original.ID {
+		t.Fatalf("CreateMessage at 24 h = Message %s (created %t), want a new Message", reused.ID, created)
+	}
+	// The key now holds the new Message.
+	if repeat, created := create(t, accepted.Add(25*time.Hour)); created || repeat.ID != reused.ID {
+		t.Errorf("CreateMessage after reuse = Message %s (created %t), want %s", repeat.ID, created, reused.ID)
+	}
+}
+
+func TestIdempotencyKeysArePerTenant(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+	acme, globex := newFixture(t, store), newFixture(t, store)
+
+	first, _, err := store.CreateMessage(t.Context(), acme.message("invoice.paid", "order-1"), accepted)
+	if err != nil {
+		t.Fatalf("Acme's CreateMessage: %v", err)
+	}
+	second, created, err := store.CreateMessage(t.Context(), globex.message("invoice.paid", "order-1"), accepted)
+	if err != nil {
+		t.Fatalf("Globex's CreateMessage: %v", err)
+	}
+	if !created || second.ID == first.ID || second.TenantID != globex.tenant.ID {
+		t.Errorf("Globex's Message %s of Tenant %s (created %t), want a new Message of its own", second.ID, second.TenantID, created)
+	}
+}
+
+func TestConcurrentRequestsWithTheSameKeyCreateOneMessage(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, pool := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+	f := newFixture(t, store)
+	f.endpoint(t, nil)
+
+	const requests = 16
+	type result struct {
+		msg     ingest.Message
+		created bool
+		err     error
+	}
+	results := make([]result, requests)
+	// Open the pool's connections first. Otherwise opening them staggers the
+	// requests by more than a request takes, and they run one after another.
+	conns := make([]*pgxpool.Conn, pool.Config().MaxConns)
+	for i := range conns {
+		conn, err := pool.Acquire(t.Context())
+		if err != nil {
+			t.Fatalf("acquire connection: %v", err)
+		}
+		conns[i] = conn
+	}
+	for _, conn := range conns {
+		conn.Release()
+	}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range requests {
+		wg.Go(func() {
+			<-start
+			msg, created, err := store.CreateMessage(t.Context(), f.message("invoice.paid", "order-1"), accepted)
+			results[i] = result{msg: msg, created: created, err: err}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	var created int
+	for i, r := range results {
+		if r.err != nil {
+			t.Fatalf("request %d: %v", i, r.err)
+		}
+		if r.created {
+			created++
+		}
+		if diff := cmp.Diff(results[0].msg, r.msg); diff != "" {
+			t.Errorf("request %d got another Message than request 0 (-0 +%d):\n%s", i, i, diff)
+		}
+	}
+	if created != 1 {
+		t.Errorf("%d requests report a created Message, want 1", created)
+	}
+	if got, want := countMessagesAndDeliveries(t, pool), (rowCounts{Messages: 1, Deliveries: 1}); got != want {
+		t.Errorf("rows = %+v, want %+v", got, want)
+	}
+}
+
+// rowCounts is how many Messages and Deliveries a database holds.
+type rowCounts struct {
+	Messages, Deliveries int
+}
+
+// countMessagesAndDeliveries counts the rows in the messages and deliveries
+// tables. The query lives here, not in sqlc: whether a call wrote rows it
+// doesn't return is the property under test, and the Store has no way to
+// show it.
+func countMessagesAndDeliveries(t *testing.T, db ingestdb.DBTX) rowCounts {
+	t.Helper()
+	var c rowCounts
+	err := db.QueryRow(t.Context(),
+		"SELECT (SELECT count(*) FROM ingest.messages), (SELECT count(*) FROM ingest.deliveries)",
+	).Scan(&c.Messages, &c.Deliveries)
+	if err != nil {
+		t.Fatalf("count messages and deliveries: %v", err)
+	}
+	return c
+}
+
+// fixture is a Tenant with one Application, for creating Endpoints and
+// Messages under.
+type fixture struct {
+	store       *ingest.Store
+	tenant      ingest.Tenant
+	application ingest.Application
+}
+
+func newFixture(t *testing.T, store *ingest.Store) fixture {
+	t.Helper()
+	tenant, err := store.CreateTenant(t.Context(), "Acme")
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	return newApplication(t, store, tenant)
+}
+
+// newApplication returns a fixture with a new Application under tenant.
+func newApplication(t *testing.T, store *ingest.Store, tenant ingest.Tenant) fixture {
+	t.Helper()
+	application, err := store.CreateApplication(t.Context(), tenant.ID, "Customer A")
+	if err != nil {
+		t.Fatalf("CreateApplication: %v", err)
+	}
+	return fixture{store: store, tenant: tenant, application: application}
+}
+
+// endpoint creates an Endpoint with filter under the fixture's Application
+// and returns its ID.
+func (f fixture) endpoint(t *testing.T, filter []string) uuid.UUID {
+	t.Helper()
+	ep, err := f.store.CreateEndpoint(t.Context(), ingest.NewEndpoint{
+		ID:                      uuid.NewV7(),
+		TenantID:                f.tenant.ID,
+		ApplicationID:           f.application.ID,
+		URL:                     "https://example.com/webhooks",
+		Filter:                  filter,
+		SigningSecretCiphertext: []byte("ciphertext"),
+	})
+	if err != nil {
+		t.Fatalf("CreateEndpoint: %v", err)
+	}
+	return ep.ID
+}
+
+// message returns a Message of the given Event type for the fixture's
+// Application, with the Idempotency-Key key (none if empty).
+func (f fixture) message(eventType, key string) ingest.NewMessage {
+	et, err := eventtype.ParseEventType(eventType)
+	if err != nil {
+		panic(err) // The tests' Event types are literals.
+	}
+	return ingest.NewMessage{
+		TenantID:       f.tenant.ID,
+		ApplicationID:  f.application.ID,
+		EventType:      et,
+		Payload:        []byte(`{"invoice_id": "in_1"}`),
+		IdempotencyKey: key,
+	}
+}
+
+// endpointIDs returns the IDs of the Endpoints the Deliveries go to.
+func endpointIDs(deliveries []ingest.Delivery) []uuid.UUID {
+	ids := make([]uuid.UUID, len(deliveries))
+	for i, d := range deliveries {
+		ids[i] = d.EndpointID
+	}
+	return ids
+}

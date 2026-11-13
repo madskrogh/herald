@@ -41,6 +41,12 @@ func TestInvalidArguments(t *testing.T) {
 		{name: "Endpoint filter with > before the end", call: createEndpoint(applicationID, okURL, []string{"invoice.>.paid"})},
 		{name: "Endpoint ID not a UUID", call: getEndpoint(applicationID, "endpoint-1")},
 		{name: "Endpoints page token not an ID", call: listEndpoints(applicationID, 0, "AAAA")},
+		{name: "Message for an Application ID that isn't a UUID", call: createMessage("customer-a", "invoice.paid", `{}`, "")},
+		{name: "Message Event type with an empty token", call: createMessage(applicationID, "invoice..paid", `{}`, "")},
+		{name: "Message Event type over 128 bytes", call: createMessage(applicationID, strings.Repeat("a", 129), `{}`, "")},
+		{name: "empty Message payload", call: createMessage(applicationID, "invoice.paid", "", "")},
+		{name: "Message payload that isn't JSON", call: createMessage(applicationID, "invoice.paid", `{"invoice_id":`, "")},
+		{name: "Message payload of two JSON values", call: createMessage(applicationID, "invoice.paid", `{} {}`, "")},
 	}
 	for _, tr := range transports {
 		for _, tt := range tests {
@@ -58,6 +64,8 @@ func TestInvalidArguments(t *testing.T) {
 	valid := []call{
 		createApplication(strings.Repeat("é", 128)),
 		createEndpoint(applicationID, okURL, []string{"invoice.*", "customer.>", "*"}),
+		// Any JSON value is a payload, not only an object.
+		createMessage(applicationID, strings.Repeat("a", 128), ` [1, "two"] `, ""),
 	}
 	for _, tr := range transports {
 		for _, c := range valid {

@@ -1,5 +1,6 @@
 // Package ingest owns herald-api's ingest schema: its migrations and the
-// Tenants, API keys, Applications and Endpoints stored in it.
+// Tenants, API keys, Applications, Endpoints, Messages and Deliveries stored
+// in it.
 package ingest
 
 import (
