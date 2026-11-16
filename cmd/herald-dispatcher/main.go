@@ -143,10 +143,11 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return fmt.Errorf("connect to NATS: %w", err)
 	}
 	store := delivery.NewStore(pool)
+	// Scale 1: the retry schedule at full length, as docs/design.md gives it.
 	schedule, err := retry.New(1, rand.Float64)
 	if err != nil {
 		nc.Close()
-		return err
+		return fmt.Errorf("retry schedule: %w", err)
 	}
 	workers := delivery.NewWorkers(store, delivery.WorkersConfig{
 		Keyring:      cfg.keyring,

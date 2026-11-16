@@ -27,7 +27,7 @@ func TestRecordASucceededAttempt(t *testing.T) {
 		ResponseBody: []byte("ok"),
 	}
 
-	if err := in.store.Record(t.Context(), lease, attempt, delivery.StateSucceeded, time.Time{}); err != nil {
+	if err := in.store.Record(t.Context(), lease, attempt, delivery.Succeeded()); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 
@@ -67,12 +67,12 @@ func TestRecordRefusesALeaseThatRanOut(t *testing.T) {
 	leaseA := leaseOf(t, claim(t, in.store, now, 10), deliveryID1)
 	leaseB := leaseOf(t, claim(t, in.store, now.Add(60*time.Second), 10), deliveryID1)
 	attemptB := delivery.Attempt{StartedAt: now.Add(60 * time.Second), StatusCode: 500, Latency: 30 * time.Millisecond, ResponseBody: []byte("boom")}
-	if err := in.store.Record(t.Context(), leaseB, attemptB, delivery.StatePending, now.Add(65*time.Second)); err != nil {
+	if err := in.store.Record(t.Context(), leaseB, attemptB, delivery.RetryAt(now.Add(65*time.Second))); err != nil {
 		t.Fatalf("Record under lease B: %v", err)
 	}
 
 	attemptA := delivery.Attempt{StartedAt: now, StatusCode: 200, Latency: 70 * time.Second}
-	err := in.store.Record(t.Context(), leaseA, attemptA, delivery.StateSucceeded, time.Time{})
+	err := in.store.Record(t.Context(), leaseA, attemptA, delivery.Succeeded())
 
 	if !errors.Is(err, delivery.ErrLeaseLost) {
 		t.Errorf("Record under lease A: error = %v, want %v", err, delivery.ErrLeaseLost)

@@ -62,7 +62,7 @@ type WorkersConfig struct {
 // is a *Store, except in tests of how Workers schedule and stop Attempts.
 type leaseStore interface {
 	Claim(ctx context.Context, now time.Time, limit int) ([]Lease, error)
-	Record(ctx context.Context, lease Lease, a Attempt, state State, nextAttemptAt time.Time) error
+	Record(ctx context.Context, lease Lease, a Attempt, o Outcome) error
 }
 
 // Workers make the Attempts for due Deliveries: each signed, recorded, and
@@ -161,37 +161,33 @@ func (w *Workers) poll(ctx, attemptCtx context.Context) {
 // The Attempts run with ctx's values but not its cancellation; Wait waits for
 // them.
 func (w *Workers) RunOnce(ctx context.Context) (int, error) {
-	return w.claimAndStart(ctx, context.WithoutCancel(ctx))
+	started, _, err := w.claimAndStart(ctx, context.WithoutCancel(ctx))
+	return started, err
 }
 
 // round is one round of Run: it reports whether it filled every free worker,
 // in which case more Deliveries may be due.
 func (w *Workers) round(ctx, attemptCtx context.Context) (full bool, err error) {
-	w.mu.Lock()
-	free := w.cfg.Concurrency - w.inFlight
-	w.mu.Unlock()
-	if free <= 0 {
-		return false, nil
-	}
-	n, err := w.claimAndStart(ctx, attemptCtx)
-	return n == free, err
+	started, free, err := w.claimAndStart(ctx, attemptCtx)
+	return free > 0 && started == free, err
 }
 
 // claimAndStart claims as many due Deliveries as there are free workers, with
-// ctx, and starts their Attempts with attemptCtx.
-func (w *Workers) claimAndStart(ctx, attemptCtx context.Context) (int, error) {
+// ctx, and starts their Attempts with attemptCtx. It returns how many it
+// started, and how many workers were free.
+func (w *Workers) claimAndStart(ctx, attemptCtx context.Context) (started, free int, err error) {
 	w.claiming.Lock()
 	defer w.claiming.Unlock()
 
 	w.mu.Lock()
-	free := w.cfg.Concurrency - w.inFlight
+	free = w.cfg.Concurrency - w.inFlight
 	w.mu.Unlock()
 	if free <= 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
 	leases, err := w.store.Claim(ctx, w.cfg.Now(), free)
 	if err != nil {
-		return 0, err
+		return 0, free, err
 	}
 	w.mu.Lock()
 	w.inFlight += len(leases)
@@ -206,7 +202,7 @@ func (w *Workers) claimAndStart(ctx, attemptCtx context.Context) (int, error) {
 			w.attempt(attemptCtx, lease)
 		})
 	}
-	return len(leases), nil
+	return len(leases), free, nil
 }
 
 // Wait waits for the Attempts that RunOnce started.
@@ -218,8 +214,8 @@ func (w *Workers) Wait() {
 func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	d := lease.Delivery
 	a := w.send(ctx, d)
-	number := lease.Attempts + 1
-	state, next := w.outcome(a, number)
+	number := lease.PriorAttempts + 1
+	o := w.outcome(a, number)
 	logger := w.logger.With(
 		"delivery_id", d.ID,
 		"message_id", d.MessageID,
@@ -227,7 +223,7 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 		"attempt", number,
 		"status_code", a.StatusCode,
 		"latency_ms", a.Latency.Milliseconds(),
-		"state", state,
+		"state", o.State,
 	)
 	if a.Error != "" {
 		logger = logger.With("attempt_error", a.Error)
@@ -236,7 +232,7 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	// recorded anyway.
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
 	defer cancel()
-	if err := w.store.Record(recordCtx, lease, a, state, next); err != nil {
+	if err := w.store.Record(recordCtx, lease, a, o); err != nil {
 		if errors.Is(err, ErrLeaseLost) {
 			// Another worker claimed the Delivery after this lease ran out,
 			// and its Attempt counts instead.
@@ -291,7 +287,7 @@ func (w *Workers) newRequest(ctx context.Context, d Delivery, ts time.Time) (*ht
 	}
 	header, err := signing.Sign(d.MessageID.String(), ts, d.Payload, secrets)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sign: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.Endpoint.URL, bytes.NewReader(d.Payload))
 	if err != nil {
@@ -305,16 +301,15 @@ func (w *Workers) newRequest(ctx context.Context, d Delivery, ts time.Time) (*ht
 	return req, nil
 }
 
-// outcome returns the state an Attempt moves its Delivery to and, for a
-// pending Delivery, when the next Attempt is due. number is the Attempt's
-// number.
-func (w *Workers) outcome(a Attempt, number int) (State, time.Time) {
+// outcome returns where an Attempt leaves its Delivery. number is the
+// Attempt's number.
+func (w *Workers) outcome(a Attempt, number int) Outcome {
 	if a.StatusCode >= 200 && a.StatusCode < 300 {
-		return StateSucceeded, time.Time{}
+		return Succeeded()
 	}
 	delay, ok := w.cfg.Schedule.Next(number)
 	if !ok {
-		return StateFailed, time.Time{}
+		return Failed()
 	}
-	return StatePending, w.cfg.Now().Add(delay)
+	return RetryAt(w.cfg.Now().Add(delay))
 }

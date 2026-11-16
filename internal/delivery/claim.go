@@ -27,9 +27,9 @@ type Lease struct {
 	// lease can record its Attempt.
 	ID       uuid.UUID
 	Delivery Delivery
-	// Attempts is how many Attempts were recorded for the Delivery before
-	// this lease.
-	Attempts int
+	// PriorAttempts is how many Attempts were recorded for the Delivery
+	// before this lease.
+	PriorAttempts int
 }
 
 // Claim leases up to limit Deliveries that are due at now, for one Attempt
@@ -101,8 +101,8 @@ func claimEndpoint(ctx context.Context, q *deliverydb.Queries, endpointID uuid.U
 	leases := make([]Lease, 0, len(rows))
 	for _, r := range rows {
 		leases = append(leases, Lease{
-			ID:       r.LeaseID,
-			Attempts: int(r.AttemptCount),
+			ID:            r.LeaseID,
+			PriorAttempts: int(r.AttemptCount),
 			Delivery: Delivery{
 				ID:        r.ID,
 				MessageID: r.MessageID,

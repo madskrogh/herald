@@ -35,19 +35,35 @@ type Attempt struct {
 	Error string
 }
 
-// Record records an Attempt made under lease and moves the Delivery to state.
-// A pending Delivery is due again at nextAttemptAt; for the other states it
-// is ignored. If lease is no longer the Delivery's current lease, Record
+// Outcome is where an Attempt leaves its Delivery.
+type Outcome struct {
+	State State
+	// NextAttemptAt is when the next Attempt is due. Only a pending Delivery
+	// has one.
+	NextAttemptAt time.Time
+}
+
+// Succeeded is the Outcome of a successful Attempt.
+func Succeeded() Outcome { return Outcome{State: StateSucceeded} }
+
+// Failed is the Outcome of the last Attempt the retry schedule allows.
+func Failed() Outcome { return Outcome{State: StateFailed} }
+
+// RetryAt is the Outcome of a failed Attempt with another due at t.
+func RetryAt(t time.Time) Outcome { return Outcome{State: StatePending, NextAttemptAt: t} }
+
+// Record records an Attempt made under lease and moves the Delivery on to
+// the Outcome. If lease is no longer the Delivery's current lease, Record
 // records nothing and returns an error wrapping ErrLeaseLost.
-func (s *Store) Record(ctx context.Context, lease Lease, a Attempt, state State, nextAttemptAt time.Time) error {
+func (s *Store) Record(ctx context.Context, lease Lease, a Attempt, o Outcome) error {
 	next := pgtype.Timestamptz{}
-	if state == StatePending {
-		next = pgtype.Timestamptz{Time: nextAttemptAt, Valid: true}
+	if o.State == StatePending {
+		next = pgtype.Timestamptz{Time: o.NextAttemptAt, Valid: true}
 	}
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		number, err := q.FinishAttempt(ctx, deliverydb.FinishAttemptParams{
-			State:         string(state),
+			State:         string(o.State),
 			NextAttemptAt: next,
 			ID:            lease.Delivery.ID,
 			LeaseID:       lease.ID,
@@ -56,9 +72,9 @@ func (s *Store) Record(ctx context.Context, lease Lease, a Attempt, state State,
 			return ErrLeaseLost
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("end lease: %w", err)
 		}
-		return q.InsertAttempt(ctx, deliverydb.InsertAttemptParams{
+		err = q.InsertAttempt(ctx, deliverydb.InsertAttemptParams{
 			DeliveryID: lease.Delivery.ID,
 			Number:     number,
 			StartedAt:  a.StartedAt,
@@ -69,6 +85,10 @@ func (s *Store) Record(ctx context.Context, lease Lease, a Attempt, state State,
 			ResponseBody: append([]byte{}, a.ResponseBody...),
 			Error:        pgtype.Text{String: a.Error, Valid: a.Error != ""},
 		})
+		if err != nil {
+			return fmt.Errorf("insert attempt %d: %w", number, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("record attempt for delivery %s: %w", lease.Delivery.ID, err)

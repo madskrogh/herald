@@ -16,7 +16,6 @@ import (
 
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/keyring"
-	"github.com/madskrogh/herald/internal/retry"
 )
 
 // drainTimeout is how long the Attempts in flight get to finish once Run's
@@ -68,6 +67,8 @@ func TestWorkersRunCancelAttemptsAtTheDrainDeadline(t *testing.T) {
 		done := runInBackground(ctx, w)
 
 		time.Sleep(time.Second)
+		// The Attempt is waiting for its response.
+		synctest.Wait()
 		cancel()
 		cancelledAt := time.Now()
 		<-done
@@ -137,10 +138,6 @@ func runInBackground(ctx context.Context, w *delivery.Workers) <-chan struct{} {
 // in-memory connections, so they run on synctest's fake time.
 func newPipeWorkers(t *testing.T, store *fakeStore, handler http.Handler) *delivery.Workers {
 	t.Helper()
-	schedule, err := retry.New(1, func() float64 { return 0.5 })
-	if err != nil {
-		t.Fatalf("retry schedule: %v", err)
-	}
 	client := &http.Client{Transport: &http.Transport{
 		// Every connection closes after its request, so none is left
 		// blocked when the bubble ends.
@@ -154,7 +151,7 @@ func newPipeWorkers(t *testing.T, store *fakeStore, handler http.Handler) *deliv
 	return delivery.NewWorkers(store, delivery.WorkersConfig{
 		Keyring:      store.keys,
 		Client:       client,
-		Schedule:     schedule,
+		Schedule:     pinnedSchedule(t),
 		Now:          time.Now,
 		DrainTimeout: drainTimeout,
 	}, slog.New(slog.DiscardHandler))
@@ -250,13 +247,13 @@ func (s *fakeStore) Claim(_ context.Context, _ time.Time, limit int) ([]delivery
 }
 
 // Record fails on a cancelled context, as a query does.
-func (s *fakeStore) Record(ctx context.Context, _ delivery.Lease, a delivery.Attempt, state delivery.State, next time.Time) error {
+func (s *fakeStore) Record(ctx context.Context, _ delivery.Lease, a delivery.Attempt, o delivery.Outcome) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.recorded = append(s.recorded, recordedAttempt{attempt: a, state: state, next: next})
+	s.recorded = append(s.recorded, recordedAttempt{attempt: a, state: o.State, next: o.NextAttemptAt})
 	return nil
 }
 

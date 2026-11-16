@@ -69,10 +69,10 @@ func TestWorkersSignEveryAttempt(t *testing.T) {
 	}
 }
 
-// TestWorkersMakeNoAttemptWithoutTheKey covers a signing secret encrypted
+// TestWorkersSendNothingUnsignedWithoutTheKey covers a signing secret encrypted
 // with a key this dispatcher's keyring doesn't have: no unsigned request is
 // sent, and the Attempt is recorded with the error and retried.
-func TestWorkersMakeNoAttemptWithoutTheKey(t *testing.T) {
+func TestWorkersSendNothingUnsignedWithoutTheKey(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("integration")
@@ -238,15 +238,15 @@ func TestWorkersDoNotFollowRedirects(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	target := newReceiver(t, 200)
-	redirect := httptest.NewServer(http.RedirectHandler(target.URL(), http.StatusFound))
+	redirectedTo := newReceiver(t, 200)
+	redirect := httptest.NewServer(http.RedirectHandler(redirectedTo.URL(), http.StatusFound))
 	t.Cleanup(redirect.Close)
 	tw := newTestWorkers(t)
 	tw.in.send(t, tw.workerBatch(t, redirect.URL))
 
 	tw.runOnce(t)
 
-	if n := target.count(); n != 0 {
+	if n := redirectedTo.count(); n != 0 {
 		t.Errorf("redirect target got %d requests, want none", n)
 	}
 	got, err := tw.in.store.Delivery(t.Context(), uuid.MustParse(deliveryID1))
@@ -411,21 +411,27 @@ func newTestWorkers(t *testing.T) *testWorkers {
 
 // newWorkers returns another set of Workers on the same database, as in
 // another dispatcher replica, with at most concurrency Attempts in flight (0
-// for the default). The retry schedule's jitter is pinned, so every delay is
-// exact.
+// for the default).
 func (tw *testWorkers) newWorkers(t *testing.T, concurrency int) *delivery.Workers {
+	t.Helper()
+	return delivery.NewWorkers(tw.in.store, delivery.WorkersConfig{
+		Keyring:     tw.keys,
+		Client:      &http.Client{},
+		Schedule:    pinnedSchedule(t),
+		Now:         tw.clock.now,
+		Concurrency: concurrency,
+	}, slog.New(slog.DiscardHandler))
+}
+
+// pinnedSchedule returns the full retry schedule with its jitter pinned to
+// none, so every delay is exact.
+func pinnedSchedule(t *testing.T) retry.Schedule {
 	t.Helper()
 	schedule, err := retry.New(1, func() float64 { return 0.5 })
 	if err != nil {
 		t.Fatalf("retry schedule: %v", err)
 	}
-	return delivery.NewWorkers(tw.in.store, delivery.WorkersConfig{
-		Keyring:     tw.keys,
-		Client:      &http.Client{},
-		Schedule:    schedule,
-		Now:         tw.clock.now,
-		Concurrency: concurrency,
-	}, slog.New(slog.DiscardHandler))
+	return schedule
 }
 
 // runOnce runs one round of the workers and waits for its Attempts.
