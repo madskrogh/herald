@@ -54,7 +54,7 @@ type Relay struct {
 	// mu makes the Relay's rounds take turns, and guards claimLimit.
 	mu sync.Mutex
 	// claimLimit is how many Messages the next round claims: MaxMessages,
-	// or fewer after rounds that couldn't send all they claimed (see round).
+	// or fewer after rounds that couldn't send all they claimed (see RunOnce).
 	claimLimit int
 }
 
@@ -75,7 +75,7 @@ func NewRelay(store *ingest.Store, nc *nats.Conn, cfg Config, logger *slog.Logge
 // the outbox for the next relay to run.
 func (r *Relay) Run(ctx context.Context) {
 	poll(ctx, func(ctx context.Context) (bool, error) {
-		_, more, err := r.round(ctx, time.Now())
+		_, more, err := r.RunOnce(ctx, time.Now())
 		return more, err
 	}, pollInterval, maxBackoff, r.logger)
 }
@@ -83,17 +83,17 @@ func (r *Relay) Run(ctx context.Context) {
 // RunOnce runs one round of the relay at the time now: it claims up to
 // MaxMessages Messages from the outbox, sends as many as fit in one Batch, and
 // marks them handed off once a dispatcher has committed them. It returns how
-// many Messages it handed off. On an error, none are.
+// many Messages it handed off, and whether more may be waiting: it claimed as
+// many as it asked for, or sent fewer than it claimed. On an error, none are
+// handed off.
+//
+// A round that claims fewer than it asked for reports nothing more waiting,
+// even when other relays' rounds hold the rest locked. Those Messages are
+// being handed off already, and claiming again at once would only find them
+// still locked.
 //
 // The round is one transaction, which stays open, holding the claimed rows,
 // while it waits up to RequestTimeout for the reply.
-func (r *Relay) RunOnce(ctx context.Context, now time.Time) (int, error) {
-	n, _, err := r.round(ctx, now)
-	return n, err
-}
-
-// round is RunOnce, and also reports whether more Messages may be waiting:
-// it claimed as many as it could, or sent fewer than it claimed.
 //
 // A round claims claimLimit Messages. Every Message it claims is read and
 // held locked until the reply, so claiming many more than fit in a Batch
@@ -101,7 +101,7 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (int, error) {
 // After a round that sent fewer than it claimed, the next claims one more
 // than it sent, to see whether that one fits too. After one that sent all it
 // claimed, the next claims twice as many, up to MaxMessages.
-func (r *Relay) round(ctx context.Context, now time.Time) (handedOff int, more bool, err error) {
+func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more bool, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// Without a connection there is no one to send to, and no maximum payload
