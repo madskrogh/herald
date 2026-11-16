@@ -1,6 +1,8 @@
 package delivery_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -421,6 +423,50 @@ func (tw *testWorkers) newWorkers(t *testing.T, concurrency int) *delivery.Worke
 		Now:         tw.clock.now,
 		Concurrency: concurrency,
 	}, slog.New(slog.DiscardHandler))
+}
+
+// TestWorkersLogEachAttempt checks the structured log line of an Attempt
+// that failed with a response.
+func TestWorkersLogEachAttempt(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	rcv := newReceiver(t, 503)
+	tw := newTestWorkers(t)
+	var logs bytes.Buffer
+	tw.workers = delivery.NewWorkers(tw.in.store, delivery.WorkersConfig{
+		Keyring:  tw.keys,
+		Client:   &http.Client{},
+		Schedule: pinnedSchedule(t),
+		Now:      tw.clock.now,
+	}, slog.New(slog.NewJSONHandler(&logs, nil)))
+	tw.in.send(t, tw.workerBatch(t, rcv.URL()))
+
+	tw.runOnce(t)
+
+	var got map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &got); err != nil {
+		t.Fatalf("decode log line %q: %v", logs.String(), err)
+	}
+	if _, ok := got["latency_ms"].(float64); !ok {
+		t.Errorf("latency_ms = %v, want a number", got["latency_ms"])
+	}
+	delete(got, "time")
+	delete(got, "latency_ms")
+	want := map[string]any{
+		"level":       "INFO",
+		"msg":         "attempt",
+		"delivery_id": deliveryID1,
+		"message_id":  messageID1,
+		"endpoint_id": endpointID1,
+		"attempt":     float64(1),
+		"status_code": float64(503),
+		"state":       "pending",
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("log line (-want +got):\n%s", diff)
+	}
 }
 
 // pinnedSchedule returns the full retry schedule with its jitter pinned to
