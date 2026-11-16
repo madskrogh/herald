@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -18,8 +20,10 @@ import (
 
 	"github.com/madskrogh/herald/internal/delivery"
 	handoffv1 "github.com/madskrogh/herald/internal/gen/herald/handoff/v1"
+	"github.com/madskrogh/herald/internal/keyring"
 	"github.com/madskrogh/herald/internal/natstest"
 	"github.com/madskrogh/herald/internal/pgtest"
+	"github.com/madskrogh/herald/internal/signing"
 )
 
 // logRecord holds the fields of a JSON log line that the tests check.
@@ -30,10 +34,14 @@ type logRecord struct {
 	Version int64  `json:"version"`
 }
 
-// TestRunStoresHandedOffBatchesUntilCancelled sends a Batch on the subject
-// herald-api's relay uses. It is the only test in this package on that
+// testKeyring is the dispatcher's keyring in these tests.
+const testKeyring = "test:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+// TestRunDeliversHandedOffBatchesUntilCancelled sends a Batch on the subject
+// herald-api's relay uses, with one Delivery to a local Endpoint, and checks
+// that it arrives signed. It is the only test in this package on that
 // subject, so it needs no subject of its own.
-func TestRunStoresHandedOffBatchesUntilCancelled(t *testing.T) {
+func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("integration")
@@ -44,8 +52,19 @@ func TestRunStoresHandedOffBatchesUntilCancelled(t *testing.T) {
 	}
 	env := map[string]string{
 		"HERALD_DATABASE_URL": dbURL,
+		"HERALD_KEYRING":      testKeyring,
 		"HERALD_NATS_URL":     natstest.URL(t),
 	}
+	type received struct {
+		header http.Header
+		body   []byte
+	}
+	requests := make(chan received, 1)
+	endpoint := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- received{header: r.Header.Clone(), body: body}
+	}))
+	defer endpoint.Close()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	logr, logw := io.Pipe()
@@ -88,18 +107,31 @@ func TestRunStoresHandedOffBatchesUntilCancelled(t *testing.T) {
 		t.Fatalf("first log line is %+v, want started", started)
 	}
 
-	const deliveryID = "0190a5e4-0000-7000-8000-0000000000d1"
+	const (
+		deliveryID    = "0190a5e4-0000-7000-8000-0000000000d1"
+		endpointID    = "0190a5e4-0000-7000-8000-0000000000e1"
+		signingSecret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+		payload       = `{"invoice":42}`
+	)
+	keys, err := keyring.Parse(testKeyring)
+	if err != nil {
+		t.Fatalf("keyring: %v", err)
+	}
+	ciphertext, err := keys.Encrypt([]byte(signingSecret), []byte(endpointID))
+	if err != nil {
+		t.Fatalf("encrypt signing secret: %v", err)
+	}
 	data, err := proto.Marshal(&handoffv1.Batch{Messages: []*handoffv1.Message{{
 		Id:        "0190a5e4-0000-7000-8000-0000000000a1",
 		TenantId:  "0190a5e4-0000-7000-8000-000000000001",
 		EventType: "invoice.paid",
-		Payload:   []byte(`{"invoice":42}`),
+		Payload:   []byte(payload),
 		Deliveries: []*handoffv1.Delivery{{
 			Id: deliveryID,
 			Endpoint: &handoffv1.Endpoint{
-				Id:             "0190a5e4-0000-7000-8000-0000000000e1",
-				Url:            "https://example.com/webhooks",
-				SigningSecrets: []*handoffv1.SigningSecret{{Ciphertext: []byte("secret")}},
+				Id:             endpointID,
+				Url:            endpoint.URL + "/webhooks",
+				SigningSecrets: []*handoffv1.SigningSecret{{Ciphertext: ciphertext}},
 			},
 		}},
 	}}})
@@ -117,6 +149,23 @@ func TestRunStoresHandedOffBatchesUntilCancelled(t *testing.T) {
 	if !reply.GetCommitted() {
 		t.Errorf("reply is %v, want committed", reply)
 	}
+	var req received
+	select {
+	case req = <-requests:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no Attempt reached the Endpoint within 10s")
+	}
+	if err := signing.Verify(signingSecret, req.header, req.body, time.Now()); err != nil {
+		t.Errorf("verify webhook: %v", err)
+	}
+	if got := string(req.body); got != payload {
+		t.Errorf("body = %q, want %q", got, payload)
+	}
+
+	// Shutdown lets the Attempt be recorded before run returns.
+	if err := stop(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
 	pool, err := pgxpool.New(t.Context(), dbURL)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -126,14 +175,13 @@ func TestRunStoresHandedOffBatchesUntilCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Delivery: %v", err)
 	}
-	if got.State != delivery.StatePending {
-		t.Errorf("Delivery state is %q, want %q", got.State, delivery.StatePending)
+	if got.State != delivery.StateSucceeded {
+		t.Errorf("Delivery state is %q, want %q", got.State, delivery.StateSucceeded)
 	}
-
-	if err := stop(); err != nil {
-		t.Fatalf("run: %v", err)
+	want := []logRecord{
+		{Level: "INFO", Msg: "attempt", Service: "herald-dispatcher"},
+		{Level: "INFO", Msg: "stopped", Service: "herald-dispatcher"},
 	}
-	want := []logRecord{{Level: "INFO", Msg: "stopped", Service: "herald-dispatcher"}}
 	if diff := cmp.Diff(want, rest); diff != "" {
 		t.Errorf("log after started (-want +got):\n%s", diff)
 	}

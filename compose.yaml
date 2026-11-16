@@ -36,8 +36,8 @@ services:
     environment:
       HERALD_DATABASE_URL: postgres://herald:herald@postgres:5432/herald?sslmode=disable
       # A key for the local stack only. It is public, so nothing it encrypts
-      # is secret.
-      HERALD_KEYRING: local:ioEj3L2kOoSLD5CgHhOxHIJpq/rigH1TSXUCJaDZFRs=
+      # is secret. herald-dispatcher decrypts with the same keyring.
+      HERALD_KEYRING: &keyring local:ioEj3L2kOoSLD5CgHhOxHIJpq/rigH1TSXUCJaDZFRs=
       HERALD_NATS_URL: nats://nats:4222
     ports:
       - "127.0.0.1:${HERALD_API_HTTP_PORT:-8080}:8080"
@@ -55,6 +55,12 @@ services:
 
   herald-dispatcher:
     <<: *herald-dispatcher
+    environment:
+      HERALD_DATABASE_URL: postgres://herald:herald@postgres:5432/herald?sslmode=disable
+      # herald-api's keyring: the dispatcher decrypts what herald-api
+      # encrypts.
+      HERALD_KEYRING: *keyring
+      HERALD_NATS_URL: nats://nats:4222
     depends_on:
       dispatcher-migrate:
         condition: service_completed_successfully

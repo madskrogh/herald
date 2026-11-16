@@ -42,9 +42,16 @@ var ErrNotFound = errors.New("not found")
 // succeeds or the retry schedule runs out.
 type State string
 
-// StatePending is the state of a Delivery that is waiting for its next
-// Attempt.
-const StatePending State = "pending"
+// The states of a Delivery.
+const (
+	// StatePending is the state of a Delivery that is waiting for its next
+	// Attempt.
+	StatePending State = "pending"
+	// StateSucceeded is the state of a Delivery with a successful Attempt.
+	StateSucceeded State = "succeeded"
+	// StateFailed is the state of a Delivery whose retry schedule ran out.
+	StateFailed State = "failed"
+)
 
 // Delivery is one Message on its way to one Endpoint.
 type Delivery struct {
@@ -56,7 +63,9 @@ type Delivery struct {
 	Payload  []byte
 	Endpoint Endpoint
 	State    State
-	// When the next Attempt is due.
+	// When the next Attempt is due. While a worker holds a lease on the
+	// Delivery it is when the lease runs out, and once the Delivery has
+	// succeeded or failed it is left as it was at the last claim.
 	NextAttemptAt time.Time
 }
 
