@@ -27,6 +27,15 @@ const (
 	// defaultConcurrency is the most Attempts one process has in flight when
 	// WorkersConfig.Concurrency is zero.
 	defaultConcurrency = 32
+	// recordTimeout bounds recording an Attempt, which runs even after the
+	// Attempt was cancelled at shutdown.
+	recordTimeout = 2 * time.Second
+)
+
+// How Run paces its rounds (see poll).
+const (
+	pollInterval = 500 * time.Millisecond
+	maxBackoff   = 30 * time.Second
 )
 
 // WorkersConfig configures Workers.
@@ -43,19 +52,29 @@ type WorkersConfig struct {
 	Now func() time.Time
 	// Concurrency is the most Attempts in flight in this process.
 	Concurrency int
+	// DrainTimeout is how long the Attempts in flight get to finish once
+	// Run's context is cancelled.
+	DrainTimeout time.Duration
+}
+
+// leaseStore is where Workers claim Deliveries and record their Attempts. It
+// is a *Store, except in tests of how Workers schedule and stop Attempts.
+type leaseStore interface {
+	Claim(ctx context.Context, now time.Time, limit int) ([]Lease, error)
+	Record(ctx context.Context, lease Lease, a Attempt, state State, nextAttemptAt time.Time) error
 }
 
 // Workers make the Attempts for due Deliveries: each signed, recorded, and
 // followed by another on the retry schedule until one succeeds or the
 // schedule runs out.
 type Workers struct {
-	store  *Store
+	store  leaseStore
 	cfg    WorkersConfig
 	logger *slog.Logger
 
-	// round makes RunOnce calls take turns, so they don't claim more than
+	// claiming makes rounds take turns, so they don't claim more than
 	// Concurrency between them.
-	round sync.Mutex
+	claiming sync.Mutex
 	// mu guards inFlight.
 	mu       sync.Mutex
 	inFlight int
@@ -63,11 +82,71 @@ type Workers struct {
 }
 
 // NewWorkers returns Workers that claim Deliveries from store.
-func NewWorkers(store *Store, cfg WorkersConfig, logger *slog.Logger) *Workers {
+func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Workers {
 	if cfg.Concurrency <= 0 {
 		cfg.Concurrency = defaultConcurrency
 	}
 	return &Workers{store: store, cfg: cfg, logger: logger}
+}
+
+// Run makes Attempts until ctx is cancelled, claiming due Deliveries whenever
+// workers are free. Once ctx is cancelled it claims no more, and gives the
+// Attempts in flight DrainTimeout to finish. It then cancels those still
+// running, records them as failed Attempts to retry on the schedule, and
+// returns.
+func (w *Workers) Run(ctx context.Context) {
+	attemptCtx, cancelAttempts := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelAttempts()
+	w.poll(ctx, attemptCtx)
+
+	drained := make(chan struct{})
+	go func() {
+		w.attempts.Wait()
+		close(drained)
+	}()
+	timer := time.NewTimer(w.cfg.DrainTimeout)
+	defer timer.Stop()
+	select {
+	case <-drained:
+	case <-timer.C:
+		w.logger.WarnContext(ctx, "cancelling attempts still in flight at shutdown")
+		cancelAttempts()
+		<-drained
+	}
+}
+
+// poll runs rounds until ctx is cancelled. A round that filled every free
+// worker is followed by the next at once, to work through a backlog.
+// Otherwise the next waits pollInterval, and after a failure longer still:
+// the wait doubles with each failure in a row, up to maxBackoff.
+func (w *Workers) poll(ctx, attemptCtx context.Context) {
+	backoff := pollInterval
+	for {
+		full, err := w.round(ctx, attemptCtx)
+		if ctx.Err() != nil {
+			return
+		}
+		var wait time.Duration
+		switch {
+		case err != nil:
+			w.logger.WarnContext(ctx, "delivery round failed", "error", err, "retry_in", backoff)
+			wait = backoff
+			backoff = min(2*backoff, maxBackoff)
+		case full:
+			backoff = pollInterval
+			continue
+		default:
+			backoff = pollInterval
+			wait = pollInterval
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
 }
 
 // RunOnce claims as many due Deliveries as there are free workers and starts
@@ -75,8 +154,27 @@ func NewWorkers(store *Store, cfg WorkersConfig, logger *slog.Logger) *Workers {
 // The Attempts run with ctx's values but not its cancellation; Wait waits for
 // them.
 func (w *Workers) RunOnce(ctx context.Context) (int, error) {
-	w.round.Lock()
-	defer w.round.Unlock()
+	return w.claimAndStart(ctx, context.WithoutCancel(ctx))
+}
+
+// round is one round of Run: it reports whether it filled every free worker,
+// in which case more Deliveries may be due.
+func (w *Workers) round(ctx, attemptCtx context.Context) (full bool, err error) {
+	w.mu.Lock()
+	free := w.cfg.Concurrency - w.inFlight
+	w.mu.Unlock()
+	if free <= 0 {
+		return false, nil
+	}
+	n, err := w.claimAndStart(ctx, attemptCtx)
+	return n == free, err
+}
+
+// claimAndStart claims as many due Deliveries as there are free workers, with
+// ctx, and starts their Attempts with attemptCtx.
+func (w *Workers) claimAndStart(ctx, attemptCtx context.Context) (int, error) {
+	w.claiming.Lock()
+	defer w.claiming.Unlock()
 
 	w.mu.Lock()
 	free := w.cfg.Concurrency - w.inFlight
@@ -91,7 +189,6 @@ func (w *Workers) RunOnce(ctx context.Context) (int, error) {
 	w.mu.Lock()
 	w.inFlight += len(leases)
 	w.mu.Unlock()
-	attemptCtx := context.WithoutCancel(ctx)
 	for _, lease := range leases {
 		w.attempts.Go(func() {
 			defer func() {
@@ -128,7 +225,11 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	if a.Error != "" {
 		logger = logger.With("attempt_error", a.Error)
 	}
-	if err := w.store.Record(ctx, lease, a, state, next); err != nil {
+	// ctx may be cancelled by now, at the shutdown deadline; the Attempt is
+	// recorded anyway.
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer cancel()
+	if err := w.store.Record(recordCtx, lease, a, state, next); err != nil {
 		if errors.Is(err, ErrLeaseLost) {
 			// Another worker claimed the Delivery after this lease ran out,
 			// and its Attempt counts instead.

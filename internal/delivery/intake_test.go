@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
+	"go.uber.org/goleak"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/madskrogh/herald/internal/delivery"
@@ -20,8 +21,18 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	testmain.Run(m, pgtest.Start, natstest.Start)
+	// The leak check runs once the containers are gone, so their clients'
+	// goroutines have stopped. It catches Attempts that outlive Workers.
+	goleak.VerifyTestMain(testRun(func() int {
+		return testmain.RunCode(m, pgtest.Start, natstest.Start)
+	}))
 }
+
+// testRun is a function that runs the tests and returns the exit code, as
+// goleak.VerifyTestMain takes them.
+type testRun func() int
+
+func (f testRun) Run() int { return f() }
 
 // now is the intake's clock in these tests. Postgres keeps microseconds, so
 // it has none smaller.
