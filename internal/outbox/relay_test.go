@@ -68,7 +68,7 @@ func TestRelayHandsOffAMessageWithItsDeliveries(t *testing.T) {
 	msg := app.message(t, "invoice.paid", []byte(`{"invoice": 42}`))
 	relay := env.relay(t, outbox.Config{})
 
-	n, err := relay.RunOnce(t.Context(), handedOff)
+	n, _, err := relay.RunOnce(t.Context(), handedOff)
 	if err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestRelayHandsOffAMessageWithItsDeliveries(t *testing.T) {
 	}
 
 	// Handed off, the Message has left the outbox.
-	n, err = relay.RunOnce(t.Context(), handedOff)
+	n, _, err = relay.RunOnce(t.Context(), handedOff)
 	if err != nil {
 		t.Fatalf("second RunOnce: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestRelayKeepsMessagesWhenTheBatchIsNotCommitted(t *testing.T) {
 		return &handoffv1.BatchReply{Committed: false, Error: "database unavailable"}
 	})
 
-	n, err := relay.RunOnce(t.Context(), handedOff)
+	n, _, err := relay.RunOnce(t.Context(), handedOff)
 	if err == nil {
 		t.Error("RunOnce succeeded on a Batch that was not committed, want an error")
 	}
@@ -146,7 +146,7 @@ func TestRelayKeepsMessagesWhenTheBatchIsNotCommitted(t *testing.T) {
 		t.Fatalf("unsubscribe: %v", err)
 	}
 	env.dispatcher(t, env.subject)
-	n, err = relay.RunOnce(t.Context(), handedOff)
+	n, _, err = relay.RunOnce(t.Context(), handedOff)
 	if err != nil {
 		t.Fatalf("second RunOnce: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestRelayReportsANATSConnectionNotYetMade(t *testing.T) {
 	t.Cleanup(nc.Close)
 	relay := outbox.NewRelay(env.ingest, nc, outbox.Config{Subject: env.subject}, slog.New(slog.DiscardHandler))
 
-	n, err := relay.RunOnce(t.Context(), handedOff)
+	n, _, err := relay.RunOnce(t.Context(), handedOff)
 	if err == nil || !strings.Contains(err.Error(), "not connected to NATS") {
 		t.Errorf("RunOnce error = %v, want one saying it is not connected to NATS", err)
 	}
@@ -214,14 +214,14 @@ func TestRelayResendsABatchWhoseReplyIsLost(t *testing.T) {
 		return reply
 	})
 
-	n, err := relay.RunOnce(t.Context(), handedOff)
+	n, _, err := relay.RunOnce(t.Context(), handedOff)
 	if err == nil {
 		t.Error("RunOnce succeeded without a reply, want an error")
 	}
 	if n != 0 {
 		t.Errorf("RunOnce handed off %d Messages, want 0", n)
 	}
-	n, err = relay.RunOnce(t.Context(), handedOff)
+	n, _, err = relay.RunOnce(t.Context(), handedOff)
 	if err != nil {
 		t.Fatalf("second RunOnce: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestRelayDrainsTheBacklogOnceADispatcherStarts(t *testing.T) {
 	relay := env.relay(t, outbox.Config{})
 
 	// No dispatcher is running.
-	n, err := relay.RunOnce(t.Context(), handedOff)
+	n, _, err := relay.RunOnce(t.Context(), handedOff)
 	if err == nil {
 		t.Error("RunOnce succeeded with no dispatcher running, want an error")
 	}
@@ -264,7 +264,7 @@ func TestRelayDrainsTheBacklogOnceADispatcherStarts(t *testing.T) {
 	}
 
 	env.dispatcher(t, env.subject)
-	n, err = relay.RunOnce(t.Context(), handedOff)
+	n, _, err = relay.RunOnce(t.Context(), handedOff)
 	if err != nil {
 		t.Fatalf("RunOnce with a dispatcher: %v", err)
 	}
@@ -355,17 +355,9 @@ func TestConcurrentRelaysSendDifferentMessages(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = sub.Unsubscribe() })
 
-	type result struct {
-		n   int
-		err error
-	}
-	first := make(chan result, 1)
-	go func() {
-		n, err := relay1.RunOnce(t.Context(), handedOff)
-		first <- result{n, err}
-	}()
-	<-held
-	n, err := relay2.RunOnce(t.Context(), handedOff)
+	first := runOnceInBackground(t, relay1)
+	awaitHeld(t, held, first)
+	n, _, err := relay2.RunOnce(t.Context(), handedOff)
 	close(release)
 	if err != nil {
 		t.Errorf("second relay's RunOnce: %v", err)
@@ -418,7 +410,7 @@ func TestRelayKeepsBatchesUnderTheMaximumMessageSize(t *testing.T) {
 
 	var rounds []int
 	for total := 0; total < len(messages); {
-		n, err := relay.RunOnce(t.Context(), handedOff)
+		n, _, err := relay.RunOnce(t.Context(), handedOff)
 		if err != nil {
 			t.Fatalf("round %d: RunOnce: %v", len(rounds)+1, err)
 		}
@@ -451,52 +443,15 @@ func TestRelayClaimsNoMoreThanFitsAfterAFullBatch(t *testing.T) {
 	env := newEnv(t)
 	app := env.application(t)
 	app.endpoint(t, "https://example.com/webhooks", nil)
-	// About 400 KB each, so two fit under NATS's 1 MB maximum and three don't.
-	payload := []byte(`"` + strings.Repeat("x", 400_000) + `"`)
 	var messages []ingest.Message
 	for range 6 {
-		messages = append(messages, app.message(t, "invoice.paid", payload))
+		messages = append(messages, app.message(t, "invoice.paid", largePayload))
 	}
 	relay1, relay2 := env.relay(t, outbox.Config{}), env.relay(t, outbox.Config{})
-
-	// In front of the dispatcher, a responder holds the second Batch until it
-	// is released.
-	dispatcherSubject := natstest.Subject(t)
-	env.dispatcher(t, dispatcherSubject)
-	var batches atomic.Int32
-	held, release := make(chan struct{}), make(chan struct{})
-	nc := natstest.Connect(t)
-	sub, err := nc.Subscribe(env.subject, func(m *nats.Msg) {
-		// Answered on a goroutine of its own, so holding one Batch doesn't
-		// hold up the next.
-		go func() {
-			var batch handoffv1.Batch
-			if err := proto.Unmarshal(m.Data, &batch); err != nil {
-				t.Errorf("decode batch: %v", err)
-				return
-			}
-			if batches.Add(1) == 2 {
-				close(held)
-				<-release
-			}
-			data, err := proto.Marshal(env.forward(t, dispatcherSubject, &batch))
-			if err != nil {
-				t.Errorf("encode reply: %v", err)
-				return
-			}
-			_ = m.Respond(data)
-		}()
-	})
-	if err != nil {
-		t.Fatalf("subscribe: %v", err)
-	}
-	if err := nc.Flush(); err != nil {
-		t.Fatalf("flush subscription: %v", err)
-	}
-	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	held, release := env.holdBatch(t, 2)
 
 	// The first round claims every Message and learns that two fit.
-	n, err := relay1.RunOnce(t.Context(), handedOff)
+	n, _, err := relay1.RunOnce(t.Context(), handedOff)
 	if err != nil {
 		t.Fatalf("first round: %v", err)
 	}
@@ -504,20 +459,12 @@ func TestRelayClaimsNoMoreThanFitsAfterAFullBatch(t *testing.T) {
 		t.Fatalf("first round handed off %d Messages, want 2", n)
 	}
 	// The second claims three (Messages 3 to 5), and is held in flight.
-	type result struct {
-		n   int
-		err error
-	}
-	second := make(chan result, 1)
-	go func() {
-		n, err := relay1.RunOnce(t.Context(), handedOff)
-		second <- result{n, err}
-	}()
-	<-held
+	second := runOnceInBackground(t, relay1)
+	awaitHeld(t, held, second)
 	// Message 6 is not locked by the round in flight, so another relay hands
 	// it off meanwhile.
-	n, err = relay2.RunOnce(t.Context(), handedOff)
-	close(release)
+	n, _, err = relay2.RunOnce(t.Context(), handedOff)
+	release()
 	if err != nil {
 		t.Errorf("other relay's round: %v", err)
 	}
@@ -531,6 +478,154 @@ func TestRelayClaimsNoMoreThanFitsAfterAFullBatch(t *testing.T) {
 		t.Errorf("second round handed off %d Messages (error %v), want 2", r.n, r.err)
 	}
 }
+
+func TestRelayReportsWhetherMoreMessagesMayBeWaiting(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	tests := []struct {
+		name        string
+		payloads    [][]byte
+		maxMessages int
+		wantN       int
+		wantMore    bool
+	}{
+		{
+			name:        "outbox empty",
+			maxMessages: 2,
+			wantN:       0,
+			wantMore:    false,
+		},
+		{
+			name:        "claimed fewer than it asked for and sent them all",
+			payloads:    [][]byte{[]byte(`{"invoice": 1}`)},
+			maxMessages: 2,
+			wantN:       1,
+			wantMore:    false,
+		},
+		{
+			name:        "claimed as many as it asked for",
+			payloads:    [][]byte{[]byte(`{"invoice": 1}`), []byte(`{"invoice": 2}`)},
+			maxMessages: 2,
+			wantN:       2,
+			wantMore:    true,
+		},
+		{
+			name:        "sent fewer than it claimed",
+			payloads:    [][]byte{largePayload, largePayload, largePayload},
+			maxMessages: 4,
+			wantN:       2,
+			wantMore:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := newEnv(t)
+			env.dispatcher(t, env.subject)
+			app := env.application(t)
+			app.endpoint(t, "https://example.com/webhooks", nil)
+			for _, p := range tt.payloads {
+				app.message(t, "invoice.paid", p)
+			}
+			relay := env.relay(t, outbox.Config{MaxMessages: tt.maxMessages})
+
+			n, more, err := relay.RunOnce(t.Context(), handedOff)
+			if err != nil {
+				t.Fatalf("RunOnce: %v", err)
+			}
+			if n != tt.wantN || more != tt.wantMore {
+				t.Errorf("RunOnce = (%d, more %t), want (%d, more %t)", n, more, tt.wantN, tt.wantMore)
+			}
+		})
+	}
+}
+
+// TestRelayReportsNothingMoreWaitingWhenOtherRoundsHoldTheRest holds one
+// relay's round in flight, with two Messages locked, while a second relay asks
+// for two. It can claim only the third, and reports nothing more waiting,
+// though the outbox isn't empty: the locked Messages are being handed off, and
+// claiming again at once would find them still locked. (TestPollPacesRounds
+// shows that the next round then waits a poll interval.)
+func TestRelayReportsNothingMoreWaitingWhenOtherRoundsHoldTheRest(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	env := newEnv(t)
+	app := env.application(t)
+	app.endpoint(t, "https://example.com/webhooks", nil)
+	var messages []ingest.Message
+	for i := range 3 {
+		messages = append(messages, app.message(t, "invoice.paid", fmt.Appendf(nil, `{"invoice": %d}`, i)))
+	}
+	cfg := outbox.Config{MaxMessages: 2}
+	relay1, relay2 := env.relay(t, cfg), env.relay(t, cfg)
+	held, release := env.holdBatch(t, 1)
+
+	first := runOnceInBackground(t, relay1)
+	awaitHeld(t, held, first)
+	n, more, err := relay2.RunOnce(t.Context(), handedOff)
+	release()
+	if err != nil {
+		t.Fatalf("second relay's RunOnce: %v", err)
+	}
+	if n != 1 || more {
+		t.Errorf("second relay's RunOnce = (%d, more %t), want (1, more false)", n, more)
+	}
+	if got := len(env.storedDeliveries(t, messages[2])); got != 1 {
+		t.Errorf("Message 3: stored %d Deliveries, want 1", got)
+	}
+	if r := <-first; r.err != nil || r.n != 2 {
+		t.Errorf("first relay handed off %d Messages (error %v), want 2", r.n, r.err)
+	}
+}
+
+// TestRelayClaimsMoreAgainOnceMessagesFit has a relay hand off three large
+// Messages, two to a Batch, and then small ones. Once its rounds send all they
+// claim again, each claims twice as many as the last, up to MaxMessages.
+func TestRelayClaimsMoreAgainOnceMessagesFit(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	env := newEnv(t)
+	env.dispatcher(t, env.subject)
+	app := env.application(t)
+	app.endpoint(t, "https://example.com/webhooks", nil)
+	for range 3 {
+		app.message(t, "invoice.paid", largePayload)
+	}
+	for i := range 25 {
+		app.message(t, "invoice.paid", fmt.Appendf(nil, `{"invoice": %d}`, i))
+	}
+	relay := env.relay(t, outbox.Config{MaxMessages: 8})
+
+	var rounds []int
+	for {
+		n, _, err := relay.RunOnce(t.Context(), handedOff)
+		if err != nil {
+			t.Fatalf("round %d: RunOnce: %v", len(rounds)+1, err)
+		}
+		if n == 0 {
+			break
+		}
+		rounds = append(rounds, n)
+	}
+
+	// The first round claims 8 and sends the 2 large Messages that fit. The
+	// second claims 3 (the third large one and 2 small), and sends them all.
+	// The next claim 6, then 8, the most they may, and the last takes the one
+	// left.
+	if diff := cmp.Diff([]int{2, 3, 6, 8, 8, 1}, rounds); diff != "" {
+		t.Errorf("Messages handed off per round (-want +got):\n%s", diff)
+	}
+}
+
+// largePayload is about 400 KB, so two Messages with it fit in a Batch under
+// NATS's 1 MB maximum, and three don't.
+var largePayload = []byte(`"` + strings.Repeat("x", 400_000) + `"`)
 
 // byEndpointURL compares Deliveries in any order: a Message's Deliveries are
 // in Endpoint ID order, and the tests' Endpoint IDs are random.
@@ -618,6 +713,88 @@ func (e *env) respond(t *testing.T, subject string, answer func(*handoffv1.Batch
 	}
 	t.Cleanup(func() { _ = sub.Unsubscribe() })
 	return sub
+}
+
+// holdBatch puts a responder in front of a dispatcher, on the test's subject,
+// that holds the nth Batch sent to it (counting from 1): held is closed once
+// that Batch arrives, and it goes on to the dispatcher once release is
+// called. Other Batches go on at once. The held Batch is released when t
+// finishes, if not before, and t waits for every Batch to be answered.
+func (e *env) holdBatch(t *testing.T, nth int) (held <-chan struct{}, release func()) {
+	t.Helper()
+	dispatcherSubject := natstest.Subject(t)
+	e.dispatcher(t, dispatcherSubject)
+	var (
+		batches  atomic.Int64
+		inFlight sync.WaitGroup
+	)
+	heldCh, releaseCh := make(chan struct{}), make(chan struct{})
+	release = sync.OnceFunc(func() { close(releaseCh) })
+	nc := natstest.Connect(t)
+	sub, err := nc.Subscribe(e.subject, func(m *nats.Msg) {
+		// Answered on a goroutine of its own, so holding one Batch doesn't
+		// hold up the next.
+		inFlight.Go(func() {
+			var batch handoffv1.Batch
+			if err := proto.Unmarshal(m.Data, &batch); err != nil {
+				t.Errorf("decode batch: %v", err)
+				return
+			}
+			if batches.Add(1) == int64(nth) {
+				close(heldCh)
+				<-releaseCh
+			}
+			data, err := proto.Marshal(e.forward(t, dispatcherSubject, &batch))
+			if err != nil {
+				t.Errorf("encode reply: %v", err)
+				return
+			}
+			_ = m.Respond(data)
+		})
+	})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	if err := nc.Flush(); err != nil {
+		t.Fatalf("flush subscription: %v", err)
+	}
+	// Runs before the dispatcher's and the connections' cleanups, which were
+	// registered earlier, so the Batches in flight can still be answered.
+	t.Cleanup(func() {
+		_ = sub.Unsubscribe()
+		release()
+		inFlight.Wait()
+	})
+	return heldCh, release
+}
+
+// awaitHeld waits until held is closed, and fails t if the round whose Batch
+// it waits for ends first: without a Batch, nothing would close held.
+func awaitHeld(t *testing.T, held <-chan struct{}, round <-chan roundResult) {
+	t.Helper()
+	select {
+	case <-held:
+	case r := <-round:
+		t.Fatalf("round ended before its Batch was held: handed off %d Messages (error %v)", r.n, r.err)
+	}
+}
+
+// roundResult is what a relay's RunOnce returned, apart from more.
+type roundResult struct {
+	n   int
+	err error
+}
+
+// runOnceInBackground runs a round of relay on a goroutine of its own, and
+// returns where its result arrives.
+func runOnceInBackground(t *testing.T, relay *outbox.Relay) <-chan roundResult {
+	t.Helper()
+	result := make(chan roundResult, 1)
+	go func() {
+		n, _, err := relay.RunOnce(t.Context(), handedOff)
+		result <- roundResult{n, err}
+	}()
+	return result
 }
 
 // forward sends batch to subject, as the relay would, and returns the reply.
