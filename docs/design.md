@@ -27,7 +27,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
                   Postgres: ingest schema              Postgres: delivery schema
 ```
 
-- **herald-api** authenticates Tenants, manages Applications and Endpoints, accepts Messages, and works out each Message's Deliveries (event-type filter on each Endpoint). It writes the Message with `handed_off_at = NULL` in the same transaction. A relay claims rows that haven't been handed off (`FOR UPDATE SKIP LOCKED`), sends them in batches, and sets `handed_off_at` once a dispatcher replies. See [ADR 0002](adr/0002-two-services-outbox-nats-handoff.md).
+- **herald-api** authenticates Tenants, manages Applications and Endpoints, accepts Messages, and works out each Message's Deliveries (event-type filter on each Endpoint). It writes the Message with `handed_off_at = NULL` in the same transaction. A relay claims rows that haven't been handed off (`FOR UPDATE SKIP LOCKED`), sends them in batches, and sets `handed_off_at` once a dispatcher replies. See [ADR 0002](adr/0002-two-services-outbox-nats-handoff.md). Each process runs one relay, which sends one batch at a time, and a dispatcher stores one batch at a time. So handoff stores at most as many batches at once as there are herald-api replicas, and dispatchers beyond that number add no handoff throughput (see Deferred).
 - **herald-dispatcher** stores the Deliveries it receives (`ON CONFLICT DO NOTHING`) and replies only after the commit. Workers claim Deliveries that are due (`next_attempt_at <= now()`, `SKIP LOCKED`) and make the Attempts. From M2 it also serves the internal gRPC `DeliveryService`, which herald-api calls on behalf of Tenants.
 - **herald-admin** is an operator CLI that connects directly to the `ingest` schema (`tenant create`, `apikey create`).
 - Each service owns its schema's migrations. They are embedded with goose and run as a one-shot `migrate` step before the services start, never at startup.
@@ -114,3 +114,4 @@ On every PR: `golangci-lint`, `go test -race` (unit and integration), `buf lint`
 - Re-encrypting stored secrets after an encryption-key rotation.
 - Tenant self-service and an admin API.
 - Ordered delivery.
+- Scaling handoff past one relay per herald-api replica. When handoff lag shows the relays can't keep up (M4), run several relays per process, each its own `outbox.Relay` with its own claim limit (`SKIP LOCKED` keeps their claims apart), behind a setting. Each relay holds a pooled database connection for up to the request timeout while it waits for a reply, so the pool must grow with it, and there must be at least as many dispatchers as relays across all replicas.
