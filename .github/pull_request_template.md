@@ -86,7 +86,7 @@ Claude Code version:
 <!--
 Every finding from the standards, spec and bug reviews. Rejected findings first, then fixed;
 each group ordered by severity, most severe first. Severity is High, Medium or Low as the review
-stated it, or "unstated". A rejection says why, and what the rejection review concluded;
+stated it, or "unstated" (kept in the review's order). A rejection says why, and what the rejection review concluded;
 deferring to a later issue counts as rejected, with that issue's number.
 -->
 
