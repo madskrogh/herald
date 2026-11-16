@@ -204,6 +204,128 @@ func TestWorkersFailADeliveryAfter8Attempts(t *testing.T) {
 	}
 }
 
+// TestWorkersRetryADeliveryWhoseWorkerDisappeared has a worker claim a
+// Delivery and never make its Attempt, as when its process dies. Other
+// workers make the Attempt once the lease runs out, 60 seconds on.
+func TestWorkersRetryADeliveryWhoseWorkerDisappeared(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	rcv := newReceiver(t, 200)
+	tw := newTestWorkers(t)
+	tw.in.send(t, tw.workerBatch(t, rcv.URL()))
+	claim(t, tw.in.store, now, 10) // The worker that disappears.
+
+	tw.clock.set(now.Add(59 * time.Second))
+	tw.runOnce(t)
+	if n := rcv.count(); n != 0 {
+		t.Fatalf("at now+59s: receiver got %d requests, want none while the lease runs", n)
+	}
+	tw.clock.set(now.Add(60 * time.Second))
+	tw.runOnce(t)
+
+	got, err := tw.in.store.Delivery(t.Context(), uuid.MustParse(deliveryID1))
+	if err != nil {
+		t.Fatalf("Delivery: %v", err)
+	}
+	if got.State != delivery.StateSucceeded {
+		t.Errorf("state = %q, want %q", got.State, delivery.StateSucceeded)
+	}
+	want := []delivery.Attempt{{Number: 1, StartedAt: now.Add(60 * time.Second), StatusCode: 200, ResponseBody: []byte{}}}
+	if diff := cmp.Diff(want, attempts(t, tw.in.store, uuid.MustParse(deliveryID1)), ignoreLatency); diff != "" {
+		t.Errorf("Attempts (-want +got):\n%s", diff)
+	}
+}
+
+// TestWorkersCapASlowEndpointAcrossReplicas has two dispatcher replicas
+// deliver 10 Deliveries to an Endpoint that doesn't answer and 1 to one that
+// does. The slow Endpoint never has more than 4 Attempts in flight between
+// them, and the other Endpoint's Delivery isn't held up behind it.
+func TestWorkersCapASlowEndpointAcrossReplicas(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	slow := newGateReceiver(t)
+	fast := newReceiver(t, 200)
+	tw := newTestWorkers(t)
+	tw.in.send(t, tw.batchTo(t, []endpointDeliveries{
+		{endpointID: endpointID1, url: slow.URL(), n: 10},
+		{endpointID: endpointID2, url: fast.URL(), n: 1},
+	}))
+	// Replica A has room for 2 Attempts, so the slow Endpoint's 4 are split
+	// between the replicas.
+	replicaA, replicaB := tw.newWorkers(t, 2), tw.newWorkers(t, 0)
+	t.Cleanup(func() {
+		slow.release()
+		replicaA.Wait()
+		replicaB.Wait()
+	})
+
+	for _, w := range []*delivery.Workers{replicaA, replicaB} {
+		if _, err := w.RunOnce(t.Context()); err != nil {
+			t.Fatalf("RunOnce: %v", err)
+		}
+	}
+	slow.waitForArrivals(t, 4)
+	fast.waitForArrivals(t, 1)
+	// Both replicas have room, but the slow Endpoint has 4 in flight.
+	for i, w := range []*delivery.Workers{replicaA, replicaB, replicaA, replicaB} {
+		n, err := w.RunOnce(t.Context())
+		if err != nil {
+			t.Fatalf("round %d: RunOnce: %v", i+1, err)
+		}
+		if n != 0 {
+			t.Errorf("round %d: RunOnce started %d Attempts, want none", i+1, n)
+		}
+	}
+
+	if got := slow.maxInFlight(); got != 4 {
+		t.Errorf("slow Endpoint had at most %d Attempts in flight, want 4", got)
+	}
+}
+
+// endpointDeliveries is n Deliveries to the Endpoint at url.
+type endpointDeliveries struct {
+	endpointID string
+	url        string
+	n          int
+}
+
+// batchTo returns a Batch of one Message with the given Deliveries, each
+// Endpoint's signing secrets being signingSecrets.
+func (tw *testWorkers) batchTo(t *testing.T, endpoints []endpointDeliveries) *handoffv1.Batch {
+	t.Helper()
+	m := &handoffv1.Message{
+		Id:        messageID1,
+		TenantId:  tenantID,
+		EventType: "invoice.paid",
+		Payload:   []byte(`{"invoice": 42}`),
+	}
+	for _, e := range endpoints {
+		endpoint := &handoffv1.Endpoint{Id: e.endpointID, Url: e.url, SigningSecrets: tw.encryptSecrets(t, e.endpointID)}
+		for range e.n {
+			m.Deliveries = append(m.Deliveries, &handoffv1.Delivery{Id: uuid.NewV7().String(), Endpoint: endpoint})
+		}
+	}
+	return &handoffv1.Batch{Messages: []*handoffv1.Message{m}}
+}
+
+// encryptSecrets returns signingSecrets encrypted for the Endpoint.
+func (tw *testWorkers) encryptSecrets(t *testing.T, endpointID string) []*handoffv1.SigningSecret {
+	t.Helper()
+	var secrets []*handoffv1.SigningSecret
+	for i, s := range signingSecrets {
+		ciphertext, err := tw.keys.Encrypt([]byte(s), []byte(endpointID))
+		if err != nil {
+			t.Fatalf("encrypt signing secret %d: %v", i, err)
+		}
+		secrets = append(secrets, &handoffv1.SigningSecret{Ciphertext: ciphertext})
+	}
+	return secrets
+}
+
 // ignoreLatency leaves out an Attempt's latency, which is real time even
 // under the fake clock.
 var ignoreLatency = cmpopts.IgnoreFields(delivery.Attempt{}, "Latency")
@@ -225,27 +347,27 @@ func newTestWorkers(t *testing.T) *testWorkers {
 	}
 	in := newTestIntake(t.Context(), t)
 	clock := &fakeClock{t: now}
-	return &testWorkers{
-		in:      in,
-		clock:   clock,
-		keys:    keys,
-		workers: newWorkers(t, in.store, keys, clock),
-	}
+	tw := &testWorkers{in: in, clock: clock, keys: keys}
+	tw.workers = tw.newWorkers(t, 0)
+	return tw
 }
 
-// newWorkers returns Workers on store with the retry schedule's jitter
-// pinned, so every delay is exact.
-func newWorkers(t *testing.T, store *delivery.Store, keys *keyring.Keyring, clock *fakeClock) *delivery.Workers {
+// newWorkers returns another set of Workers on the same database, as in
+// another dispatcher replica, with at most concurrency Attempts in flight (0
+// for the default). The retry schedule's jitter is pinned, so every delay is
+// exact.
+func (tw *testWorkers) newWorkers(t *testing.T, concurrency int) *delivery.Workers {
 	t.Helper()
 	schedule, err := retry.New(1, func() float64 { return 0.5 })
 	if err != nil {
 		t.Fatalf("retry schedule: %v", err)
 	}
-	return delivery.NewWorkers(store, delivery.WorkersConfig{
-		Keyring:  keys,
-		Client:   &http.Client{},
-		Schedule: schedule,
-		Now:      clock.now,
+	return delivery.NewWorkers(tw.in.store, delivery.WorkersConfig{
+		Keyring:     tw.keys,
+		Client:      &http.Client{},
+		Schedule:    schedule,
+		Now:         tw.clock.now,
+		Concurrency: concurrency,
 	}, slog.New(slog.DiscardHandler))
 }
 
@@ -262,14 +384,6 @@ func (tw *testWorkers) runOnce(t *testing.T) {
 // to an Endpoint at url whose signing secrets are signingSecrets.
 func (tw *testWorkers) workerBatch(t *testing.T, url string) *handoffv1.Batch {
 	t.Helper()
-	var secrets []*handoffv1.SigningSecret
-	for i, s := range signingSecrets {
-		ciphertext, err := tw.keys.Encrypt([]byte(s), []byte(endpointID1))
-		if err != nil {
-			t.Fatalf("encrypt signing secret %d: %v", i, err)
-		}
-		secrets = append(secrets, &handoffv1.SigningSecret{Ciphertext: ciphertext})
-	}
 	return &handoffv1.Batch{Messages: []*handoffv1.Message{{
 		Id:        messageID1,
 		TenantId:  tenantID,
@@ -280,7 +394,7 @@ func (tw *testWorkers) workerBatch(t *testing.T, url string) *handoffv1.Batch {
 			Endpoint: &handoffv1.Endpoint{
 				Id:             endpointID1,
 				Url:            url,
-				SigningSecrets: secrets,
+				SigningSecrets: tw.encryptSecrets(t, endpointID1),
 			},
 		}},
 	}}}
@@ -309,6 +423,7 @@ func (c *fakeClock) set(t time.Time) {
 // with the body "status <code>".
 type receiver struct {
 	srv *httptest.Server
+	arrivals
 
 	mu       sync.Mutex
 	statuses []int
@@ -322,10 +437,85 @@ type receivedRequest struct {
 
 func newReceiver(t *testing.T, statuses ...int) *receiver {
 	t.Helper()
-	r := &receiver{statuses: statuses}
+	r := &receiver{statuses: statuses, arrivals: newArrivals()}
 	r.srv = httptest.NewServer(http.HandlerFunc(r.serve))
 	t.Cleanup(r.srv.Close)
 	return r
+}
+
+// gateReceiver is an Endpoint that holds every request until released, and
+// counts how many it holds at once.
+type gateReceiver struct {
+	srv *httptest.Server
+	arrivals
+	gate    chan struct{}
+	release func()
+
+	mu        sync.Mutex
+	inFlight  int
+	peak int
+}
+
+func newGateReceiver(t *testing.T) *gateReceiver {
+	t.Helper()
+	gate := make(chan struct{})
+	r := &gateReceiver{arrivals: newArrivals(), gate: gate, release: sync.OnceFunc(func() { close(gate) })}
+	r.srv = httptest.NewServer(http.HandlerFunc(r.serve))
+	// Cleanups run last first: release the held requests before Close waits
+	// for them.
+	t.Cleanup(r.srv.Close)
+	t.Cleanup(r.release)
+	return r
+}
+
+func (r *gateReceiver) URL() string { return r.srv.URL + "/webhooks" }
+
+// maxInFlight returns the most requests the receiver held at once.
+func (r *gateReceiver) maxInFlight() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.peak
+}
+
+func (r *gateReceiver) serve(w http.ResponseWriter, req *http.Request) {
+	r.mu.Lock()
+	r.inFlight++
+	r.peak = max(r.peak, r.inFlight)
+	r.mu.Unlock()
+	r.arrived()
+	select {
+	case <-r.gate:
+	case <-req.Context().Done():
+	}
+	r.mu.Lock()
+	r.inFlight--
+	r.mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+// arrivals signals each request a receiver gets.
+type arrivals struct {
+	ch chan struct{}
+}
+
+func newArrivals() arrivals {
+	// Larger than any test sends, so a request never waits for the test.
+	return arrivals{ch: make(chan struct{}, 100)}
+}
+
+func (a arrivals) arrived() { a.ch <- struct{}{} }
+
+// waitForArrivals waits until n more requests have arrived.
+func (a arrivals) waitForArrivals(t *testing.T, n int) {
+	t.Helper()
+	timeout := time.After(10 * time.Second)
+	for i := range n {
+		select {
+		case <-a.ch:
+		case <-timeout:
+			t.Fatalf("%d of %d requests arrived within 10s", i, n)
+		}
+	}
 }
 
 func (r *receiver) URL() string { return r.srv.URL + "/webhooks" }
@@ -350,6 +540,7 @@ func (r *receiver) serve(w http.ResponseWriter, req *http.Request) {
 	status := r.statuses[min(len(r.requests), len(r.statuses)-1)]
 	r.requests = append(r.requests, receivedRequest{header: req.Header.Clone(), body: body})
 	r.mu.Unlock()
+	r.arrived()
 	w.WriteHeader(status)
 	if status >= 300 {
 		fmt.Fprintf(w, "status %d", status)

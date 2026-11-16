@@ -7,6 +7,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/madskrogh/herald/internal/delivery/deliverydb"
 )
 
