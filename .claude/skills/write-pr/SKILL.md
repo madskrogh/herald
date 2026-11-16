@@ -15,7 +15,7 @@ The reviewer works like a coach. They hold the context (the business, the users,
 2. **Human terms first.** Goals, users, consequences, in the words of `GLOSSARY.md`. Identifiers, file names, library names and mechanics go in collapsed details.
 3. **No reassurance without a pointer.** Never write robust, thorough, safe, comprehensive or fully tested unless evidence the reader can open sits next to it.
 4. **Don't argue in the description.** Describe what was done. The case for it goes in the details.
-5. **Scale to the stakes.** A trivial change gets one or two plain sentences and the Review notes. Use the full shape only when something is costly to get wrong.
+5. **Scale to the stakes.** A trivial change gets one or two plain sentences, Verification and the Review notes. Use the full shape only when something is costly to get wrong.
 
 ## Before writing, gather
 
@@ -73,10 +73,10 @@ Each item is a location plus what makes a mistake there costly: it can't be chan
 
 **Reviews table.** One row per review that ran (Standards, Spec, Bug, Rejection, and any second round), including those that found nothing, so "found nothing" can be told apart from "didn't run":
 
-- **Model**: the model that ran the review. The Spec sub-agent runs on Sonnet; the others run on the session's model unless the skill says otherwise.
-- **Effort**: the level passed to a review that takes one (`/code-review high`); "–" for the others.
-- **Setup**: `git log -1 --format=%h -- .claude CLAUDE.md .github/pull_request_template.md`, run when the review ran. If the setup changed between rounds, the rows show different commits.
-- **Findings**: the count.
+- **Model**: the model that ran the review: the `model` the skill spawns it with, or the session's model if it sets none.
+- **Effort**: the level the review reports it ran at, for a review that takes one (`/code-review`); "–" for the others.
+- **Setup**: `git log -1 --format=%h -- .claude CLAUDE.md .github/pull_request_template.md`, run when the review ran, in the checkout the session loaded its setup from. A session started in its worktree loads the worktree's; one that `implement-issue` moved into a worktree keeps the setup of the checkout it started in. If the setup changed between rounds, the rows show different commits.
+- **Findings**: the count; for the rejection review, the number of rejections it disputed.
 
 **Findings table.** Every finding from the standards, spec and bug reviews, with its **Severity**: High, Medium or Low as the review stated it. Don't assign one yourself; if the review gave none, write "unstated".
 
