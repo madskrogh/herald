@@ -76,7 +76,7 @@ Each item is a location plus what makes a mistake there costly: it can't be chan
 - **Model**: the model that ran the review: the `model` the skill spawns it with, or the session's model if it sets none.
 - **Effort**: for `/code-review`, the level you passed to it; "unknown" if you passed none, since it then reuses an earlier level. The skills don't set an effort for their sub-agents, on purpose: a pinned level would override one the session turned down to save cost. So a sub-agent on the session's model inherits the session's level: write it with "(session)", for example "medium (session)". A sub-agent on another model runs at that model's default: "default (Sonnet)".
 - **Setup**: `git log -1 --format=%h -- .claude CLAUDE.md .github/pull_request_template.md`, run when the review ran, in the checkout the session loaded its setup from. A session started in its worktree loads the worktree's; one that `implement-issue` moved into a worktree keeps the setup of the checkout it started in. If the setup changed between rounds, the rows show different commits.
-- **Findings**: the count; for the rejection review, the number of rejections it disputed. A rejection review skipped because nothing was rejected still gets a row: "none: no rejections".
+- **Findings**: the count. The rejection review judges only the rejected findings, so its cell says both numbers: "1 disputed of 10 rejections judged". A rejection review skipped because nothing was rejected still gets a row: "none: no rejections".
 
 Below the table, the Claude Code version (`claude --version`): the built-in `/code-review` changes with it, and the Setup commit can't show that.
 
