@@ -12,7 +12,7 @@ import (
 	"uuid"
 )
 
-const claimDueDeliveries = `-- name: ClaimDueDeliveries :many
+const claimEndpointDeliveries = `-- name: ClaimEndpointDeliveries :many
 WITH claimed AS (
     UPDATE delivery.deliveries d
     SET lease_id = gen_random_uuid(),
@@ -20,9 +20,10 @@ WITH claimed AS (
         next_attempt_at = $1::timestamptz
     WHERE d.id IN (
         SELECT due.id FROM delivery.deliveries due
-        WHERE due.state = 'pending' AND due.next_attempt_at <= $2::timestamptz
+        WHERE due.endpoint_id = $2::uuid
+          AND due.state = 'pending' AND due.next_attempt_at <= $3::timestamptz
         ORDER BY due.next_attempt_at
-        LIMIT $3::integer
+        LIMIT $4::integer
         FOR UPDATE SKIP LOCKED
     )
     RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id
@@ -34,13 +35,14 @@ FROM claimed c
 JOIN delivery.messages m ON m.id = c.message_id
 `
 
-type ClaimDueDeliveriesParams struct {
+type ClaimEndpointDeliveriesParams struct {
 	LeasedUntil   time.Time
+	EndpointID    uuid.UUID
 	Now           time.Time
 	MaxDeliveries int32
 }
 
-type ClaimDueDeliveriesRow struct {
+type ClaimEndpointDeliveriesRow struct {
 	ID             uuid.UUID
 	MessageID      uuid.UUID
 	TenantID       uuid.UUID
@@ -54,18 +56,23 @@ type ClaimDueDeliveriesRow struct {
 	LeaseID        uuid.UUID
 }
 
-// Leases up to @max_deliveries pending Deliveries due at @now, until
-// @leased_until. A leased Delivery is due again when its lease runs out, so
-// one whose worker never records its Attempt is claimed again.
-func (q *Queries) ClaimDueDeliveries(ctx context.Context, arg ClaimDueDeliveriesParams) ([]ClaimDueDeliveriesRow, error) {
-	rows, err := q.db.Query(ctx, claimDueDeliveries, arg.LeasedUntil, arg.Now, arg.MaxDeliveries)
+// Leases up to @max_deliveries of the Endpoint's pending Deliveries due at
+// @now, until @leased_until. A leased Delivery is due again when its lease
+// runs out, so one whose worker never records its Attempt is claimed again.
+func (q *Queries) ClaimEndpointDeliveries(ctx context.Context, arg ClaimEndpointDeliveriesParams) ([]ClaimEndpointDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, claimEndpointDeliveries,
+		arg.LeasedUntil,
+		arg.EndpointID,
+		arg.Now,
+		arg.MaxDeliveries,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ClaimDueDeliveriesRow
+	var items []ClaimEndpointDeliveriesRow
 	for rows.Next() {
-		var i ClaimDueDeliveriesRow
+		var i ClaimEndpointDeliveriesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.MessageID,
@@ -87,6 +94,25 @@ func (q *Queries) ClaimDueDeliveries(ctx context.Context, arg ClaimDueDeliveries
 		return nil, err
 	}
 	return items, nil
+}
+
+const countInFlight = `-- name: CountInFlight :one
+SELECT count(*)::integer FROM delivery.deliveries
+WHERE endpoint_id = $1 AND state = 'pending' AND leased_until > $2::timestamptz
+`
+
+type CountInFlightParams struct {
+	EndpointID uuid.UUID
+	Now        time.Time
+}
+
+// Counts the Endpoint's unexpired leases: its Attempts in flight. A lease
+// whose worker died stops counting when it runs out.
+func (q *Queries) CountInFlight(ctx context.Context, arg CountInFlightParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countInFlight, arg.EndpointID, arg.Now)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const getDelivery = `-- name: GetDelivery :one
@@ -126,4 +152,66 @@ func (q *Queries) GetDelivery(ctx context.Context, id uuid.UUID) (GetDeliveryRow
 		&i.NextAttemptAt,
 	)
 	return i, err
+}
+
+const listDueEndpoints = `-- name: ListDueEndpoints :many
+WITH at_cap AS (
+    SELECT f.endpoint_id FROM delivery.deliveries f
+    WHERE f.state = 'pending' AND f.leased_until > $1::timestamptz
+    GROUP BY f.endpoint_id
+    HAVING count(*) >= $3::integer
+)
+SELECT due.endpoint_id FROM delivery.deliveries due
+WHERE due.state = 'pending' AND due.next_attempt_at <= $1::timestamptz
+  AND due.endpoint_id NOT IN (SELECT endpoint_id FROM at_cap)
+GROUP BY due.endpoint_id
+ORDER BY min(due.next_attempt_at), due.endpoint_id
+LIMIT $2::integer
+`
+
+type ListDueEndpointsParams struct {
+	Now          time.Time
+	MaxEndpoints int32
+	MaxInFlight  int32
+}
+
+// Lists up to @max_endpoints Endpoints with Deliveries due at @now, most
+// overdue first, leaving out those with @max_in_flight unexpired leases: an
+// Endpoint at the cap must not use up a claim's limit. The count here only
+// narrows the choice; ClaimEndpointDeliveries decides under the Endpoint's
+// lock. Ties go to the lower Endpoint ID, so the order is stable.
+func (q *Queries) ListDueEndpoints(ctx context.Context, arg ListDueEndpointsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listDueEndpoints, arg.Now, arg.MaxEndpoints, arg.MaxInFlight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var endpoint_id uuid.UUID
+		if err := rows.Scan(&endpoint_id); err != nil {
+			return nil, err
+		}
+		items = append(items, endpoint_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const tryLockEndpoint = `-- name: TryLockEndpoint :one
+SELECT pg_try_advisory_xact_lock(hashtext('herald.delivery.endpoint'), hashtext($1::uuid::text))::boolean AS locked
+`
+
+// Takes the Endpoint's claim lock until the transaction ends, or returns
+// false at once if another transaction holds it. Counting an Endpoint's
+// leases and adding to them under this lock keeps the cap across dispatcher
+// replicas. The two-key form keeps these locks apart from the migrate
+// step's, which use one key.
+func (q *Queries) TryLockEndpoint(ctx context.Context, endpointID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, tryLockEndpoint, endpointID)
+	var locked bool
+	err := row.Scan(&locked)
+	return locked, err
 }

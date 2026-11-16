@@ -9,11 +9,15 @@ ALTER TABLE delivery.deliveries
     -- When the current lease runs out.
     ADD COLUMN leased_until timestamptz;
 
--- Workers claim pending Deliveries by when they are due.
+-- Workers find pending Deliveries by when they are due, and each Endpoint's
+-- by Endpoint.
 CREATE INDEX deliveries_due ON delivery.deliveries (next_attempt_at)
+    WHERE state = 'pending';
+CREATE INDEX deliveries_endpoint_due ON delivery.deliveries (endpoint_id, next_attempt_at)
     WHERE state = 'pending';
 
 -- +goose Down
+DROP INDEX delivery.deliveries_endpoint_due;
 DROP INDEX delivery.deliveries_due;
 ALTER TABLE delivery.deliveries
     DROP COLUMN leased_until,

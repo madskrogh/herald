@@ -19,10 +19,43 @@ FROM delivery.deliveries d
 JOIN delivery.messages m ON m.id = d.message_id
 WHERE d.id = @id;
 
--- name: ClaimDueDeliveries :many
--- Leases up to @max_deliveries pending Deliveries due at @now, until
--- @leased_until. A leased Delivery is due again when its lease runs out, so
--- one whose worker never records its Attempt is claimed again.
+-- name: ListDueEndpoints :many
+-- Lists up to @max_endpoints Endpoints with Deliveries due at @now, most
+-- overdue first, leaving out those with @max_in_flight unexpired leases: an
+-- Endpoint at the cap must not use up a claim's limit. The count here only
+-- narrows the choice; ClaimEndpointDeliveries decides under the Endpoint's
+-- lock. Ties go to the lower Endpoint ID, so the order is stable.
+WITH at_cap AS (
+    SELECT f.endpoint_id FROM delivery.deliveries f
+    WHERE f.state = 'pending' AND f.leased_until > @now::timestamptz
+    GROUP BY f.endpoint_id
+    HAVING count(*) >= @max_in_flight::integer
+)
+SELECT due.endpoint_id FROM delivery.deliveries due
+WHERE due.state = 'pending' AND due.next_attempt_at <= @now::timestamptz
+  AND due.endpoint_id NOT IN (SELECT endpoint_id FROM at_cap)
+GROUP BY due.endpoint_id
+ORDER BY min(due.next_attempt_at), due.endpoint_id
+LIMIT @max_endpoints::integer;
+
+-- name: TryLockEndpoint :one
+-- Takes the Endpoint's claim lock until the transaction ends, or returns
+-- false at once if another transaction holds it. Counting an Endpoint's
+-- leases and adding to them under this lock keeps the cap across dispatcher
+-- replicas. The two-key form keeps these locks apart from the migrate
+-- step's, which use one key.
+SELECT pg_try_advisory_xact_lock(hashtext('herald.delivery.endpoint'), hashtext(sqlc.arg(endpoint_id)::uuid::text))::boolean AS locked;
+
+-- name: CountInFlight :one
+-- Counts the Endpoint's unexpired leases: its Attempts in flight. A lease
+-- whose worker died stops counting when it runs out.
+SELECT count(*)::integer FROM delivery.deliveries
+WHERE endpoint_id = @endpoint_id AND state = 'pending' AND leased_until > @now::timestamptz;
+
+-- name: ClaimEndpointDeliveries :many
+-- Leases up to @max_deliveries of the Endpoint's pending Deliveries due at
+-- @now, until @leased_until. A leased Delivery is due again when its lease
+-- runs out, so one whose worker never records its Attempt is claimed again.
 WITH claimed AS (
     UPDATE delivery.deliveries d
     SET lease_id = gen_random_uuid(),
@@ -30,7 +63,8 @@ WITH claimed AS (
         next_attempt_at = @leased_until::timestamptz
     WHERE d.id IN (
         SELECT due.id FROM delivery.deliveries due
-        WHERE due.state = 'pending' AND due.next_attempt_at <= @now::timestamptz
+        WHERE due.endpoint_id = @endpoint_id::uuid
+          AND due.state = 'pending' AND due.next_attempt_at <= @now::timestamptz
         ORDER BY due.next_attempt_at
         LIMIT @max_deliveries::integer
         FOR UPDATE SKIP LOCKED
