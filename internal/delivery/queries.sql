@@ -69,11 +69,11 @@ WITH claimed AS (
         LIMIT @max_deliveries::integer
         FOR UPDATE SKIP LOCKED
     )
-    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id
+    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count
 )
 SELECT c.id, c.message_id, m.tenant_id, m.event_type, m.payload,
        c.endpoint_id, c.endpoint_url, c.signing_secrets, c.state, c.next_attempt_at,
-       c.lease_id::uuid AS lease_id
+       c.lease_id::uuid AS lease_id, c.attempt_count
 FROM claimed c
 JOIN delivery.messages m ON m.id = c.message_id;
 
