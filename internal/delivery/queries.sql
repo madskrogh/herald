@@ -49,6 +49,9 @@ SELECT pg_try_advisory_xact_lock(hashtext('herald.delivery.endpoint'), hashtext(
 -- name: CountInFlight :one
 -- Counts the Endpoint's unexpired leases: its Attempts in flight. A lease
 -- whose worker died stops counting when it runs out.
+--
+-- Kept apart from ClaimEndpointDeliveries: merging the count into the
+-- claim's LIMIT is valid Postgres, but sqlc v1.30 rejects every form of it.
 SELECT count(*)::integer FROM delivery.deliveries
 WHERE endpoint_id = @endpoint_id AND state = 'pending' AND leased_until > @now::timestamptz;
 

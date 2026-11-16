@@ -111,6 +111,9 @@ type CountInFlightParams struct {
 
 // Counts the Endpoint's unexpired leases: its Attempts in flight. A lease
 // whose worker died stops counting when it runs out.
+//
+// Kept apart from ClaimEndpointDeliveries: merging the count into the
+// claim's LIMIT is valid Postgres, but sqlc v1.30 rejects every form of it.
 func (q *Queries) CountInFlight(ctx context.Context, arg CountInFlightParams) (int32, error) {
 	row := q.db.QueryRow(ctx, countInFlight, arg.EndpointID, arg.Now)
 	var column_1 int32
