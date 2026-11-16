@@ -33,7 +33,7 @@ import (
 type Config struct {
 	// AllowHTTPEndpoints accepts Endpoint URLs with the http scheme, not only
 	// https. It is for the local stack and tests only, whose Endpoints don't
-	// serve TLS.
+	// serve TLS. herald-api sets it from HERALD_ALLOW_INSECURE_ENDPOINTS.
 	AllowHTTPEndpoints bool
 }
 

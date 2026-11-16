@@ -99,7 +99,8 @@ type config struct {
 	databaseURL string
 	keyring     *keyring.Keyring
 	natsURL     string
-	// allowInsecureEndpoints lets Attempts connect to non-public addresses.
+	// allowInsecureEndpoints lets Attempts connect to non-public addresses
+	// (HERALD_ALLOW_INSECURE_ENDPOINTS).
 	allowInsecureEndpoints bool
 }
 
@@ -182,6 +183,9 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		// recorded.
 		workers.Run(ctx)
 	}()
+	if cfg.allowInsecureEndpoints {
+		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
+	}
 	logger.InfoContext(ctx, "started")
 
 	<-ctx.Done()

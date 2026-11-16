@@ -38,10 +38,10 @@ func checkApplicationName(name string) error {
 }
 
 // checkEndpointURL reports whether s can be an Endpoint's URL: an absolute
-// https URL with a host, or http as well if allowHTTP, without user
-// information, whose credentials
-// would be stored in plain, or a fragment, which is never sent. Whitespace
-// must be escaped, so that the URL registered is the URL requested.
+// https URL (or http as well, if allowHTTP) with a host, without user
+// information, whose credentials would be stored in plain, or a fragment,
+// which is never sent. Whitespace must be escaped, so that the URL
+// registered is the URL requested.
 func checkEndpointURL(s string, allowHTTP bool) error {
 	if len(s) > maxEndpointURLBytes {
 		return fmt.Errorf("endpoint URL is %d bytes, want at most %d", len(s), maxEndpointURLBytes)

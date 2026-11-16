@@ -66,7 +66,8 @@ type WorkersConfig struct {
 	// AllowPrivateAddresses lets the Workers' own client connect to
 	// loopback, link-local, private and other non-public addresses. It is
 	// for the local stack and tests only, whose Endpoints are on such
-	// addresses.
+	// addresses. herald-dispatcher sets it from
+	// HERALD_ALLOW_INSECURE_ENDPOINTS.
 	AllowPrivateAddresses bool
 }
 
@@ -115,6 +116,8 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 		// Connect to each Endpoint directly. Through a proxy, the address
 		// check below would see only the proxy's address.
 		transport.Proxy = nil
+		// The timeouts are those of http.DefaultTransport's dialer, which
+		// this one replaces.
 		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
 		if !cfg.AllowPrivateAddresses {
 			dialer.Control = egress.Control

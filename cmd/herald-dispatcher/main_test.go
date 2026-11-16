@@ -145,6 +145,16 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 	})
 	defer stop() //nolint:errcheck // Only for an early return; checked below.
 
+	// HERALD_ALLOW_INSECURE_ENDPOINTS is set, so a production deployment
+	// that sets it by mistake says so as it starts.
+	warning, ok := <-logs
+	if !ok {
+		t.Fatalf("run exited before it started: %v", stop())
+	}
+	wantWarning := logRecord{Level: "WARN", Msg: "insecure Endpoints allowed: for local development only", Service: "herald-dispatcher"}
+	if warning != wantWarning {
+		t.Fatalf("first log line is %+v, want %+v", warning, wantWarning)
+	}
 	started, ok := <-logs
 	if !ok {
 		t.Fatalf("run exited before it started: %v", stop())

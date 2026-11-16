@@ -101,7 +101,8 @@ type config struct {
 	natsURL     string
 	grpcAddr    string
 	httpAddr    string
-	// allowInsecureEndpoints accepts http Endpoint URLs.
+	// allowInsecureEndpoints accepts http Endpoint URLs
+	// (HERALD_ALLOW_INSECURE_ENDPOINTS).
 	allowInsecureEndpoints bool
 }
 
@@ -207,6 +208,9 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	errc := make(chan error, 2)
 	go func() { errc <- grpcServer.Serve(grpcLis) }()
 	go func() { errc <- httpServer.Serve(httpLis) }()
+	if cfg.allowInsecureEndpoints {
+		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
+	}
 	logger.InfoContext(ctx, "started", "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
 
 	// One relay per process (ADR 0002): replicas each run one, and claim

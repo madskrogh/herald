@@ -1,6 +1,6 @@
 // Package egress decides which addresses herald-dispatcher may connect to.
 // Endpoint URLs are Tenant input, so without this an Endpoint such as
-// http://169.254.169.254/ would make herald-dispatcher a proxy into Herald's
+// https://169.254.169.254/ would make herald-dispatcher a proxy into Herald's
 // own network. The check is made on the address actually dialled, after DNS
 // resolution, because a public host name can resolve to a private address
 // later (DNS rebinding).
@@ -13,9 +13,9 @@ import (
 	"syscall"
 )
 
-// global is the IPv6 global unicast range. No IPv6 address outside it is
-// public.
-var global = netip.MustParsePrefix("2000::/3")
+// ipv6GlobalUnicast is the IPv6 global unicast range. No IPv6 address
+// outside it is public.
+var ipv6GlobalUnicast = netip.MustParsePrefix("2000::/3")
 
 // notPublic are ranges that the named classes in Check don't cover and that
 // the IANA special-purpose address registries list as not globally
@@ -89,7 +89,7 @@ func Check(addr netip.Addr) error {
 	if class != "" {
 		return fmt.Errorf("address %s is %s, not public", addr, class)
 	}
-	if addr.Is6() && !global.Contains(addr) {
+	if addr.Is6() && !ipv6GlobalUnicast.Contains(addr) {
 		return fmt.Errorf("address %s is not public", addr)
 	}
 	for _, p := range notPublic {
