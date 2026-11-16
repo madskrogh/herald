@@ -26,7 +26,7 @@ Run `make ci` before every push. It is exactly what CI runs.
 - Go conventions are in `.claude/rules/`, loaded automatically by path: `go.md`, `go-testing.md`, `sql.md`.
 - Generated code (sqlc, buf) is committed. Never edit it by hand; change the source and regenerate.
 - Commit messages: short and imperative (`Add outbox relay`).
-- Issues, PR descriptions, design docs, ADRs and code comments describe Herald, not the tools used to build it: no agent or tool specifics, and nothing about one machine's setup (local paths, defaults, sandbox behaviour). The exception is a PR's Review notes, which record the model, effort and setup commit behind each review. The agent-setup files (`CLAUDE.md`, `.claude/`, `docs/ai-workflow.md`) may name the tools, but still nothing about one machine's setup.
+- Issues, PR descriptions, design docs, ADRs and code comments describe Herald, not the tools used to build it: no agent or tool specifics, and nothing about one machine's setup (local paths, defaults, sandbox behaviour). The exceptions are a PR's Review notes, which record the model, effort and setup behind each review, and `agent-setup` issues, which describe a defect in the shared setup and may name the tools. The agent-setup files (`CLAUDE.md`, `.claude/`, `docs/ai-workflow.md`) may name the tools, but still nothing about one machine's setup.
 
 ## Workflow
 
@@ -44,6 +44,6 @@ Setup defects (sandbox, hooks, worktrees, skills) that would affect anyone using
 
 PRs are squash-merged; it is the only merge method, so a branch's own history never reaches `main`. To bring a pushed branch up to date, merge `origin/main` into it. Don't rebase or force-push a branch once it is pushed: that loses the reviewer's "changes since last review" view, and a squash leaves nothing for it to clean up.
 
-Agent setup (`CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, `.claude/settings.json`, `.github/pull_request_template.md`) changes only in its own PR, never inside a feature PR. When a task suggests a new rule or skill, propose it at the top of the PR's Decide block instead of making the change.
+Agent setup (`CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, `.claude/settings.json`, `.github/pull_request_template.md`, `docs/ai-workflow.md`) changes only in its own PR, never inside a feature PR. When a task suggests a new rule or skill, propose it at the top of the PR's Decide block instead of making the change.
 
 Worktrees: `implement-issue` (or `claude -w <name>` from a terminal) creates `.claude/worktrees/<name>/` on branch `worktree-<name>` from `origin/main`. Each worktree gets its own compose project and ports through `.env` (see `scripts/worktree-env.sh`). Integration tests use testcontainers and need nothing from `.env`.

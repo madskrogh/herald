@@ -69,7 +69,7 @@ Never left out. Verified: what was run, and the result. Not verified: what wasn'
 </details>
 
 <details>
-<summary>Review notes: N findings, F fixed, R rejected</summary>
+<summary>Review notes: K reviews, N findings, F fixed, R rejected</summary>
 
 <!--
 Reviews: one row per review that ran, including those that found nothing. Effort only where the
@@ -80,6 +80,8 @@ when the review ran: git log -1 --format=%h -- .claude CLAUDE.md .github/pull_re
 | Review | Model | Effort | Setup | Findings |
 |---|---|---|---|---|
 | | | | | |
+
+Claude Code version:
 
 <!--
 Every finding from the standards, spec and bug reviews. Rejected findings first, then fixed;

@@ -74,9 +74,11 @@ Each item is a location plus what makes a mistake there costly: it can't be chan
 **Reviews table.** One row per review that ran (Standards, Spec, Bug, Rejection, and any second round), including those that found nothing, so "found nothing" can be told apart from "didn't run":
 
 - **Model**: the model that ran the review: the `model` the skill spawns it with, or the session's model if it sets none.
-- **Effort**: the level the review reports it ran at, for a review that takes one (`/code-review`); "–" for the others.
+- **Effort**: for a review that takes one (`/code-review`), the level you passed to it; "unknown" if you passed none, since it then reuses an earlier level. "–" for the others.
 - **Setup**: `git log -1 --format=%h -- .claude CLAUDE.md .github/pull_request_template.md`, run when the review ran, in the checkout the session loaded its setup from. A session started in its worktree loads the worktree's; one that `implement-issue` moved into a worktree keeps the setup of the checkout it started in. If the setup changed between rounds, the rows show different commits.
-- **Findings**: the count; for the rejection review, the number of rejections it disputed.
+- **Findings**: the count; for the rejection review, the number of rejections it disputed. A rejection review skipped because nothing was rejected still gets a row: "none: no rejections".
+
+Below the table, the Claude Code version (`claude --version`): the built-in `/code-review` changes with it, and the Setup commit can't show that.
 
 **Findings table.** Every finding from the standards, spec and bug reviews, with its **Severity**: High, Medium or Low as the review stated it. Don't assign one yourself; if the review gave none, write "unstated".
 
