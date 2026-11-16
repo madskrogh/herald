@@ -1,5 +1,5 @@
 Source: https://github.com/mattpocock/skills (skills/engineering/tdd)
-Modified: the review-stage reference points to `standards-review` instead of `code-review`; the examples in `tests.md` and `mocking.md` are rewritten in Go.
+Modified: the review-stage reference points to `standards-review` instead of `code-review`; the examples in `tests.md` and `mocking.md` are rewritten in Go; `mocking.md` never mocks the database.
 
 MIT License
 

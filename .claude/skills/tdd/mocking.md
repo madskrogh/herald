@@ -3,12 +3,12 @@
 Mock at **system boundaries** only:
 
 - External APIs (payment, email, etc.)
-- Databases (sometimes - prefer test DB)
 - Time/randomness
 - File system (sometimes)
 
 Don't mock:
 
+- Postgres or NATS: tests run against the real ones (see `.claude/rules/go-testing.md`)
 - Your own classes/modules
 - Internal collaborators
 - Anything you control
