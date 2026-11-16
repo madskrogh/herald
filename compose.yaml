@@ -55,6 +55,12 @@ services:
 
   herald-dispatcher:
     <<: *herald-dispatcher
+    environment:
+      HERALD_DATABASE_URL: postgres://herald:herald@postgres:5432/herald?sslmode=disable
+      # herald-api's keyring: the dispatcher decrypts what herald-api
+      # encrypts.
+      HERALD_KEYRING: local:ioEj3L2kOoSLD5CgHhOxHIJpq/rigH1TSXUCJaDZFRs=
+      HERALD_NATS_URL: nats://nats:4222
     depends_on:
       dispatcher-migrate:
         condition: service_completed_successfully

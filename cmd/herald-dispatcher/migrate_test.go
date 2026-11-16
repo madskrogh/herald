@@ -32,10 +32,11 @@ func TestMigrate(t *testing.T) {
 	wantLogs := [][]logRecord{
 		{
 			{Level: "INFO", Msg: "applied migration", Service: "herald-dispatcher", Version: 1},
-			{Level: "INFO", Msg: "schema up to date", Service: "herald-dispatcher", Version: 1},
+			{Level: "INFO", Msg: "applied migration", Service: "herald-dispatcher", Version: 2},
+			{Level: "INFO", Msg: "schema up to date", Service: "herald-dispatcher", Version: 2},
 		},
 		{
-			{Level: "INFO", Msg: "schema up to date", Service: "herald-dispatcher", Version: 1},
+			{Level: "INFO", Msg: "schema up to date", Service: "herald-dispatcher", Version: 2},
 		},
 	}
 	for i, want := range wantLogs {
@@ -85,8 +86,18 @@ func TestRunUsageErrors(t *testing.T) {
 			wantErr: "HERALD_DATABASE_URL is not set",
 		},
 		{
+			name:    "serve without a keyring",
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_NATS_URL": "nats://unused"},
+			wantErr: "HERALD_KEYRING is not set",
+		},
+		{
+			name:    "serve with an invalid keyring",
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_NATS_URL": "nats://unused", "HERALD_KEYRING": "test:c2VjcmV0"},
+			wantErr: `HERALD_KEYRING: keyring entry 0: key "test" has 6 bytes, want 32`,
+		},
+		{
 			name:    "serve without a NATS URL",
-			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused"},
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": testKeyring},
 			wantErr: "HERALD_NATS_URL is not set",
 		},
 		{

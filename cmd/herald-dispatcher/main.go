@@ -10,6 +10,9 @@
 // Configuration, from the environment:
 //
 //	HERALD_DATABASE_URL   Postgres connection URL (required)
+//	HERALD_KEYRING        keys that decrypt signing secrets, as described in
+//	                      internal/keyring; herald-api's keyring (required to
+//	                      run the service)
 //	HERALD_NATS_URL       NATS server URL (required to run the service)
 package main
 
@@ -19,6 +22,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -29,12 +34,20 @@ import (
 
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/handoff"
+	"github.com/madskrogh/herald/internal/keyring"
+	"github.com/madskrogh/herald/internal/retry"
 )
 
 // shutdownTimeout is how long the Batches already received get to finish once
 // shutdown starts. It stays under the 10 seconds Docker and Kubernetes wait
 // before killing a container.
 const shutdownTimeout = 8 * time.Second
+
+// attemptDrainTimeout is how long the Attempts in flight get to finish once
+// shutdown starts. Those still running are then cancelled and recorded,
+// which takes up to 2 seconds more, so the workers too stop within
+// shutdownTimeout.
+const attemptDrainTimeout = 5 * time.Second
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
@@ -80,6 +93,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 // config is the service's configuration.
 type config struct {
 	databaseURL string
+	keyring     *keyring.Keyring
 	natsURL     string
 }
 
@@ -91,14 +105,24 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.databaseURL == "" {
 		return config{}, errors.New("HERALD_DATABASE_URL is not set")
 	}
+	keys := getenv("HERALD_KEYRING")
+	if keys == "" {
+		return config{}, errors.New("HERALD_KEYRING is not set")
+	}
+	kr, err := keyring.Parse(keys)
+	if err != nil {
+		return config{}, fmt.Errorf("HERALD_KEYRING: %w", err)
+	}
+	cfg.keyring = kr
 	if cfg.natsURL == "" {
 		return config{}, errors.New("HERALD_NATS_URL is not set")
 	}
 	return cfg, nil
 }
 
-// serve stores the Batches handed off by herald-api until ctx is cancelled,
-// then lets the Batches already received finish.
+// serve stores the Batches handed off by herald-api and makes their
+// Attempts until ctx is cancelled. Then it lets the Batches already received
+// and the Attempts in flight finish.
 func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	pool, err := pgxpool.New(ctx, cfg.databaseURL)
 	if err != nil {
@@ -118,22 +142,43 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("connect to NATS: %w", err)
 	}
-	intake := delivery.NewIntake(delivery.NewStore(pool), time.Now, logger)
+	store := delivery.NewStore(pool)
+	schedule, err := retry.New(1, rand.Float64)
+	if err != nil {
+		nc.Close()
+		return err
+	}
+	workers := delivery.NewWorkers(store, delivery.WorkersConfig{
+		Keyring:      cfg.keyring,
+		Client:       &http.Client{},
+		Schedule:     schedule,
+		Now:          time.Now,
+		DrainTimeout: attemptDrainTimeout,
+	}, logger)
+	intake := delivery.NewIntake(store, time.Now, logger)
 	if _, err := intake.Subscribe(ctx, nc, handoff.Subject, handoff.QueueGroup); err != nil {
 		nc.Close()
 		return err
 	}
+	workersDone := make(chan struct{})
+	go func() {
+		defer close(workersDone)
+		// Returns once ctx is cancelled and the Attempts in flight are
+		// recorded.
+		workers.Run(ctx)
+	}()
 	logger.InfoContext(ctx, "started")
 
 	<-ctx.Done()
 	// Draining stops new Batches arriving, lets the ones received finish and
 	// closes the connection. The relay sends any it didn't get a reply for
-	// again.
+	// again. The workers drain at the same time.
 	if err := nc.Drain(); err != nil {
 		logger.ErrorContext(ctx, "drain NATS connection", "error", err)
 		nc.Close()
 	}
 	<-closed
+	<-workersDone
 	logger.InfoContext(ctx, "stopped")
 	return nil
 }
