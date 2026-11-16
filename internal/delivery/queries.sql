@@ -91,6 +91,16 @@ SET attempt_count = attempt_count + 1,
 WHERE id = @id AND lease_id = @lease_id::uuid
 RETURNING attempt_count;
 
+-- name: ReleaseLease :execrows
+-- Ends the lease @lease_id without an Attempt and makes the Delivery due at
+-- @now, as when shutdown cuts its Attempt off. Only the current lease
+-- matches.
+UPDATE delivery.deliveries
+SET next_attempt_at = @now::timestamptz,
+    lease_id = NULL,
+    leased_until = NULL
+WHERE id = @id AND lease_id = @lease_id::uuid;
+
 -- name: InsertAttempt :exec
 INSERT INTO delivery.attempts (delivery_id, number, started_at, status_code, latency_ms, response_body, error)
 VALUES (@delivery_id, @number, @started_at, sqlc.narg(status_code), @latency_ms, @response_body, sqlc.narg(error));

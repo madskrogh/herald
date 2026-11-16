@@ -27,8 +27,8 @@ const (
 	// defaultConcurrency is the most Attempts one process has in flight when
 	// WorkersConfig.Concurrency is zero.
 	defaultConcurrency = 32
-	// recordTimeout bounds recording an Attempt, which runs even after the
-	// Attempt was cancelled at shutdown.
+	// recordTimeout bounds recording an Attempt or releasing its lease,
+	// which runs even after the Attempt was cancelled at shutdown.
 	recordTimeout = 2 * time.Second
 )
 
@@ -63,6 +63,7 @@ type WorkersConfig struct {
 type leaseStore interface {
 	Claim(ctx context.Context, now time.Time, limit int) ([]Lease, error)
 	Record(ctx context.Context, lease Lease, a Attempt, o Outcome) error
+	Release(ctx context.Context, lease Lease, now time.Time) error
 }
 
 // Workers make the Attempts for due Deliveries: each signed, recorded, and
@@ -99,8 +100,8 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 // Run makes Attempts until ctx is cancelled, claiming due Deliveries whenever
 // workers are free. Once ctx is cancelled it claims no more, and gives the
 // Attempts in flight DrainTimeout to finish. It then cancels those still
-// running, records them as failed Attempts to retry on the schedule, and
-// returns.
+// running, releases their leases without counting them, so their Deliveries
+// are due again at once, and returns.
 func (w *Workers) Run(ctx context.Context) {
 	attemptCtx, cancelAttempts := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelAttempts()
@@ -210,17 +211,34 @@ func (w *Workers) Wait() {
 	w.attempts.Wait()
 }
 
-// attempt makes one Attempt for the leased Delivery and records it.
+// attempt makes one Attempt for the leased Delivery and records it. An
+// Attempt that Run cancels at the shutdown deadline isn't counted: its lease
+// is released, so the Delivery is due again at once.
 func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	d := lease.Delivery
 	a := w.send(ctx, d)
 	number := lease.PriorAttempts + 1
-	o := w.outcome(a, number)
 	logger := w.logger.With(
 		"delivery_id", d.ID,
 		"message_id", d.MessageID,
 		"endpoint_id", d.Endpoint.ID,
 		"attempt", number,
+	)
+	// ctx is cancelled only at the shutdown deadline; the store must still
+	// hear how the Attempt ended.
+	storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer cancel()
+	if ctx.Err() != nil {
+		if err := w.store.Release(storeCtx, lease, w.cfg.Now()); err != nil {
+			// The lease runs out and the Delivery is claimed again.
+			logger.ErrorContext(ctx, "lease not released at shutdown", "error", err)
+			return
+		}
+		logger.WarnContext(ctx, "attempt cut off at shutdown, not counted")
+		return
+	}
+	o := w.outcome(a, number)
+	logger = logger.With(
 		"status_code", a.StatusCode,
 		"latency_ms", a.Latency.Milliseconds(),
 		"state", o.State,
@@ -228,11 +246,7 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	if a.Error != "" {
 		logger = logger.With("attempt_error", a.Error)
 	}
-	// ctx may be cancelled by now, at the shutdown deadline; the Attempt is
-	// recorded anyway.
-	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
-	defer cancel()
-	if err := w.store.Record(recordCtx, lease, a, o); err != nil {
+	if err := w.store.Record(storeCtx, lease, a, o); err != nil {
 		if errors.Is(err, ErrLeaseLost) {
 			// Another worker claimed the Delivery after this lease ran out,
 			// and its Attempt counts instead.

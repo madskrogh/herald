@@ -96,6 +96,24 @@ func (s *Store) Record(ctx context.Context, lease Lease, a Attempt, o Outcome) e
 	return nil
 }
 
+// Release ends lease without recording or counting an Attempt, and makes the
+// Delivery due at now. If lease is no longer the Delivery's current lease, it
+// returns an error wrapping ErrLeaseLost.
+func (s *Store) Release(ctx context.Context, lease Lease, now time.Time) error {
+	n, err := s.q.ReleaseLease(ctx, deliverydb.ReleaseLeaseParams{
+		Now:     now,
+		ID:      lease.Delivery.ID,
+		LeaseID: lease.ID,
+	})
+	if err == nil && n == 0 {
+		err = ErrLeaseLost
+	}
+	if err != nil {
+		return fmt.Errorf("release lease on delivery %s: %w", lease.Delivery.ID, err)
+	}
+	return nil
+}
+
 // Attempts returns the Delivery's Attempts, oldest first.
 func (s *Store) Attempts(ctx context.Context, deliveryID uuid.UUID) ([]Attempt, error) {
 	rows, err := s.q.ListAttempts(ctx, deliveryID)

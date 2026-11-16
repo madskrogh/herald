@@ -308,6 +308,31 @@ func (q *Queries) ListDueEndpoints(ctx context.Context, arg ListDueEndpointsPara
 	return items, nil
 }
 
+const releaseLease = `-- name: ReleaseLease :execrows
+UPDATE delivery.deliveries
+SET next_attempt_at = $1::timestamptz,
+    lease_id = NULL,
+    leased_until = NULL
+WHERE id = $2 AND lease_id = $3::uuid
+`
+
+type ReleaseLeaseParams struct {
+	Now     time.Time
+	ID      uuid.UUID
+	LeaseID uuid.UUID
+}
+
+// Ends the lease @lease_id without an Attempt and makes the Delivery due at
+// @now, as when shutdown cuts its Attempt off. Only the current lease
+// matches.
+func (q *Queries) ReleaseLease(ctx context.Context, arg ReleaseLeaseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseLease, arg.Now, arg.ID, arg.LeaseID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const tryLockEndpoint = `-- name: TryLockEndpoint :one
 SELECT pg_try_advisory_xact_lock(hashtext('herald.delivery.endpoint'), hashtext($1::uuid::text))::boolean AS locked
 `

@@ -90,6 +90,35 @@ func TestRecordRefusesALeaseThatRanOut(t *testing.T) {
 	}
 }
 
+// TestReleaseMakesADeliveryDueAtOnce releases a lease without an Attempt, as
+// a worker does when shutdown cuts its Attempt off: the Delivery is due at
+// once, with no Attempt recorded or counted.
+func TestReleaseMakesADeliveryDueAtOnce(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	in := newTestIntake(t.Context(), t)
+	in.send(t, testBatch())
+	lease := leaseOf(t, claim(t, in.store, now, 10), deliveryID1)
+
+	if err := in.store.Release(t.Context(), lease, now.Add(10*time.Second)); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+
+	again := leaseOf(t, claim(t, in.store, now.Add(10*time.Second), 10), deliveryID1)
+	if again.PriorAttempts != 0 {
+		t.Errorf("claimed again with %d prior Attempts, want 0", again.PriorAttempts)
+	}
+	if got := attempts(t, in.store, lease.Delivery.ID); len(got) != 0 {
+		t.Errorf("Attempts = %+v, want none", got)
+	}
+	// The old lease is gone: it can neither record nor release.
+	if err := in.store.Release(t.Context(), lease, now.Add(20*time.Second)); !errors.Is(err, delivery.ErrLeaseLost) {
+		t.Errorf("Release under the old lease: error = %v, want %v", err, delivery.ErrLeaseLost)
+	}
+}
+
 // leaseOf returns the lease on the Delivery with the given ID, failing the
 // test if there is none.
 func leaseOf(t *testing.T, leases []delivery.Lease, deliveryID string) delivery.Lease {

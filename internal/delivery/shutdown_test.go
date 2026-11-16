@@ -7,13 +7,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"slices"
 	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
 	"uuid"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/keyring"
 )
@@ -56,8 +57,8 @@ func TestWorkersRunFinishAttemptsInFlightAtShutdown(t *testing.T) {
 
 // TestWorkersRunCancelAttemptsAtTheDrainDeadline cancels Run while an
 // Attempt waits for a response that doesn't come before the drain timeout:
-// Run cancels the Attempt at the deadline, and records it as failed, to be
-// retried.
+// Run cancels the Attempt at the deadline, and releases its lease without
+// counting it, so the Delivery is due again at once.
 func TestWorkersRunCancelAttemptsAtTheDrainDeadline(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -76,17 +77,12 @@ func TestWorkersRunCancelAttemptsAtTheDrainDeadline(t *testing.T) {
 		if got := time.Since(cancelledAt); got != drainTimeout {
 			t.Errorf("Run returned %s after cancel, want %s", got, drainTimeout)
 		}
-		got := store.recordedAttempts()
-		if len(got) != 1 {
-			t.Fatalf("recorded %d Attempts, want 1", len(got))
+		if got := store.recordedAttempts(); len(got) != 0 {
+			t.Errorf("recorded %+v, want no Attempt", got)
 		}
-		r := got[0]
-		if r.state != delivery.StatePending || r.attempt.StatusCode != 0 || !strings.Contains(r.attempt.Error, "context canceled") {
-			t.Errorf("recorded %+v, want a pending Delivery and an Attempt cancelled without a response", r)
-		}
-		// Retried on the schedule, 5 s after the cancelled Attempt ended.
-		if want := cancelledAt.Add(drainTimeout + 5*time.Second); !r.next.Equal(want) {
-			t.Errorf("next Attempt at %s, want %s", r.next, want)
+		want := []time.Time{cancelledAt.Add(drainTimeout)}
+		if diff := cmp.Diff(want, store.releasedAt()); diff != "" {
+			t.Errorf("leases released, due again at (-want +got):\n%s", diff)
 		}
 	})
 }
@@ -196,6 +192,7 @@ type fakeStore struct {
 	due      []delivery.Lease
 	claims   int
 	recorded []recordedAttempt
+	released []time.Time
 }
 
 type recordedAttempt struct {
@@ -255,6 +252,24 @@ func (s *fakeStore) Record(ctx context.Context, _ delivery.Lease, a delivery.Att
 	defer s.mu.Unlock()
 	s.recorded = append(s.recorded, recordedAttempt{attempt: a, state: o.State, next: o.NextAttemptAt})
 	return nil
+}
+
+// Release fails on a cancelled context, as a query does.
+func (s *fakeStore) Release(ctx context.Context, _ delivery.Lease, now time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.released = append(s.released, now)
+	return nil
+}
+
+// releasedAt returns when each released Delivery was made due again.
+func (s *fakeStore) releasedAt() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.released)
 }
 
 func (s *fakeStore) claimCount() int {

@@ -44,8 +44,8 @@ import (
 const shutdownTimeout = 8 * time.Second
 
 // attemptDrainTimeout is how long the Attempts in flight get to finish once
-// shutdown starts. Those still running are then cancelled and recorded,
-// which takes up to 2 seconds more, so the workers too stop within
+// shutdown starts. Those still running are then cancelled and their leases
+// released, which takes up to 2 seconds more, so the workers too stop within
 // shutdownTimeout.
 const attemptDrainTimeout = 5 * time.Second
 
