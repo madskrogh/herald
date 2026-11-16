@@ -25,5 +25,6 @@ Follow Effective Go and the Go Code Review Comments wiki. On top of those:
 
 - `cmd/herald-api`, `cmd/herald-dispatcher`, `cmd/herald-admin`: `main` packages only. They wire config and dependencies and call into `internal/`; no business logic.
 - `internal/`: everything else, as packages named for what they provide (`signing`, `outbox`), not for what they contain (`utils`, `models`, `helpers`).
-- herald-api code never reads the `delivery` schema and herald-dispatcher code never reads the `ingest` schema (ADR 0002).
+- herald-api code never reads the `delivery` schema and herald-dispatcher code never reads the `ingest` schema (ADR 0002). Production code has no exception. Tests have one:
+  - A test that runs the other service's real code in that service's place may read that service's schema, to check what it stored.
 - Generated code (sqlc, buf) is committed and never edited by hand. Change the source and regenerate.
