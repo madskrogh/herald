@@ -63,7 +63,9 @@ type Delivery struct {
 	Payload  []byte
 	Endpoint Endpoint
 	State    State
-	// When the next Attempt is due.
+	// When the next Attempt is due. While a worker holds a lease on the
+	// Delivery it is when the lease runs out, and once the Delivery has
+	// succeeded or failed it is left as it was at the last claim.
 	NextAttemptAt time.Time
 }
 

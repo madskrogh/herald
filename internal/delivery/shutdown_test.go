@@ -3,6 +3,7 @@ package delivery_test
 import (
 	"bufio"
 	"context"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -119,6 +120,67 @@ func TestWorkersGiveUpOnAnAttemptAfter15Seconds(t *testing.T) {
 	})
 }
 
+// TestWorkersRunDrainFor5SecondsByDefault leaves DrainTimeout unset: the
+// Attempts in flight at shutdown still get 5 seconds, not none.
+func TestWorkersRunDrainFor5SecondsByDefault(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		store := newFakeStore(t, 1)
+		w := newRawPipeWorkers(t, store, func(conn net.Conn) { serveConn(conn, respondNever(t)) }, 0)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := runInBackground(ctx, w)
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+		cancel()
+		cancelledAt := time.Now()
+		<-done
+
+		if got := time.Since(cancelledAt); got != 5*time.Second {
+			t.Errorf("Run returned %s after cancel, want 5s", got)
+		}
+	})
+}
+
+// TestWorkersRunRecordAResponseCutOffAtTheDrainDeadline has the Endpoint
+// answer 200 but keep its body coming past the drain deadline. The Endpoint
+// has answered, so the Attempt is recorded as a success with the body read so
+// far, not released to be sent again.
+func TestWorkersRunRecordAResponseCutOffAtTheDrainDeadline(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		store := newFakeStore(t, 1)
+		// Promises 100 bytes of body and sends 7; the connection closes when
+		// the client gives up on the rest.
+		w := newRawPipeWorkers(t, store, func(conn net.Conn) {
+			defer conn.Close()
+			r := bufio.NewReader(conn)
+			req, err := http.ReadRequest(r)
+			if err != nil {
+				return
+			}
+			io.Copy(io.Discard, req.Body)
+			io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial")
+			io.Copy(io.Discard, r)
+		}, drainTimeout)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := runInBackground(ctx, w)
+
+		time.Sleep(time.Second)
+		synctest.Wait()
+		cancel()
+		<-done
+
+		if got := store.releasedAt(); len(got) != 0 {
+			t.Errorf("released %d leases, want none: the Endpoint answered", len(got))
+		}
+		got := store.recordedAttempts()
+		if len(got) != 1 || got[0].state != delivery.StateSucceeded || string(got[0].attempt.ResponseBody) != "partial" {
+			t.Errorf("recorded %+v, want one succeeded Attempt with the body read so far", got)
+		}
+	})
+}
+
 // runInBackground runs w until ctx is cancelled, and returns a channel that is
 // closed when Run returns.
 func runInBackground(ctx context.Context, w *delivery.Workers) <-chan struct{} {
@@ -134,13 +196,21 @@ func runInBackground(ctx context.Context, w *delivery.Workers) <-chan struct{} {
 // in-memory connections, so they run on synctest's fake time.
 func newPipeWorkers(t *testing.T, store *fakeStore, handler http.Handler) *delivery.Workers {
 	t.Helper()
+	return newRawPipeWorkers(t, store, func(conn net.Conn) { serveConn(conn, handler) }, drainTimeout)
+}
+
+// newRawPipeWorkers is newPipeWorkers with serve speaking HTTP on each
+// connection itself, for responses a handler can't produce, and the given
+// DrainTimeout.
+func newRawPipeWorkers(t *testing.T, store *fakeStore, serve func(net.Conn), drain time.Duration) *delivery.Workers {
+	t.Helper()
 	client := &http.Client{Transport: &http.Transport{
 		// Every connection closes after its request, so none is left
 		// blocked when the bubble ends.
 		DisableKeepAlives: true,
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
 			client, server := net.Pipe()
-			go serveConn(server, handler)
+			go serve(server)
 			return client, nil
 		},
 	}}
@@ -149,7 +219,7 @@ func newPipeWorkers(t *testing.T, store *fakeStore, handler http.Handler) *deliv
 		Client:       client,
 		Schedule:     pinnedSchedule(t),
 		Now:          time.Now,
-		DrainTimeout: drainTimeout,
+		DrainTimeout: drain,
 	}, slog.New(slog.DiscardHandler))
 }
 

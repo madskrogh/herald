@@ -23,7 +23,6 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -151,7 +150,6 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	}
 	workers := delivery.NewWorkers(store, delivery.WorkersConfig{
 		Keyring:      cfg.keyring,
-		Client:       &http.Client{},
 		Schedule:     schedule,
 		Now:          time.Now,
 		DrainTimeout: attemptDrainTimeout,

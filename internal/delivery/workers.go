@@ -27,6 +27,8 @@ const (
 	// defaultConcurrency is the most Attempts one process has in flight when
 	// WorkersConfig.Concurrency is zero.
 	defaultConcurrency = 32
+	// defaultDrainTimeout is WorkersConfig.DrainTimeout when it is zero.
+	defaultDrainTimeout = 5 * time.Second
 	// recordTimeout bounds recording an Attempt or releasing its lease,
 	// which runs even after the Attempt was cancelled at shutdown.
 	recordTimeout = 2 * time.Second
@@ -42,9 +44,10 @@ const (
 type WorkersConfig struct {
 	// Keyring decrypts the Endpoints' signing secrets.
 	Keyring *keyring.Keyring
-	// Client makes the Attempts. Its own timeout, if any, applies on top of
-	// attemptTimeout. Workers never follow redirects, whatever its
-	// CheckRedirect.
+	// Client makes the Attempts, or nil for one that keeps a connection to
+	// each Endpoint for every Attempt it may have in flight. Its own
+	// timeout, if any, applies on top of attemptTimeout. Workers never follow
+	// redirects, whatever its CheckRedirect.
 	Client *http.Client
 	// Schedule says when each Attempt after a failed one is due.
 	Schedule retry.Schedule
@@ -54,7 +57,7 @@ type WorkersConfig struct {
 	// Concurrency is the most Attempts in flight in this process.
 	Concurrency int
 	// DrainTimeout is how long the Attempts in flight get to finish once
-	// Run's context is cancelled.
+	// Run's context is cancelled, or zero for 5 seconds.
 	DrainTimeout time.Duration
 }
 
@@ -88,10 +91,22 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 	if cfg.Concurrency <= 0 {
 		cfg.Concurrency = defaultConcurrency
 	}
+	if cfg.DrainTimeout <= 0 {
+		cfg.DrainTimeout = defaultDrainTimeout
+	}
+	var client http.Client
+	if cfg.Client != nil {
+		// A copy, so the caller's client is left as it is.
+		client = *cfg.Client
+	} else {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		// Keep a connection for every Attempt an Endpoint may have in
+		// flight, not the default 2.
+		transport.MaxIdleConnsPerHost = maxInFlight
+		client.Transport = transport
+	}
 	// Only a 2xx response is a success, so a redirect is an Attempt that
-	// failed, not a pointer to follow. A copy, so the caller's client is left
-	// as it is.
-	client := *cfg.Client
+	// failed, not a pointer to follow.
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	cfg.Client = &client
 	return &Workers{store: store, cfg: cfg, logger: logger}
@@ -228,7 +243,9 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	// hear how the Attempt ended.
 	storeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
 	defer cancel()
-	if ctx.Err() != nil {
+	// Cut off without a response. One that came, even with its body cut
+	// short, is the Endpoint's answer and is recorded.
+	if a.StatusCode == 0 && ctx.Err() != nil {
 		if err := w.store.Release(storeCtx, lease, w.cfg.Now()); err != nil {
 			// The lease runs out and the Delivery is claimed again.
 			logger.ErrorContext(ctx, "lease not released at shutdown", "error", err)

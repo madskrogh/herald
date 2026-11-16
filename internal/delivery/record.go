@@ -20,7 +20,8 @@ var ErrLeaseLost = errors.New("lease lost")
 
 // Attempt is one HTTP request made for a Delivery.
 type Attempt struct {
-	// Number counts the Delivery's Attempts from 1. Record sets it.
+	// Number counts the Delivery's Attempts from 1. Record numbers each
+	// Attempt it stores and ignores this field; Attempts fills it in.
 	Number    int
 	StartedAt time.Time
 	// StatusCode is the response's status, or 0 if there was no response.

@@ -35,8 +35,13 @@ CREATE INDEX deliveries_due ON delivery.deliveries (next_attempt_at)
     WHERE state = 'pending';
 CREATE INDEX deliveries_endpoint_due ON delivery.deliveries (endpoint_id, next_attempt_at)
     WHERE state = 'pending';
+-- Counting each Endpoint's Attempts in flight reads only leased Deliveries,
+-- a few per Endpoint however large its backlog.
+CREATE INDEX deliveries_leased ON delivery.deliveries (endpoint_id, leased_until)
+    WHERE state = 'pending' AND leased_until IS NOT NULL;
 
 -- +goose Down
+DROP INDEX delivery.deliveries_leased;
 DROP INDEX delivery.deliveries_endpoint_due;
 DROP INDEX delivery.deliveries_due;
 DROP TABLE delivery.attempts;
