@@ -16,6 +16,7 @@ import (
 	"uuid"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/keyring"
 )
@@ -159,9 +160,9 @@ func TestWorkersRunRecordAResponseCutOffAtTheDrainDeadline(t *testing.T) {
 			if err != nil {
 				return
 			}
-			io.Copy(io.Discard, req.Body)
-			io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial")
-			io.Copy(io.Discard, r)
+			_, _ = io.Copy(io.Discard, req.Body)
+			_, _ = io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial")
+			_, _ = io.Copy(io.Discard, r)
 		}, drainTimeout)
 		ctx, cancel := context.WithCancel(t.Context())
 		done := runInBackground(ctx, w)

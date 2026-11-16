@@ -60,7 +60,7 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 		body   []byte
 	}
 	requests := make(chan received, 1)
-	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	endpoint := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		requests <- received{header: r.Header.Clone(), body: body}
 	}))

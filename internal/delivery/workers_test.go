@@ -214,7 +214,7 @@ func TestWorkersKeepTheStartOfTheResponseBody(t *testing.T) {
 	body := strings.Repeat("a", 4096) + strings.Repeat("b", 6000)
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, body)
+		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(endpoint.Close)
 	tw := newTestWorkers(t)
