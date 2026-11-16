@@ -59,7 +59,7 @@ func newAPI(t *testing.T) *api {
 		t.Fatalf("parse keyring: %v", err)
 	}
 
-	srv := tenantapi.NewGRPCServer(store, kr, slog.New(slog.DiscardHandler))
+	srv := tenantapi.NewGRPCServer(store, kr, tenantapi.Config{}, slog.New(slog.DiscardHandler))
 	var lc net.ListenConfig
 	lis, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {

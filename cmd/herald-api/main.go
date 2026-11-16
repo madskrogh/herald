@@ -16,6 +16,10 @@
 //	                      herald-dispatcher (required to run the service)
 //	HERALD_GRPC_ADDR      address the Tenant API serves gRPC on (default :9090)
 //	HERALD_HTTP_ADDR      address the Tenant API serves REST on (default :8080)
+//	HERALD_ALLOW_INSECURE_ENDPOINTS
+//	                      "true" accepts Endpoint URLs with the http scheme,
+//	                      not only https; for the local stack and tests only
+//	                      (default false)
 package main
 
 import (
@@ -28,6 +32,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -96,6 +101,8 @@ type config struct {
 	natsURL     string
 	grpcAddr    string
 	httpAddr    string
+	// allowInsecureEndpoints accepts http Endpoint URLs.
+	allowInsecureEndpoints bool
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -125,6 +132,13 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	if cfg.httpAddr == "" {
 		cfg.httpAddr = ":8080"
+	}
+	if s := getenv("HERALD_ALLOW_INSECURE_ENDPOINTS"); s != "" {
+		allow, err := strconv.ParseBool(s)
+		if err != nil {
+			return config{}, fmt.Errorf("HERALD_ALLOW_INSECURE_ENDPOINTS: %w", err)
+		}
+		cfg.allowInsecureEndpoints = allow
 	}
 	return cfg, nil
 }
@@ -163,7 +177,9 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return fmt.Errorf("listen for REST: %w", err)
 	}
 
-	grpcServer := tenantapi.NewGRPCServer(store, cfg.keyring, logger)
+	grpcServer := tenantapi.NewGRPCServer(store, cfg.keyring, tenantapi.Config{
+		AllowHTTPEndpoints: cfg.allowInsecureEndpoints,
+	}, logger)
 	// The gateway calls the gRPC server like any other client, so REST calls
 	// pass through the same interceptors.
 	conn, err := grpc.NewClient(loopback(grpcLis.Addr()), grpc.WithTransportCredentials(insecure.NewCredentials()))

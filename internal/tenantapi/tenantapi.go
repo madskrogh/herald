@@ -29,17 +29,25 @@ import (
 	"github.com/madskrogh/herald/internal/keyring"
 )
 
+// Config configures the Tenant API.
+type Config struct {
+	// AllowHTTPEndpoints accepts Endpoint URLs with the http scheme, not only
+	// https. It is for the local stack and tests only, whose Endpoints don't
+	// serve TLS.
+	AllowHTTPEndpoints bool
+}
+
 // NewGRPCServer returns a gRPC server that serves the Tenant API. Signing
 // secrets are encrypted with kr, and errors that aren't the caller's are
 // logged to logger.
-func NewGRPCServer(store *ingest.Store, kr *keyring.Keyring, logger *slog.Logger) *grpc.Server {
+func NewGRPCServer(store *ingest.Store, kr *keyring.Keyring, cfg Config, logger *slog.Logger) *grpc.Server {
 	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		recoverPanics(logger),
 		statusErrors(logger),
 		authenticate(store),
 	))
 	tenantv1.RegisterApplicationServiceServer(srv, &applicationServer{store: store})
-	tenantv1.RegisterEndpointServiceServer(srv, &endpointServer{store: store, keyring: kr})
+	tenantv1.RegisterEndpointServiceServer(srv, &endpointServer{store: store, keyring: kr, allowHTTP: cfg.AllowHTTPEndpoints})
 	tenantv1.RegisterMessageServiceServer(srv, &messageServer{store: store})
 	return srv
 }

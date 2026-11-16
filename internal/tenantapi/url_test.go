@@ -1,7 +1,9 @@
 package tenantapi
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -16,9 +18,13 @@ func TestCheckEndpointURL(t *testing.T) {
 		name  string // the URL if empty
 		url   string
 		valid bool
+		// validIfHTTPAllowed is valid only when http Endpoints are allowed.
+		validIfHTTPAllowed bool
 	}{
 		{url: "https://example.com/webhooks", valid: true},
-		{url: "http://localhost:8080/webhooks", valid: true},
+		{url: "http://localhost:8080/webhooks", validIfHTTPAllowed: true},
+		{url: "http://example.com/webhooks", validIfHTTPAllowed: true},
+		{url: "HTTP://example.com/webhooks", validIfHTTPAllowed: true},
 		{url: "https://203.0.113.7/hook?tenant=acme&v=2", valid: true},
 		{url: "https://[2001:db8::1]:8443/", valid: true},
 		{url: "HTTPS://Example.com/webhooks", valid: true},
@@ -49,16 +55,19 @@ func TestCheckEndpointURL(t *testing.T) {
 		if name == "" {
 			name = tt.url
 		}
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			err := checkEndpointURL(tt.url)
-			if tt.valid && err != nil {
-				t.Errorf("checkEndpointURL = %v, want valid", err)
-			}
-			if !tt.valid && err == nil {
-				t.Error("checkEndpointURL accepted it, want an error")
-			}
-		})
+		for _, allowHTTP := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/allowHTTP=%t", name, allowHTTP), func(t *testing.T) {
+				t.Parallel()
+				valid := tt.valid || (allowHTTP && tt.validIfHTTPAllowed)
+				err := checkEndpointURL(tt.url, allowHTTP)
+				if valid && err != nil {
+					t.Errorf("checkEndpointURL = %v, want valid", err)
+				}
+				if !valid && err == nil {
+					t.Error("checkEndpointURL accepted it, want an error")
+				}
+			})
+		}
 	}
 }
 
@@ -74,7 +83,12 @@ func FuzzCheckEndpointURL(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		if checkEndpointURL(s) != nil {
+		if checkEndpointURL(s, false) == nil {
+			if u, err := url.Parse(s); err != nil || u.Scheme != "https" {
+				t.Errorf("accepted %q without allowing http, want only https", s)
+			}
+		}
+		if checkEndpointURL(s, true) != nil {
 			return
 		}
 		// An accepted URL is one Herald can send an Attempt to.
