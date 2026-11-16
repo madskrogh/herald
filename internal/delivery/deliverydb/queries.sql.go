@@ -12,6 +12,83 @@ import (
 	"uuid"
 )
 
+const claimDueDeliveries = `-- name: ClaimDueDeliveries :many
+WITH claimed AS (
+    UPDATE delivery.deliveries d
+    SET lease_id = gen_random_uuid(),
+        leased_until = $1::timestamptz,
+        next_attempt_at = $1::timestamptz
+    WHERE d.id IN (
+        SELECT due.id FROM delivery.deliveries due
+        WHERE due.state = 'pending' AND due.next_attempt_at <= $2::timestamptz
+        ORDER BY due.next_attempt_at
+        LIMIT $3::integer
+        FOR UPDATE SKIP LOCKED
+    )
+    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id
+)
+SELECT c.id, c.message_id, m.tenant_id, m.event_type, m.payload,
+       c.endpoint_id, c.endpoint_url, c.signing_secrets, c.state, c.next_attempt_at,
+       c.lease_id::uuid AS lease_id
+FROM claimed c
+JOIN delivery.messages m ON m.id = c.message_id
+`
+
+type ClaimDueDeliveriesParams struct {
+	LeasedUntil   time.Time
+	Now           time.Time
+	MaxDeliveries int32
+}
+
+type ClaimDueDeliveriesRow struct {
+	ID             uuid.UUID
+	MessageID      uuid.UUID
+	TenantID       uuid.UUID
+	EventType      string
+	Payload        []byte
+	EndpointID     uuid.UUID
+	EndpointURL    string
+	SigningSecrets [][]byte
+	State          string
+	NextAttemptAt  time.Time
+	LeaseID        uuid.UUID
+}
+
+// Leases up to @max_deliveries pending Deliveries due at @now, until
+// @leased_until. A leased Delivery is due again when its lease runs out, so
+// one whose worker never records its Attempt is claimed again.
+func (q *Queries) ClaimDueDeliveries(ctx context.Context, arg ClaimDueDeliveriesParams) ([]ClaimDueDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, claimDueDeliveries, arg.LeasedUntil, arg.Now, arg.MaxDeliveries)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ClaimDueDeliveriesRow
+	for rows.Next() {
+		var i ClaimDueDeliveriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.TenantID,
+			&i.EventType,
+			&i.Payload,
+			&i.EndpointID,
+			&i.EndpointURL,
+			&i.SigningSecrets,
+			&i.State,
+			&i.NextAttemptAt,
+			&i.LeaseID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDelivery = `-- name: GetDelivery :one
 SELECT d.id, d.message_id, m.tenant_id, m.event_type, m.payload,
        d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at

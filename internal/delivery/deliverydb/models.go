@@ -7,6 +7,7 @@ package deliverydb
 import (
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"uuid"
 )
 
@@ -19,6 +20,8 @@ type DeliveryDelivery struct {
 	State          string
 	NextAttemptAt  time.Time
 	CreatedAt      time.Time
+	LeaseID        pgtype.UUID
+	LeasedUntil    pgtype.Timestamptz
 }
 
 type DeliveryMessage struct {
