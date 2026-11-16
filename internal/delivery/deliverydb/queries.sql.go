@@ -9,6 +9,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"uuid"
 )
 
@@ -115,6 +116,40 @@ func (q *Queries) CountInFlight(ctx context.Context, arg CountInFlightParams) (i
 	return column_1, err
 }
 
+const finishAttempt = `-- name: FinishAttempt :one
+UPDATE delivery.deliveries
+SET attempt_count = attempt_count + 1,
+    state = $1,
+    next_attempt_at = coalesce($2::timestamptz, next_attempt_at),
+    lease_id = NULL,
+    leased_until = NULL
+WHERE id = $3 AND lease_id = $4::uuid
+RETURNING attempt_count
+`
+
+type FinishAttemptParams struct {
+	State         string
+	NextAttemptAt pgtype.Timestamptz
+	ID            uuid.UUID
+	LeaseID       uuid.UUID
+}
+
+// Ends the lease @lease_id, counts its Attempt and moves the Delivery to
+// @state, due again at @next_attempt_at if that is given. Only the current
+// lease matches: a worker whose lease ran out and was claimed again gets no
+// row, so it can't record over the new holder. Returns the Attempt's number.
+func (q *Queries) FinishAttempt(ctx context.Context, arg FinishAttemptParams) (int32, error) {
+	row := q.db.QueryRow(ctx, finishAttempt,
+		arg.State,
+		arg.NextAttemptAt,
+		arg.ID,
+		arg.LeaseID,
+	)
+	var attempt_count int32
+	err := row.Scan(&attempt_count)
+	return attempt_count, err
+}
+
 const getDelivery = `-- name: GetDelivery :one
 SELECT d.id, d.message_id, m.tenant_id, m.event_type, m.payload,
        d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at
@@ -152,6 +187,77 @@ func (q *Queries) GetDelivery(ctx context.Context, id uuid.UUID) (GetDeliveryRow
 		&i.NextAttemptAt,
 	)
 	return i, err
+}
+
+const insertAttempt = `-- name: InsertAttempt :exec
+INSERT INTO delivery.attempts (delivery_id, number, started_at, status_code, latency_ms, response_body, error)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+`
+
+type InsertAttemptParams struct {
+	DeliveryID   uuid.UUID
+	Number       int32
+	StartedAt    time.Time
+	StatusCode   pgtype.Int4
+	LatencyMs    int32
+	ResponseBody []byte
+	Error        pgtype.Text
+}
+
+func (q *Queries) InsertAttempt(ctx context.Context, arg InsertAttemptParams) error {
+	_, err := q.db.Exec(ctx, insertAttempt,
+		arg.DeliveryID,
+		arg.Number,
+		arg.StartedAt,
+		arg.StatusCode,
+		arg.LatencyMs,
+		arg.ResponseBody,
+		arg.Error,
+	)
+	return err
+}
+
+const listAttempts = `-- name: ListAttempts :many
+SELECT number, started_at, status_code, latency_ms, response_body, error
+FROM delivery.attempts
+WHERE delivery_id = $1
+ORDER BY number
+`
+
+type ListAttemptsRow struct {
+	Number       int32
+	StartedAt    time.Time
+	StatusCode   pgtype.Int4
+	LatencyMs    int32
+	ResponseBody []byte
+	Error        pgtype.Text
+}
+
+func (q *Queries) ListAttempts(ctx context.Context, deliveryID uuid.UUID) ([]ListAttemptsRow, error) {
+	rows, err := q.db.Query(ctx, listAttempts, deliveryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAttemptsRow
+	for rows.Next() {
+		var i ListAttemptsRow
+		if err := rows.Scan(
+			&i.Number,
+			&i.StartedAt,
+			&i.StatusCode,
+			&i.LatencyMs,
+			&i.ResponseBody,
+			&i.Error,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDueEndpoints = `-- name: ListDueEndpoints :many

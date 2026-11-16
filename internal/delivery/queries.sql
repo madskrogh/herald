@@ -76,3 +76,27 @@ SELECT c.id, c.message_id, m.tenant_id, m.event_type, m.payload,
        c.lease_id::uuid AS lease_id
 FROM claimed c
 JOIN delivery.messages m ON m.id = c.message_id;
+
+-- name: FinishAttempt :one
+-- Ends the lease @lease_id, counts its Attempt and moves the Delivery to
+-- @state, due again at @next_attempt_at if that is given. Only the current
+-- lease matches: a worker whose lease ran out and was claimed again gets no
+-- row, so it can't record over the new holder. Returns the Attempt's number.
+UPDATE delivery.deliveries
+SET attempt_count = attempt_count + 1,
+    state = @state,
+    next_attempt_at = coalesce(sqlc.narg(next_attempt_at)::timestamptz, next_attempt_at),
+    lease_id = NULL,
+    leased_until = NULL
+WHERE id = @id AND lease_id = @lease_id::uuid
+RETURNING attempt_count;
+
+-- name: InsertAttempt :exec
+INSERT INTO delivery.attempts (delivery_id, number, started_at, status_code, latency_ms, response_body, error)
+VALUES (@delivery_id, @number, @started_at, sqlc.narg(status_code), @latency_ms, @response_body, sqlc.narg(error));
+
+-- name: ListAttempts :many
+SELECT number, started_at, status_code, latency_ms, response_body, error
+FROM delivery.attempts
+WHERE delivery_id = @delivery_id
+ORDER BY number;

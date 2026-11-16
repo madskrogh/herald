@@ -11,6 +11,16 @@ import (
 	"uuid"
 )
 
+type DeliveryAttempt struct {
+	DeliveryID   uuid.UUID
+	Number       int32
+	StartedAt    time.Time
+	StatusCode   pgtype.Int4
+	LatencyMs    int32
+	ResponseBody []byte
+	Error        pgtype.Text
+}
+
 type DeliveryDelivery struct {
 	ID             uuid.UUID
 	MessageID      uuid.UUID
@@ -22,6 +32,7 @@ type DeliveryDelivery struct {
 	CreatedAt      time.Time
 	LeaseID        pgtype.UUID
 	LeasedUntil    pgtype.Timestamptz
+	AttemptCount   int32
 }
 
 type DeliveryMessage struct {
