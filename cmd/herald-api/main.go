@@ -147,6 +147,10 @@ func loadConfig(getenv func(string) string) (config, error) {
 // serve runs the Tenant API over gRPC and REST until ctx is cancelled or a
 // server fails, then shuts both down, letting calls in progress finish.
 func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
+	// First, before anything else can log.
+	if cfg.allowInsecureEndpoints {
+		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
+	}
 	pool, err := pgxpool.New(ctx, cfg.databaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
@@ -208,9 +212,6 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	errc := make(chan error, 2)
 	go func() { errc <- grpcServer.Serve(grpcLis) }()
 	go func() { errc <- httpServer.Serve(httpLis) }()
-	if cfg.allowInsecureEndpoints {
-		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
-	}
 	logger.InfoContext(ctx, "started", "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
 
 	// One relay per process (ADR 0002): replicas each run one, and claim

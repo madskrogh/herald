@@ -138,6 +138,10 @@ func loadConfig(getenv func(string) string) (config, error) {
 // Attempts until ctx is cancelled. Then it lets the Batches already received
 // and the Attempts in flight finish.
 func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
+	// First, before anything else can log.
+	if cfg.allowInsecureEndpoints {
+		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
+	}
 	pool, err := pgxpool.New(ctx, cfg.databaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
@@ -183,9 +187,6 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		// recorded.
 		workers.Run(ctx)
 	}()
-	if cfg.allowInsecureEndpoints {
-		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
-	}
 	logger.InfoContext(ctx, "started")
 
 	<-ctx.Done()

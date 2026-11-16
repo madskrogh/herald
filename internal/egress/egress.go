@@ -25,6 +25,7 @@ var notPublic = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"),   // shared address space (carrier-grade NAT)
 	netip.MustParsePrefix("192.0.0.0/24"),    // IETF protocol assignments
 	netip.MustParsePrefix("192.0.2.0/24"),    // documentation (TEST-NET-1)
+	netip.MustParsePrefix("192.88.99.0/24"),  // deprecated 6to4 relay anycast (RFC 7526)
 	netip.MustParsePrefix("198.18.0.0/15"),   // benchmarking
 	netip.MustParsePrefix("198.51.100.0/24"), // documentation (TEST-NET-2)
 	netip.MustParsePrefix("203.0.113.0/24"),  // documentation (TEST-NET-3)
@@ -53,8 +54,22 @@ func Control(_, address string, _ syscall.RawConn) error {
 	return Check(ap.Addr())
 }
 
-// Check returns an error saying why addr is not a public address, or nil if
-// it is one.
+// RefusedError is the error Check returns for an address that is not public.
+type RefusedError struct {
+	// Addr is the address refused. For an IPv6 address that embeds an IPv4
+	// address, it is the IPv4 address.
+	Addr netip.Addr
+	// Class says why Addr is not public: "loopback", "private", "link-local",
+	// "unspecified", "multicast" or "special-purpose".
+	Class string
+}
+
+func (e *RefusedError) Error() string {
+	return fmt.Sprintf("address %s is %s, not public", e.Addr, e.Class)
+}
+
+// Check returns a *RefusedError, possibly wrapped, saying why addr is not a
+// public address, or nil if it is one.
 func Check(addr netip.Addr) error {
 	if !addr.IsValid() {
 		return errors.New("invalid address")
@@ -87,14 +102,14 @@ func Check(addr netip.Addr) error {
 		class = "multicast"
 	}
 	if class != "" {
-		return fmt.Errorf("address %s is %s, not public", addr, class)
+		return &RefusedError{Addr: addr, Class: class}
 	}
 	if addr.Is6() && !ipv6GlobalUnicast.Contains(addr) {
-		return fmt.Errorf("address %s is not public", addr)
+		return &RefusedError{Addr: addr, Class: "special-purpose"}
 	}
 	for _, p := range notPublic {
 		if p.Contains(addr) {
-			return fmt.Errorf("address %s is not public", addr)
+			return &RefusedError{Addr: addr, Class: "special-purpose"}
 		}
 	}
 	return nil

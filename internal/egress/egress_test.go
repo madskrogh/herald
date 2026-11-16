@@ -47,6 +47,7 @@ func TestCheck(t *testing.T) {
 		{addr: "100.127.255.255", want: "not public"},
 		{addr: "192.0.0.8", want: "not public"},
 		{addr: "192.0.2.1", want: "not public"},
+		{addr: "192.88.99.1", want: "not public"},
 		{addr: "198.18.0.1", want: "not public"},
 		{addr: "198.51.100.1", want: "not public"},
 		{addr: "203.0.113.7", want: "not public"},

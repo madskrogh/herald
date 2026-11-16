@@ -314,6 +314,13 @@ func (w *Workers) send(ctx context.Context, d Delivery) Attempt {
 	if err != nil {
 		a.Latency = time.Since(begin)
 		a.Error = err.Error()
+		// Tenants see the Attempt's error. The dial error names the address
+		// the Endpoint's host resolved to, which for a refused address is
+		// one inside Herald's network.
+		var refused *egress.RefusedError
+		if errors.As(err, &refused) {
+			a.Error = fmt.Sprintf("not connected: the Endpoint's host resolved to a %s address, and Herald connects only to public addresses", refused.Class)
+		}
 		return a
 	}
 	defer resp.Body.Close()

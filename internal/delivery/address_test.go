@@ -13,14 +13,15 @@ import (
 	"github.com/madskrogh/herald/internal/delivery"
 )
 
-// TestWorkersRefuseNonPublicAddresses makes an Attempt to an Endpoint on a
-// loopback address with the Workers' own client. No connection is made, and
-// the Attempt fails with the reason, to be retried like any other failure.
+// TestWorkersRefuseNonPublicAddresses makes an Attempt to an Endpoint whose
+// host name resolves to a loopback address, with the Workers' own client. No
+// connection is made, and the Attempt fails with the reason, to be retried
+// like any other failure.
 func TestWorkersRefuseNonPublicAddresses(t *testing.T) {
 	t.Parallel()
 	endpoint := newCountingEndpoint(t)
 	store := newFakeStore(t, 1)
-	store.due[0].Delivery.Endpoint.URL = endpoint.url + "/webhooks"
+	store.due[0].Delivery.Endpoint.URL = strings.Replace(endpoint.url, "127.0.0.1", "localhost", 1) + "/webhooks"
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	w := delivery.NewWorkers(store, delivery.WorkersConfig{
 		Keyring:  store.keys,
@@ -41,8 +42,13 @@ func TestWorkersRefuseNonPublicAddresses(t *testing.T) {
 		t.Fatalf("recorded %d Attempts, want 1", len(got))
 	}
 	r := got[0]
-	if r.attempt.StatusCode != 0 || !strings.Contains(r.attempt.Error, "127.0.0.1 is loopback, not public") {
-		t.Errorf("recorded Attempt with status %d and error %q, want no status and an error saying 127.0.0.1 is loopback", r.attempt.StatusCode, r.attempt.Error)
+	if r.attempt.StatusCode != 0 || !strings.Contains(r.attempt.Error, "loopback") {
+		t.Errorf("recorded Attempt with status %d and error %q, want no status and an error saying the address is loopback", r.attempt.StatusCode, r.attempt.Error)
+	}
+	// Tenants see the Attempt's error, so it doesn't show the address the
+	// Endpoint's host resolved to inside Herald's network.
+	if strings.Contains(r.attempt.Error, "127.0.0.1") || strings.Contains(r.attempt.Error, "::1") {
+		t.Errorf("recorded Attempt error %q shows the address dialled", r.attempt.Error)
 	}
 	if want := now.Add(5 * time.Second); r.state != delivery.StatePending || !r.next.Equal(want) {
 		t.Errorf("Delivery %s, next Attempt at %s, want pending and retried at %s", r.state, r.next, want)
