@@ -69,7 +69,7 @@ Never left out. Verified: what was run, and the result. Not verified: what wasn'
 </details>
 
 <details>
-<summary>Review notes: K reviews, N findings, F fixed, R rejected</summary>
+<summary>Review notes: K reviews, N findings, F fixed, R rejected, D disputed</summary>
 
 <!--
 Reviews: one row per review that ran, including those that found nothing. Effort is the level
@@ -84,8 +84,8 @@ when the review ran: git log -1 --format=%h -- .claude CLAUDE.md .github/pull_re
 Claude Code version:
 
 <!--
-Every finding from the standards, spec and bug reviews. Rejected findings first, then fixed;
-each group ordered by severity, most severe first. Severity is High, Medium or Low as the review
+Every finding from the standards, spec and bug reviews. Findings the rejection review disputed
+first, then rejected, then fixed; each group ordered by severity, most severe first. Severity is High, Medium or Low as the review
 stated it, or "unstated" (kept in the review's order). A rejection says why, and what the rejection review concluded;
 deferring to a later issue counts as rejected, with that issue's number.
 -->
