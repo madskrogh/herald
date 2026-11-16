@@ -355,15 +355,7 @@ func TestConcurrentRelaysSendDifferentMessages(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = sub.Unsubscribe() })
 
-	type result struct {
-		n   int
-		err error
-	}
-	first := make(chan result, 1)
-	go func() {
-		n, _, err := relay1.RunOnce(t.Context(), handedOff)
-		first <- result{n, err}
-	}()
+	first := runOnceInBackground(t, relay1)
 	<-held
 	n, _, err := relay2.RunOnce(t.Context(), handedOff)
 	close(release)
@@ -451,49 +443,12 @@ func TestRelayClaimsNoMoreThanFitsAfterAFullBatch(t *testing.T) {
 	env := newEnv(t)
 	app := env.application(t)
 	app.endpoint(t, "https://example.com/webhooks", nil)
-	// About 400 KB each, so two fit under NATS's 1 MB maximum and three don't.
-	payload := []byte(`"` + strings.Repeat("x", 400_000) + `"`)
 	var messages []ingest.Message
 	for range 6 {
-		messages = append(messages, app.message(t, "invoice.paid", payload))
+		messages = append(messages, app.message(t, "invoice.paid", largePayload))
 	}
 	relay1, relay2 := env.relay(t, outbox.Config{}), env.relay(t, outbox.Config{})
-
-	// In front of the dispatcher, a responder holds the second Batch until it
-	// is released.
-	dispatcherSubject := natstest.Subject(t)
-	env.dispatcher(t, dispatcherSubject)
-	var batches atomic.Int32
-	held, release := make(chan struct{}), make(chan struct{})
-	nc := natstest.Connect(t)
-	sub, err := nc.Subscribe(env.subject, func(m *nats.Msg) {
-		// Answered on a goroutine of its own, so holding one Batch doesn't
-		// hold up the next.
-		go func() {
-			var batch handoffv1.Batch
-			if err := proto.Unmarshal(m.Data, &batch); err != nil {
-				t.Errorf("decode batch: %v", err)
-				return
-			}
-			if batches.Add(1) == 2 {
-				close(held)
-				<-release
-			}
-			data, err := proto.Marshal(env.forward(t, dispatcherSubject, &batch))
-			if err != nil {
-				t.Errorf("encode reply: %v", err)
-				return
-			}
-			_ = m.Respond(data)
-		}()
-	})
-	if err != nil {
-		t.Fatalf("subscribe: %v", err)
-	}
-	if err := nc.Flush(); err != nil {
-		t.Fatalf("flush subscription: %v", err)
-	}
-	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	held, release := env.holdBatch(t, 2)
 
 	// The first round claims every Message and learns that two fit.
 	n, _, err := relay1.RunOnce(t.Context(), handedOff)
@@ -504,15 +459,7 @@ func TestRelayClaimsNoMoreThanFitsAfterAFullBatch(t *testing.T) {
 		t.Fatalf("first round handed off %d Messages, want 2", n)
 	}
 	// The second claims three (Messages 3 to 5), and is held in flight.
-	type result struct {
-		n   int
-		err error
-	}
-	second := make(chan result, 1)
-	go func() {
-		n, _, err := relay1.RunOnce(t.Context(), handedOff)
-		second <- result{n, err}
-	}()
+	second := runOnceInBackground(t, relay1)
 	<-held
 	// Message 6 is not locked by the round in flight, so another relay hands
 	// it off meanwhile.
@@ -537,8 +484,6 @@ func TestRelayReportsWhetherMoreMessagesMayBeWaiting(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration")
 	}
-	// About 400 KB each, so two fit under NATS's 1 MB maximum and three don't.
-	large := []byte(`"` + strings.Repeat("x", 400_000) + `"`)
 	tests := []struct {
 		name        string
 		payloads    [][]byte
@@ -568,7 +513,7 @@ func TestRelayReportsWhetherMoreMessagesMayBeWaiting(t *testing.T) {
 		},
 		{
 			name:        "sent fewer than it claimed",
-			payloads:    [][]byte{large, large, large},
+			payloads:    [][]byte{largePayload, largePayload, largePayload},
 			maxMessages: 4,
 			wantN:       2,
 			wantMore:    true,
@@ -601,8 +546,8 @@ func TestRelayReportsWhetherMoreMessagesMayBeWaiting(t *testing.T) {
 // relay's round in flight, with two Messages locked, while a second relay asks
 // for two. It can claim only the third, and reports nothing more waiting,
 // though the outbox isn't empty: the locked Messages are being handed off, and
-// claiming again at once would find them still locked. Its relay waits a poll
-// interval instead.
+// claiming again at once would find them still locked. (TestPollPacesRounds
+// shows that the next round then waits a poll interval.)
 func TestRelayReportsNothingMoreWaitingWhenOtherRoundsHoldTheRest(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -617,17 +562,9 @@ func TestRelayReportsNothingMoreWaitingWhenOtherRoundsHoldTheRest(t *testing.T) 
 	}
 	cfg := outbox.Config{MaxMessages: 2}
 	relay1, relay2 := env.relay(t, cfg), env.relay(t, cfg)
-	held, release := env.holdFirstBatch(t)
+	held, release := env.holdBatch(t, 1)
 
-	type result struct {
-		n   int
-		err error
-	}
-	first := make(chan result, 1)
-	go func() {
-		n, _, err := relay1.RunOnce(t.Context(), handedOff)
-		first <- result{n, err}
-	}()
+	first := runOnceInBackground(t, relay1)
 	<-held
 	n, more, err := relay2.RunOnce(t.Context(), handedOff)
 	close(release)
@@ -657,10 +594,8 @@ func TestRelayClaimsMoreAgainOnceMessagesFit(t *testing.T) {
 	env.dispatcher(t, env.subject)
 	app := env.application(t)
 	app.endpoint(t, "https://example.com/webhooks", nil)
-	// About 400 KB each, so two fit under NATS's 1 MB maximum and three don't.
-	large := []byte(`"` + strings.Repeat("x", 400_000) + `"`)
 	for range 3 {
-		app.message(t, "invoice.paid", large)
+		app.message(t, "invoice.paid", largePayload)
 	}
 	for i := range 25 {
 		app.message(t, "invoice.paid", fmt.Appendf(nil, `{"invoice": %d}`, i))
@@ -687,6 +622,10 @@ func TestRelayClaimsMoreAgainOnceMessagesFit(t *testing.T) {
 		t.Errorf("Messages handed off per round (-want +got):\n%s", diff)
 	}
 }
+
+// largePayload is about 400 KB, so two Messages with it fit in a Batch under
+// NATS's 1 MB maximum, and three don't.
+var largePayload = []byte(`"` + strings.Repeat("x", 400_000) + `"`)
 
 // byEndpointURL compares Deliveries in any order: a Message's Deliveries are
 // in Endpoint ID order, and the tests' Endpoint IDs are random.
@@ -776,11 +715,11 @@ func (e *env) respond(t *testing.T, subject string, answer func(*handoffv1.Batch
 	return sub
 }
 
-// holdFirstBatch puts a dispatcher behind the test's subject that holds the
-// first Batch sent to it: held is closed once that Batch arrives, and the
-// Batch is answered once release is closed. Later Batches are answered at
-// once.
-func (e *env) holdFirstBatch(t *testing.T) (held <-chan struct{}, release chan<- struct{}) {
+// holdBatch puts a responder in front of a dispatcher, on the test's subject,
+// that holds the nth Batch sent to it (counting from 1): held is closed once
+// that Batch arrives, and it goes on to the dispatcher once release is closed.
+// Other Batches go on at once.
+func (e *env) holdBatch(t *testing.T, nth int32) (held <-chan struct{}, release chan<- struct{}) {
 	t.Helper()
 	dispatcherSubject := natstest.Subject(t)
 	e.dispatcher(t, dispatcherSubject)
@@ -796,7 +735,7 @@ func (e *env) holdFirstBatch(t *testing.T) (held <-chan struct{}, release chan<-
 				t.Errorf("decode batch: %v", err)
 				return
 			}
-			if batches.Add(1) == 1 {
+			if batches.Add(1) == nth {
 				close(heldCh)
 				<-releaseCh
 			}
@@ -816,6 +755,24 @@ func (e *env) holdFirstBatch(t *testing.T) (held <-chan struct{}, release chan<-
 	}
 	t.Cleanup(func() { _ = sub.Unsubscribe() })
 	return heldCh, releaseCh
+}
+
+// roundResult is what a relay's RunOnce returned, apart from more.
+type roundResult struct {
+	n   int
+	err error
+}
+
+// runOnceInBackground runs a round of relay on a goroutine of its own, and
+// returns where its result arrives.
+func runOnceInBackground(t *testing.T, relay *outbox.Relay) <-chan roundResult {
+	t.Helper()
+	result := make(chan roundResult, 1)
+	go func() {
+		n, _, err := relay.RunOnce(t.Context(), handedOff)
+		result <- roundResult{n, err}
+	}()
+	return result
 }
 
 // forward sends batch to subject, as the relay would, and returns the reply.

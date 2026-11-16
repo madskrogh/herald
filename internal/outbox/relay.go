@@ -94,13 +94,6 @@ func (r *Relay) Run(ctx context.Context) {
 //
 // The round is one transaction, which stays open, holding the claimed rows,
 // while it waits up to RequestTimeout for the reply.
-//
-// A round claims claimLimit Messages. Every Message it claims is read and
-// held locked until the reply, so claiming many more than fit in a Batch
-// would read their payloads for nothing, and keep other relays from them.
-// After a round that sent fewer than it claimed, the next claims one more
-// than it sent, to see whether that one fits too. After one that sent all it
-// claimed, the next claims twice as many, up to MaxMessages.
 func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more bool, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -112,6 +105,12 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 	}
 	h, err := r.store.HandOff(ctx, r.claimLimit, now, r.send)
 	more = h.Claimed == r.claimLimit || h.HandedOff < h.Claimed
+	// Every Message a round claims is read and held locked until the reply,
+	// so claiming many more than fit in a Batch would read their payloads for
+	// nothing, and keep other relays from them. After a round that sent fewer
+	// than it claimed, the next claims one more than it sent, to see whether
+	// that one fits too. After one that sent all it claimed, the next claims
+	// twice as many, up to MaxMessages.
 	switch {
 	case err != nil:
 		// A failed round says nothing about how many fit.
