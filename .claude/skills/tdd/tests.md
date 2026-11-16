@@ -1,17 +1,24 @@
 # Good and Bad Tests
 
+The examples are illustrative: the names are not Herald's API.
+
 ## Good Tests
 
 **Integration-style**: Test through real interfaces, not mocks of internal parts.
 
-```typescript
-// GOOD: Tests observable behavior
-test("user can checkout with valid cart", async () => {
-  const cart = createCart();
-  cart.add(product);
-  const result = await checkout(cart, paymentMethod);
-  expect(result.status).toBe("confirmed");
-});
+```go
+// GOOD: tests observable behaviour
+func TestCheckout_ValidCart(t *testing.T) {
+	cart := NewCart()
+	cart.Add(product)
+	got, err := Checkout(ctx, cart, payment)
+	if err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if got.Status != StatusConfirmed {
+		t.Errorf("Status = %v, want %v", got.Status, StatusConfirmed)
+	}
+}
 ```
 
 Characteristics:
@@ -26,13 +33,15 @@ Characteristics:
 
 **Implementation-detail tests**: Coupled to internal structure.
 
-```typescript
-// BAD: Tests implementation details
-test("checkout calls paymentService.process", async () => {
-  const mockPayment = jest.mock(paymentService);
-  await checkout(cart, payment);
-  expect(mockPayment.process).toHaveBeenCalledWith(cart.total);
-});
+```go
+// BAD: tests implementation details
+func TestCheckout_CallsProcess(t *testing.T) {
+	pay := &recordingPayment{}
+	Checkout(ctx, cart, pay)
+	if pay.calls != 1 || pay.amount != cart.Total() {
+		t.Errorf("Process called %d times with %v", pay.calls, pay.amount)
+	}
+}
 ```
 
 Red flags:
@@ -44,34 +53,46 @@ Red flags:
 - Test name describes HOW not WHAT
 - Verifying through external means instead of interface
 
-```typescript
-// BAD: Bypasses interface to verify
-test("createUser saves to database", async () => {
-  await createUser({ name: "Alice" });
-  const row = await db.query("SELECT * FROM users WHERE name = ?", ["Alice"]);
-  expect(row).toBeDefined();
-});
+```go
+// BAD: bypasses the interface to verify
+func TestCreateUser_InsertsRow(t *testing.T) {
+	CreateUser(ctx, store, "Alice")
+	var n int
+	db.QueryRow(ctx, "SELECT count(*) FROM users WHERE name = $1", "Alice").Scan(&n)
+	if n != 1 {
+		t.Errorf("rows = %d, want 1", n)
+	}
+}
 
-// GOOD: Verifies through interface
-test("createUser makes user retrievable", async () => {
-  const user = await createUser({ name: "Alice" });
-  const retrieved = await getUser(user.id);
-  expect(retrieved.name).toBe("Alice");
-});
+// GOOD: verifies through the interface
+func TestCreateUser_Retrievable(t *testing.T) {
+	u, err := CreateUser(ctx, store, "Alice")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	got, err := GetUser(ctx, store, u.ID)
+	if err != nil {
+		t.Fatalf("GetUser: %v", err)
+	}
+	if diff := cmp.Diff("Alice", got.Name); diff != "" {
+		t.Errorf("Name (-want +got):\n%s", diff)
+	}
+}
 ```
 
 **Tautological tests**: Expected value restates the implementation, so the test passes by construction.
 
-```typescript
-// BAD: Expected value is recomputed the way the code computes it
-test("calculateTotal sums line items", () => {
-  const items = [{ price: 10 }, { price: 5 }];
-  const expected = items.reduce((sum, i) => sum + i.price, 0);
-  expect(calculateTotal(items)).toBe(expected);
-});
+```go
+// BAD: expected value is recomputed the way the code computes it
+items := []Item{{Price: 10}, {Price: 5}}
+want := 0
+for _, it := range items {
+	want += it.Price
+}
+if got := Total(items); got != want { ... }
 
-// GOOD: Expected value is an independent, known literal
-test("calculateTotal sums line items", () => {
-  expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
-});
+// GOOD: expected value is an independent, known literal
+if got := Total([]Item{{Price: 10}, {Price: 5}}); got != 15 {
+	t.Errorf("Total = %d, want 15", got)
+}
 ```
