@@ -43,7 +43,8 @@ type WorkersConfig struct {
 	// Keyring decrypts the Endpoints' signing secrets.
 	Keyring *keyring.Keyring
 	// Client makes the Attempts. Its own timeout, if any, applies on top of
-	// attemptTimeout.
+	// attemptTimeout. Workers never follow redirects, whatever its
+	// CheckRedirect.
 	Client *http.Client
 	// Schedule says when each Attempt after a failed one is due.
 	Schedule retry.Schedule
@@ -86,6 +87,12 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 	if cfg.Concurrency <= 0 {
 		cfg.Concurrency = defaultConcurrency
 	}
+	// Only a 2xx response is a success, so a redirect is an Attempt that
+	// failed, not a pointer to follow. A copy, so the caller's client is left
+	// as it is.
+	client := *cfg.Client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	cfg.Client = &client
 	return &Workers{store: store, cfg: cfg, logger: logger}
 }
 

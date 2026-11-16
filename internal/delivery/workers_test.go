@@ -204,6 +204,63 @@ func TestWorkersFailADeliveryAfter8Attempts(t *testing.T) {
 	}
 }
 
+// TestWorkersKeepTheStartOfTheResponseBody checks that an Attempt keeps the
+// first 4 KiB of a longer response body.
+func TestWorkersKeepTheStartOfTheResponseBody(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	body := strings.Repeat("a", 4096) + strings.Repeat("b", 6000)
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, body)
+	}))
+	t.Cleanup(endpoint.Close)
+	tw := newTestWorkers(t)
+	tw.in.send(t, tw.workerBatch(t, endpoint.URL))
+
+	tw.runOnce(t)
+
+	got := attempts(t, tw.in.store, uuid.MustParse(deliveryID1))
+	if len(got) != 1 {
+		t.Fatalf("got %d Attempts, want 1", len(got))
+	}
+	if want := strings.Repeat("a", 4096); string(got[0].ResponseBody) != want {
+		t.Errorf("response body is %d bytes, %d of them 'a'; want the first 4096 bytes, all 'a'", len(got[0].ResponseBody), strings.Count(string(got[0].ResponseBody), "a"))
+	}
+}
+
+// TestWorkersDoNotFollowRedirects checks that a redirect is an Attempt that
+// failed, as any status but 2xx is, even when the redirect leads to a 200.
+func TestWorkersDoNotFollowRedirects(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	target := newReceiver(t, 200)
+	redirect := httptest.NewServer(http.RedirectHandler(target.URL(), http.StatusFound))
+	t.Cleanup(redirect.Close)
+	tw := newTestWorkers(t)
+	tw.in.send(t, tw.workerBatch(t, redirect.URL))
+
+	tw.runOnce(t)
+
+	if n := target.count(); n != 0 {
+		t.Errorf("redirect target got %d requests, want none", n)
+	}
+	got, err := tw.in.store.Delivery(t.Context(), uuid.MustParse(deliveryID1))
+	if err != nil {
+		t.Fatalf("Delivery: %v", err)
+	}
+	if got.State != delivery.StatePending {
+		t.Errorf("state = %q, want %q", got.State, delivery.StatePending)
+	}
+	if a := attempts(t, tw.in.store, uuid.MustParse(deliveryID1)); len(a) != 1 || a[0].StatusCode != http.StatusFound {
+		t.Errorf("Attempts = %+v, want one with status 302", a)
+	}
+}
+
 // TestWorkersRetryADeliveryWhoseWorkerDisappeared has a worker claim a
 // Delivery and never make its Attempt, as when its process dies. Other
 // workers make the Attempt once the lease runs out, 60 seconds on.
@@ -451,9 +508,9 @@ type gateReceiver struct {
 	gate    chan struct{}
 	release func()
 
-	mu        sync.Mutex
-	inFlight  int
-	peak int
+	mu       sync.Mutex
+	inFlight int
+	peak     int
 }
 
 func newGateReceiver(t *testing.T) *gateReceiver {

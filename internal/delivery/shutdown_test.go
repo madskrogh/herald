@@ -90,6 +90,38 @@ func TestWorkersRunCancelAttemptsAtTheDrainDeadline(t *testing.T) {
 	})
 }
 
+// TestWorkersGiveUpOnAnAttemptAfter15Seconds makes an Attempt to an Endpoint
+// that never answers: it ends after 15 seconds, recorded without a status, to
+// be retried.
+func TestWorkersGiveUpOnAnAttemptAfter15Seconds(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		store := newFakeStore(t, 1)
+		w := newPipeWorkers(t, store, respondNever(t))
+		start := time.Now()
+
+		if _, err := w.RunOnce(t.Context()); err != nil {
+			t.Fatalf("RunOnce: %v", err)
+		}
+		w.Wait()
+
+		got := store.recordedAttempts()
+		if len(got) != 1 {
+			t.Fatalf("recorded %d Attempts, want 1", len(got))
+		}
+		r := got[0]
+		if r.state != delivery.StatePending || r.attempt.StatusCode != 0 || r.attempt.Error == "" {
+			t.Errorf("recorded %+v, want a pending Delivery and an Attempt with an error and no status", r)
+		}
+		if r.attempt.Latency != 15*time.Second {
+			t.Errorf("latency = %s, want 15s", r.attempt.Latency)
+		}
+		if want := start.Add(20 * time.Second); !r.next.Equal(want) {
+			t.Errorf("next Attempt at %s, want %s: 5 s after the timeout", r.next, want)
+		}
+	})
+}
+
 // runInBackground runs w until ctx is cancelled, and returns a channel that is
 // closed when Run returns.
 func runInBackground(ctx context.Context, w *delivery.Workers) <-chan struct{} {
