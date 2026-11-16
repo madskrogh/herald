@@ -21,7 +21,14 @@ type Start func(ctx context.Context) (stop func(), err error)
 // containers and exits. Call it from TestMain. With -short it runs the tests
 // without containers, and integration tests skip themselves.
 func Run(m *testing.M, starts ...Start) {
-	os.Exit(run(m, starts))
+	os.Exit(RunCode(m, starts...))
+}
+
+// RunCode is Run without the exit: it returns the exit code. It is for a
+// TestMain that checks something once the containers are gone, as
+// goleak.VerifyTestMain does for leaked goroutines.
+func RunCode(m *testing.M, starts ...Start) int {
+	return run(m, starts)
 }
 
 func run(m *testing.M, starts []Start) int {

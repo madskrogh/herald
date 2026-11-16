@@ -36,6 +36,18 @@ _Avoid_: Topic, subject, kind, event
 One Message on its way to one Endpoint. A Message to an Application with two matching Endpoints has two Deliveries.
 _Avoid_: Dispatch, send, job
 
+**Outbox**:
+The Messages Herald has accepted whose Deliveries haven't been handed off yet.
+_Avoid_: Queue, pending messages
+
+**Handoff**:
+Passing a Message's Deliveries from the side of Herald that accepts Messages to the side that makes Attempts. A Message is handed off once the other side has stored all its Deliveries.
+_Avoid_: Dispatch, publish, forward, sync
+
+**Batch**:
+A set of Messages handed off together, each with all of its Deliveries. A Batch is handed off whole or not at all.
+_Avoid_: Chunk, bundle, page
+
 **Attempt**:
 One HTTP request made for a Delivery. A Delivery has one or more Attempts.
 _Avoid_: Try, call, request
