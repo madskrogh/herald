@@ -3,12 +3,12 @@
 Mock at **system boundaries** only:
 
 - External APIs (payment, email, etc.)
-- Databases (sometimes - prefer test DB)
 - Time/randomness
 - File system (sometimes)
 
 Don't mock:
 
+- Postgres or NATS: tests run against the real ones (see `.claude/rules/go-testing.md`)
 - Your own classes/modules
 - Internal collaborators
 - Anything you control
@@ -21,39 +21,38 @@ At system boundaries, design interfaces that are easy to mock:
 
 Pass external dependencies in rather than creating them internally:
 
-```typescript
-// Easy to mock
-function processPayment(order, paymentClient) {
-  return paymentClient.charge(order.total);
+```go
+// Easy to replace in a test
+func ProcessPayment(ctx context.Context, o Order, c Charger) error {
+	return c.Charge(ctx, o.Total)
 }
 
-// Hard to mock
-function processPayment(order) {
-  const client = new StripeClient(process.env.STRIPE_KEY);
-  return client.charge(order.total);
+// Hard to replace
+func ProcessPayment(ctx context.Context, o Order) error {
+	c := stripe.NewClient(os.Getenv("STRIPE_KEY"))
+	return c.Charge(ctx, o.Total)
 }
 ```
 
-**2. Prefer SDK-style interfaces over generic fetchers**
+**2. Prefer specific operations over a generic fetcher**
 
-Create specific functions for each external operation instead of one generic function with conditional logic:
+Define one method per external operation instead of one generic method with conditional logic:
 
-```typescript
-// GOOD: Each function is independently mockable
-const api = {
-  getUser: (id) => fetch(`/users/${id}`),
-  getOrders: (userId) => fetch(`/users/${userId}/orders`),
-  createOrder: (data) => fetch('/orders', { method: 'POST', body: data }),
-};
+```go
+// GOOD: each method returns one specific shape
+type UserAPI interface {
+	GetUser(ctx context.Context, id string) (User, error)
+	GetOrders(ctx context.Context, userID string) ([]Order, error)
+}
 
-// BAD: Mocking requires conditional logic inside the mock
-const api = {
-  fetch: (endpoint, options) => fetch(endpoint, options),
-};
+// BAD: a fake needs conditional logic on the path
+type API interface {
+	Do(ctx context.Context, method, path string, body []byte) ([]byte, error)
+}
 ```
 
-The SDK approach means:
-- Each mock returns one specific shape
+The specific approach means:
+- Each fake returns one specific shape
 - No conditional logic in test setup
 - Easier to see which endpoints a test exercises
 - Type safety per endpoint

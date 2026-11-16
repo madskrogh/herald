@@ -21,7 +21,7 @@ If there are none, stop: write "no rejections" under Review notes.
 
 Give it only:
 
-- the diff command: `git diff main...HEAD`;
+- the diff command: `git diff origin/main...HEAD`;
 - the originating issue (`gh issue view <n>`);
 - the standards sources: `CLAUDE.md`, `.claude/rules/`, `GLOSSARY.md`, `docs/adr/`;
 - the rejection list from step 1.
