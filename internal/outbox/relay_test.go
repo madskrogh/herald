@@ -356,7 +356,7 @@ func TestConcurrentRelaysSendDifferentMessages(t *testing.T) {
 	t.Cleanup(func() { _ = sub.Unsubscribe() })
 
 	first := runOnceInBackground(t, relay1)
-	<-held
+	awaitHeld(t, held, first)
 	n, _, err := relay2.RunOnce(t.Context(), handedOff)
 	close(release)
 	if err != nil {
@@ -460,11 +460,11 @@ func TestRelayClaimsNoMoreThanFitsAfterAFullBatch(t *testing.T) {
 	}
 	// The second claims three (Messages 3 to 5), and is held in flight.
 	second := runOnceInBackground(t, relay1)
-	<-held
+	awaitHeld(t, held, second)
 	// Message 6 is not locked by the round in flight, so another relay hands
 	// it off meanwhile.
 	n, _, err = relay2.RunOnce(t.Context(), handedOff)
-	close(release)
+	release()
 	if err != nil {
 		t.Errorf("other relay's round: %v", err)
 	}
@@ -565,9 +565,9 @@ func TestRelayReportsNothingMoreWaitingWhenOtherRoundsHoldTheRest(t *testing.T) 
 	held, release := env.holdBatch(t, 1)
 
 	first := runOnceInBackground(t, relay1)
-	<-held
+	awaitHeld(t, held, first)
 	n, more, err := relay2.RunOnce(t.Context(), handedOff)
-	close(release)
+	release()
 	if err != nil {
 		t.Fatalf("second relay's RunOnce: %v", err)
 	}
@@ -717,25 +717,30 @@ func (e *env) respond(t *testing.T, subject string, answer func(*handoffv1.Batch
 
 // holdBatch puts a responder in front of a dispatcher, on the test's subject,
 // that holds the nth Batch sent to it (counting from 1): held is closed once
-// that Batch arrives, and it goes on to the dispatcher once release is closed.
-// Other Batches go on at once.
-func (e *env) holdBatch(t *testing.T, nth int32) (held <-chan struct{}, release chan<- struct{}) {
+// that Batch arrives, and it goes on to the dispatcher once release is
+// called. Other Batches go on at once. The held Batch is released when t
+// finishes, if not before, and t waits for every Batch to be answered.
+func (e *env) holdBatch(t *testing.T, nth int) (held <-chan struct{}, release func()) {
 	t.Helper()
 	dispatcherSubject := natstest.Subject(t)
 	e.dispatcher(t, dispatcherSubject)
-	var batches atomic.Int32
+	var (
+		batches  atomic.Int64
+		inFlight sync.WaitGroup
+	)
 	heldCh, releaseCh := make(chan struct{}), make(chan struct{})
+	release = sync.OnceFunc(func() { close(releaseCh) })
 	nc := natstest.Connect(t)
 	sub, err := nc.Subscribe(e.subject, func(m *nats.Msg) {
 		// Answered on a goroutine of its own, so holding one Batch doesn't
 		// hold up the next.
-		go func() {
+		inFlight.Go(func() {
 			var batch handoffv1.Batch
 			if err := proto.Unmarshal(m.Data, &batch); err != nil {
 				t.Errorf("decode batch: %v", err)
 				return
 			}
-			if batches.Add(1) == nth {
+			if batches.Add(1) == int64(nth) {
 				close(heldCh)
 				<-releaseCh
 			}
@@ -745,7 +750,7 @@ func (e *env) holdBatch(t *testing.T, nth int32) (held <-chan struct{}, release 
 				return
 			}
 			_ = m.Respond(data)
-		}()
+		})
 	})
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
@@ -753,8 +758,25 @@ func (e *env) holdBatch(t *testing.T, nth int32) (held <-chan struct{}, release 
 	if err := nc.Flush(); err != nil {
 		t.Fatalf("flush subscription: %v", err)
 	}
-	t.Cleanup(func() { _ = sub.Unsubscribe() })
-	return heldCh, releaseCh
+	// Runs before the dispatcher's and the connections' cleanups, which were
+	// registered earlier, so the Batches in flight can still be answered.
+	t.Cleanup(func() {
+		_ = sub.Unsubscribe()
+		release()
+		inFlight.Wait()
+	})
+	return heldCh, release
+}
+
+// awaitHeld waits until held is closed, and fails t if the round whose Batch
+// it waits for ends first: without a Batch, nothing would close held.
+func awaitHeld(t *testing.T, held <-chan struct{}, round <-chan roundResult) {
+	t.Helper()
+	select {
+	case <-held:
+	case r := <-round:
+		t.Fatalf("round ended before its Batch was held: handed off %d Messages (error %v)", r.n, r.err)
+	}
 }
 
 // roundResult is what a relay's RunOnce returned, apart from more.

@@ -54,7 +54,14 @@ type Relay struct {
 	// mu makes the Relay's rounds take turns, and guards claimLimit.
 	mu sync.Mutex
 	// claimLimit is how many Messages the next round claims: MaxMessages,
-	// or fewer after rounds that couldn't send all they claimed (see RunOnce).
+	// or fewer after rounds that couldn't send all they claimed.
+	//
+	// Every Message a round claims is read and held locked until the reply,
+	// so claiming many more than fit in a Batch would read their payloads for
+	// nothing, and keep other relays from them. After a round that sent fewer
+	// than it claimed, the next claims one more than it sent, to see whether
+	// that one fits too. After one that sent all it claimed, the next claims
+	// twice as many, up to MaxMessages.
 	claimLimit int
 }
 
@@ -81,10 +88,11 @@ func (r *Relay) Run(ctx context.Context) {
 }
 
 // RunOnce runs one round of the relay at the time now: it claims up to
-// MaxMessages Messages from the outbox, sends as many as fit in one Batch, and
-// marks them handed off once a dispatcher has committed them. It returns how
-// many Messages it handed off, and whether more may be waiting: it claimed as
-// many as it asked for, or sent fewer than it claimed. On an error, none are
+// MaxMessages Messages from the outbox (fewer after rounds whose Messages
+// didn't all fit in a Batch), sends as many as fit in one Batch, and marks
+// them handed off once a dispatcher has committed them. It returns how many
+// Messages it handed off, and whether more may be waiting: it claimed as many
+// as it asked for, or sent fewer than it claimed. On an error, none are
 // handed off.
 //
 // A round that claims fewer than it asked for reports nothing more waiting,
@@ -105,12 +113,7 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 	}
 	h, err := r.store.HandOff(ctx, r.claimLimit, now, r.send)
 	more = h.Claimed == r.claimLimit || h.HandedOff < h.Claimed
-	// Every Message a round claims is read and held locked until the reply,
-	// so claiming many more than fit in a Batch would read their payloads for
-	// nothing, and keep other relays from them. After a round that sent fewer
-	// than it claimed, the next claims one more than it sent, to see whether
-	// that one fits too. After one that sent all it claimed, the next claims
-	// twice as many, up to MaxMessages.
+	// Size the next claim (see claimLimit).
 	switch {
 	case err != nil:
 		// A failed round says nothing about how many fit.
