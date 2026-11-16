@@ -72,8 +72,8 @@ Never left out. Verified: what was run, and the result. Not verified: what wasn'
 <summary>Review notes: K reviews, N findings, F fixed, R rejected</summary>
 
 <!--
-Reviews: one row per review that ran, including those that found nothing. Effort only where the
-review takes one, else "–". Setup is the last commit touching .claude/, CLAUDE.md or this template
+Reviews: one row per review that ran, including those that found nothing. Effort is the level
+passed to /code-review, the inherited level for a sub-agent ("medium (session)"), or "default (<model>)". Setup is the last commit touching .claude/, CLAUDE.md or this template
 when the review ran: git log -1 --format=%h -- .claude CLAUDE.md .github/pull_request_template.md
 -->
 
