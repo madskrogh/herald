@@ -4,6 +4,8 @@
 
 Closes #
 
+<!-- If this PR fixes a problem an earlier PR shipped, replace this comment with: Regression from #<n> -->
+
 ## Decide
 
 <!--
@@ -41,6 +43,21 @@ Answer each item in a PR comment ("Decide 1: …"). Anything unanswered at merge
 
 -
 
+## Verification
+
+<!--
+Never left out. Verified: what was run, and the result. Not verified: what wasn't checked, and why;
+"nothing" if everything was checked.
+-->
+
+**Verified**
+
+- _What was run (`make ci` on the pushed commit, integration tests by seam, a Message sent to the running stack): the result_
+
+**Not verified**
+
+- _What wasn't checked, and why_
+
 <details><summary>How it works</summary>
 
 </details>
@@ -55,13 +72,24 @@ Answer each item in a PR comment ("Decide 1: …"). Anything unanswered at merge
 <summary>Review notes: N findings, F fixed, R rejected</summary>
 
 <!--
-Every finding from the standards, spec and bug reviews. Rejected findings first, then fixed;
-each group ordered by severity, most severe first. A rejection says why, and what the rejection
-review concluded; deferring to a later issue counts as rejected, with that issue's number.
+Reviews: one row per review that ran, including those that found nothing. Effort only where the
+review takes one, else "–". Setup is the last commit touching .claude/, CLAUDE.md or this template
+when the review ran: git log -1 --format=%h -- .claude CLAUDE.md .github/pull_request_template.md
 -->
 
-| Finding | Review | Outcome |
-|---|---|---|
-| | | |
+| Review | Model | Effort | Setup | Findings |
+|---|---|---|---|---|
+| | | | | |
+
+<!--
+Every finding from the standards, spec and bug reviews. Rejected findings first, then fixed;
+each group ordered by severity, most severe first. Severity is High, Medium or Low as the review
+stated it, or "unstated". A rejection says why, and what the rejection review concluded;
+deferring to a later issue counts as rejected, with that issue's number.
+-->
+
+| Finding | Severity | Review | Outcome |
+|---|---|---|---|
+| | | | |
 
 </details>
