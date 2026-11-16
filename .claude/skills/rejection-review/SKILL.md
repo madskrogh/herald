@@ -39,4 +39,4 @@ Run `make ci` after any fixes.
 
 ### 4. Record it
 
-In the Review notes, each rejected finding's outcome says what the rejection review concluded: "Rejected, upheld: <reason>", "Fixed after rejection review", or "See Decide <n>". An upheld rejection that rests on the issue's intent adds "see Decide <n>" or "settled by reading the issue".
+In the Review notes, each rejected finding's outcome says what the rejection review concluded: "Rejected, upheld: <reason>", "Disputed, fixed: <what changed>", or "Disputed, see Decide <n>". An upheld rejection that rests on the issue's intent adds "see Decide <n>" or "settled by reading the issue".
