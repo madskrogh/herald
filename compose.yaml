@@ -39,6 +39,9 @@ services:
       # is secret. herald-dispatcher decrypts with the same keyring.
       HERALD_KEYRING: &keyring local:ioEj3L2kOoSLD5CgHhOxHIJpq/rigH1TSXUCJaDZFRs=
       HERALD_NATS_URL: nats://nats:4222
+      # Local Endpoints are on private addresses without TLS. Never set
+      # outside local development.
+      HERALD_ALLOW_INSECURE_ENDPOINTS: "true"
     ports:
       - "127.0.0.1:${HERALD_API_HTTP_PORT:-8080}:8080"
       - "127.0.0.1:${HERALD_API_GRPC_PORT:-9090}:9090"
@@ -61,6 +64,8 @@ services:
       # encrypts.
       HERALD_KEYRING: *keyring
       HERALD_NATS_URL: nats://nats:4222
+      # As for herald-api.
+      HERALD_ALLOW_INSECURE_ENDPOINTS: "true"
     depends_on:
       dispatcher-migrate:
         condition: service_completed_successfully

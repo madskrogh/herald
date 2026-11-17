@@ -37,6 +37,7 @@ func TestInvalidArguments(t *testing.T) {
 		{name: "page token not an ID", call: listApplications(0, "AAAA")},
 		{name: "Endpoint under an Application ID that isn't a UUID", call: createEndpoint("customer-a", okURL, nil)},
 		{name: "Endpoint URL without a scheme", call: createEndpoint(applicationID, "example.com/webhooks", nil)},
+		{name: "Endpoint URL with http", call: createEndpoint(applicationID, "http://example.com/webhooks", nil)},
 		{name: "Endpoint filter pattern with an empty token", call: createEndpoint(applicationID, okURL, []string{"invoice..paid"})},
 		{name: "Endpoint filter with > before the end", call: createEndpoint(applicationID, okURL, []string{"invoice.>.paid"})},
 		{name: "Endpoint ID not a UUID", call: getEndpoint(applicationID, "endpoint-1")},

@@ -1,7 +1,9 @@
 package tenantapi
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -13,21 +15,25 @@ func TestCheckEndpointURL(t *testing.T) {
 	longest := "https://example.com/" + strings.Repeat("a", 2048-len("https://example.com/"))
 
 	tests := []struct {
-		name  string // the URL if empty
-		url   string
-		valid bool
+		name string // the URL if empty
+		url  string
+		// valid and validWithHTTP say whether the URL is valid without and
+		// with http Endpoints allowed.
+		valid, validWithHTTP bool
 	}{
-		{url: "https://example.com/webhooks", valid: true},
-		{url: "http://localhost:8080/webhooks", valid: true},
-		{url: "https://203.0.113.7/hook?tenant=acme&v=2", valid: true},
-		{url: "https://[2001:db8::1]:8443/", valid: true},
-		{url: "HTTPS://Example.com/webhooks", valid: true},
-		{url: "https://example.com:1/", valid: true},
-		{url: "https://example.com:65535/", valid: true},
+		{url: "https://example.com/webhooks", valid: true, validWithHTTP: true},
+		{url: "http://localhost:8080/webhooks", validWithHTTP: true},
+		{url: "http://example.com/webhooks", validWithHTTP: true},
+		{url: "HTTP://example.com/webhooks", validWithHTTP: true},
+		{url: "https://203.0.113.7/hook?tenant=acme&v=2", valid: true, validWithHTTP: true},
+		{url: "https://[2001:db8::1]:8443/", valid: true, validWithHTTP: true},
+		{url: "HTTPS://Example.com/webhooks", valid: true, validWithHTTP: true},
+		{url: "https://example.com:1/", valid: true, validWithHTTP: true},
+		{url: "https://example.com:65535/", valid: true, validWithHTTP: true},
 		{url: "https://example.com:0/"},
 		{url: "https://example.com:65536/"},
 		{url: "https://example.com:99999999999999999999/"},
-		{name: "2048 bytes", url: longest, valid: true},
+		{name: "2048 bytes", url: longest, valid: true, validWithHTTP: true},
 		{name: "2049 bytes", url: longest + "a"},
 		{url: ""},
 		{url: "example.com/webhooks"},
@@ -49,16 +55,22 @@ func TestCheckEndpointURL(t *testing.T) {
 		if name == "" {
 			name = tt.url
 		}
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			err := checkEndpointURL(tt.url)
-			if tt.valid && err != nil {
-				t.Errorf("checkEndpointURL = %v, want valid", err)
-			}
-			if !tt.valid && err == nil {
-				t.Error("checkEndpointURL accepted it, want an error")
-			}
-		})
+		for _, allowHTTP := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/allowHTTP=%t", name, allowHTTP), func(t *testing.T) {
+				t.Parallel()
+				valid := tt.valid
+				if allowHTTP {
+					valid = tt.validWithHTTP
+				}
+				err := checkEndpointURL(tt.url, allowHTTP)
+				if valid && err != nil {
+					t.Errorf("checkEndpointURL = %v, want valid", err)
+				}
+				if !valid && err == nil {
+					t.Error("checkEndpointURL accepted it, want an error")
+				}
+			})
+		}
 	}
 }
 
@@ -74,7 +86,12 @@ func FuzzCheckEndpointURL(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		if checkEndpointURL(s) != nil {
+		if checkEndpointURL(s, false) == nil {
+			if u, err := url.Parse(s); err != nil || u.Scheme != "https" {
+				t.Errorf("accepted %q without allowing http, want only https", s)
+			}
+		}
+		if checkEndpointURL(s, true) != nil {
 			return
 		}
 		// An accepted URL is one Herald can send an Attempt to.

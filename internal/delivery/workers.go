@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/madskrogh/herald/internal/egress"
 	"github.com/madskrogh/herald/internal/keyring"
 	"github.com/madskrogh/herald/internal/retry"
 	"github.com/madskrogh/herald/internal/signing"
@@ -45,9 +47,11 @@ type WorkersConfig struct {
 	// Keyring decrypts the Endpoints' signing secrets.
 	Keyring *keyring.Keyring
 	// Client makes the Attempts, or nil for one that keeps a connection to
-	// each Endpoint for every Attempt it may have in flight. Its own
-	// timeout, if any, applies on top of attemptTimeout. Workers never follow
-	// redirects, whatever its CheckRedirect.
+	// each Endpoint for every Attempt it may have in flight and refuses to
+	// connect to non-public addresses (see AllowPrivateAddresses). A Client
+	// given here is used as it is, without that check. Its own timeout, if
+	// any, applies on top of attemptTimeout. Workers never follow redirects,
+	// whatever its CheckRedirect.
 	Client *http.Client
 	// Schedule says when each Attempt after a failed one is due.
 	Schedule retry.Schedule
@@ -59,6 +63,12 @@ type WorkersConfig struct {
 	// DrainTimeout is how long the Attempts in flight get to finish once
 	// Run's context is cancelled, or zero for 5 seconds.
 	DrainTimeout time.Duration
+	// AllowPrivateAddresses lets the Workers' own client connect to
+	// loopback, link-local, private and other non-public addresses. It is
+	// for the local stack and tests only, whose Endpoints are on such
+	// addresses. herald-dispatcher sets it from
+	// HERALD_ALLOW_INSECURE_ENDPOINTS.
+	AllowPrivateAddresses bool
 }
 
 // leaseStore is where Workers claim Deliveries and record their Attempts. It
@@ -103,6 +113,16 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 		// Keep a connection for every Attempt an Endpoint may have in
 		// flight, not the default 2.
 		transport.MaxIdleConnsPerHost = maxInFlight
+		// Connect to each Endpoint directly. Through a proxy, the address
+		// check below would see only the proxy's address.
+		transport.Proxy = nil
+		// The timeouts are those of http.DefaultTransport's dialer, which
+		// this one replaces.
+		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+		if !cfg.AllowPrivateAddresses {
+			dialer.Control = egress.Control
+		}
+		transport.DialContext = dialer.DialContext
 		client.Transport = transport
 	}
 	// Only a 2xx response is a success, so a redirect is an Attempt that
@@ -294,6 +314,13 @@ func (w *Workers) send(ctx context.Context, d Delivery) Attempt {
 	if err != nil {
 		a.Latency = time.Since(begin)
 		a.Error = err.Error()
+		// Tenants see the Attempt's error. The dial error names the address
+		// the Endpoint's host resolved to, which for a refused address is
+		// one inside Herald's network.
+		var refused *egress.RefusedError
+		if errors.As(err, &refused) {
+			a.Error = fmt.Sprintf("not connected: the Endpoint's host resolved to a %s address, and Herald connects only to public addresses", refused.Class)
+		}
 		return a
 	}
 	defer resp.Body.Close()

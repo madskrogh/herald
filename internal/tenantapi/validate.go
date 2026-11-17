@@ -38,10 +38,11 @@ func checkApplicationName(name string) error {
 }
 
 // checkEndpointURL reports whether s can be an Endpoint's URL: an absolute
-// http or https URL with a host, without user information, whose credentials
-// would be stored in plain, or a fragment, which is never sent. Whitespace
-// must be escaped, so that the URL registered is the URL requested.
-func checkEndpointURL(s string) error {
+// https URL (or http as well, if allowHTTP) with a host, without user
+// information, whose credentials would be stored in plain, or a fragment,
+// which is never sent. Whitespace must be escaped, so that the URL
+// registered is the URL requested.
+func checkEndpointURL(s string, allowHTTP bool) error {
 	if len(s) > maxEndpointURLBytes {
 		return fmt.Errorf("endpoint URL is %d bytes, want at most %d", len(s), maxEndpointURLBytes)
 	}
@@ -53,8 +54,11 @@ func checkEndpointURL(s string) error {
 		return fmt.Errorf("invalid endpoint URL: %w", err)
 	}
 	// Parse lowercases the scheme.
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("endpoint URL %q: want an http or https URL", s)
+	switch {
+	case u.Scheme == "https":
+	case u.Scheme == "http" && allowHTTP:
+	default:
+		return fmt.Errorf("endpoint URL %q: want an https URL", s)
 	}
 	if u.Hostname() == "" {
 		return fmt.Errorf("endpoint URL %q has no host", s)

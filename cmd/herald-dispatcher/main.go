@@ -14,6 +14,10 @@
 //	                      internal/keyring; herald-api's keyring (required to
 //	                      run the service)
 //	HERALD_NATS_URL       NATS server URL (required to run the service)
+//	HERALD_ALLOW_INSECURE_ENDPOINTS
+//	                      "true" lets Attempts connect to loopback, private
+//	                      and other non-public addresses; for the local stack
+//	                      and tests only (default false)
 package main
 
 import (
@@ -25,6 +29,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -94,6 +99,9 @@ type config struct {
 	databaseURL string
 	keyring     *keyring.Keyring
 	natsURL     string
+	// allowInsecureEndpoints lets Attempts connect to non-public addresses
+	// (HERALD_ALLOW_INSECURE_ENDPOINTS).
+	allowInsecureEndpoints bool
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -116,6 +124,13 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.natsURL == "" {
 		return config{}, errors.New("HERALD_NATS_URL is not set")
 	}
+	if s := getenv("HERALD_ALLOW_INSECURE_ENDPOINTS"); s != "" {
+		allow, err := strconv.ParseBool(s)
+		if err != nil {
+			return config{}, fmt.Errorf("HERALD_ALLOW_INSECURE_ENDPOINTS: %w", err)
+		}
+		cfg.allowInsecureEndpoints = allow
+	}
 	return cfg, nil
 }
 
@@ -123,6 +138,10 @@ func loadConfig(getenv func(string) string) (config, error) {
 // Attempts until ctx is cancelled. Then it lets the Batches already received
 // and the Attempts in flight finish.
 func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
+	// First, before anything else can log.
+	if cfg.allowInsecureEndpoints {
+		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
+	}
 	pool, err := pgxpool.New(ctx, cfg.databaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
@@ -153,6 +172,8 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		Schedule:     schedule,
 		Now:          time.Now,
 		DrainTimeout: attemptDrainTimeout,
+
+		AllowPrivateAddresses: cfg.allowInsecureEndpoints,
 	}, logger)
 	intake := delivery.NewIntake(store, time.Now, logger)
 	if _, err := intake.Subscribe(ctx, nc, handoff.Subject, handoff.QueueGroup); err != nil {

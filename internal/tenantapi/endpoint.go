@@ -19,6 +19,8 @@ type endpointServer struct {
 	tenantv1.UnimplementedEndpointServiceServer
 	store   *ingest.Store
 	keyring *keyring.Keyring
+	// allowHTTP accepts http Endpoint URLs (Config.AllowHTTPEndpoints).
+	allowHTTP bool
 }
 
 func (s *endpointServer) CreateEndpoint(ctx context.Context, req *tenantv1.CreateEndpointRequest) (*tenantv1.CreateEndpointResponse, error) {
@@ -26,7 +28,7 @@ func (s *endpointServer) CreateEndpoint(ctx context.Context, req *tenantv1.Creat
 	if err != nil {
 		return nil, err
 	}
-	if err := checkEndpointURL(req.GetUrl()); err != nil {
+	if err := checkEndpointURL(req.GetUrl(), s.allowHTTP); err != nil {
 		return nil, invalidArgument(err)
 	}
 	if _, err := eventtype.ParseFilter(req.GetFilter()); err != nil {

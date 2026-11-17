@@ -255,7 +255,8 @@ func respondNever(t *testing.T) http.Handler {
 
 // fakeStore hands out leases on a fixed set of Deliveries and keeps what is
 // recorded for them. It stands in for Postgres only to test how Workers
-// schedule and stop their Attempts; the Store's tests cover the SQL.
+// schedule and stop their Attempts and which addresses they connect to; the
+// Store's tests cover the SQL.
 type fakeStore struct {
 	keys *keyring.Keyring
 

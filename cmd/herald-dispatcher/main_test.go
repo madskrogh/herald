@@ -37,6 +37,50 @@ type logRecord struct {
 // testKeyring is the dispatcher's keyring in these tests.
 const testKeyring = "test:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
+// TestLoadConfigAllowInsecureEndpoints checks that the block on non-public
+// addresses is relaxed only when configured.
+func TestLoadConfigAllowInsecureEndpoints(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		value   string // unset if empty
+		want    bool
+		wantErr bool
+	}{
+		{name: "unset"},
+		{name: "true", value: "true", want: true},
+		{name: "1", value: "1", want: true},
+		{name: "false", value: "false"},
+		{name: "invalid", value: "yes please", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{
+				"HERALD_DATABASE_URL": "postgres://localhost/herald",
+				"HERALD_KEYRING":      testKeyring,
+				"HERALD_NATS_URL":     "nats://localhost:4222",
+			}
+			if tt.value != "" {
+				env["HERALD_ALLOW_INSECURE_ENDPOINTS"] = tt.value
+			}
+			cfg, err := loadConfig(mapEnv(env))
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("loadConfig accepted %q, want an error", tt.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("loadConfig: %v", err)
+			}
+			if cfg.allowInsecureEndpoints != tt.want {
+				t.Errorf("allowInsecureEndpoints = %t, want %t", cfg.allowInsecureEndpoints, tt.want)
+			}
+		})
+	}
+}
+
 // TestRunDeliversHandedOffBatchesUntilCancelled sends a Batch on the subject
 // herald-api's relay uses, with one Delivery to a local Endpoint, and checks
 // that it arrives signed. It is the only test in this package on that
@@ -54,6 +98,8 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 		"HERALD_DATABASE_URL": dbURL,
 		"HERALD_KEYRING":      testKeyring,
 		"HERALD_NATS_URL":     natstest.URL(t),
+		// The Endpoint is on a loopback address.
+		"HERALD_ALLOW_INSECURE_ENDPOINTS": "true",
 	}
 	type received struct {
 		header http.Header
@@ -99,6 +145,16 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 	})
 	defer stop() //nolint:errcheck // Only for an early return; checked below.
 
+	// HERALD_ALLOW_INSECURE_ENDPOINTS is set, so a production deployment
+	// that sets it by mistake says so as it starts.
+	warning, ok := <-logs
+	if !ok {
+		t.Fatalf("run exited before it started: %v", stop())
+	}
+	wantWarning := logRecord{Level: "WARN", Msg: "insecure Endpoints allowed: for local development only", Service: "herald-dispatcher"}
+	if warning != wantWarning {
+		t.Fatalf("first log line is %+v, want %+v", warning, wantWarning)
+	}
 	started, ok := <-logs
 	if !ok {
 		t.Fatalf("run exited before it started: %v", stop())
