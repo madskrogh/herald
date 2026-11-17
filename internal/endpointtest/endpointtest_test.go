@@ -1,0 +1,219 @@
+package endpointtest_test
+
+import (
+	"bytes"
+	"errors"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"github.com/madskrogh/herald/internal/endpointtest"
+	"github.com/madskrogh/herald/internal/signing"
+)
+
+func TestEndpointRecordsEachAttempt(t *testing.T) {
+	t.Parallel()
+	srv := startServer(t)
+	ep := srv.NewEndpoint(endpointtest.Succeed())
+
+	post(t, ep.URL, "msg_1", `{"invoice": 42}`)
+	post(t, ep.URL, "msg_2", `{"invoice": 43}`)
+
+	got, err := ep.WaitAttempts(t.Context(), 2)
+	if err != nil {
+		t.Fatalf("WaitAttempts: %v", err)
+	}
+	want := []endpointtest.Attempt{
+		{Number: 1, WebhookID: "msg_1", Body: []byte(`{"invoice": 42}`)},
+		{Number: 2, WebhookID: "msg_2", Body: []byte(`{"invoice": 43}`)},
+	}
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "Header", "ReceivedAt", "SignatureErr")); diff != "" {
+		t.Errorf("Attempts (-want +got):\n%s", diff)
+	}
+	for _, a := range got {
+		if a.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("Attempt %d: Content-Type = %q, want the request's", a.Number, a.Header.Get("Content-Type"))
+		}
+		if a.ReceivedAt.IsZero() {
+			t.Errorf("Attempt %d: ReceivedAt is zero", a.Number)
+		}
+	}
+}
+
+func TestEndpointAnswersAsScripted(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		respond endpointtest.Respond
+		want    []int
+	}{
+		{"succeed", endpointtest.Succeed(), []int{200, 200, 200}},
+		{"fail twice", endpointtest.FailTimes(2), []int{500, 500, 200}},
+		{"fail never", endpointtest.FailTimes(0), []int{200, 200, 200}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := startServer(t)
+			ep := srv.NewEndpoint(tt.respond)
+
+			var got []int
+			for range tt.want {
+				got = append(got, post(t, ep.URL, "msg_1", `{}`))
+			}
+
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("status codes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestEndpointsAnswerOnTheirOwn checks that each Endpoint counts only its
+// own Attempts.
+func TestEndpointsAnswerOnTheirOwn(t *testing.T) {
+	t.Parallel()
+	srv := startServer(t)
+	first := srv.NewEndpoint(endpointtest.FailTimes(1))
+	second := srv.NewEndpoint(endpointtest.FailTimes(1))
+
+	got := []int{
+		post(t, first.URL, "msg_1", `{}`),
+		post(t, first.URL, "msg_1", `{}`),
+		post(t, second.URL, "msg_2", `{}`),
+	}
+
+	if diff := cmp.Diff([]int{500, 200, 500}, got); diff != "" {
+		t.Errorf("status codes (-want +got):\n%s", diff)
+	}
+}
+
+func TestEndpointHoldsAttemptsUntilReleased(t *testing.T) {
+	t.Parallel()
+	srv := startServer(t)
+	release := make(chan struct{})
+	ep := srv.NewEndpoint(endpointtest.Hold(release))
+	status := make(chan int, 2)
+	for range 2 {
+		go func() { status <- post(t, ep.URL, "msg_1", `{}`) }()
+	}
+
+	if _, err := ep.WaitAttempts(t.Context(), 2); err != nil {
+		t.Fatalf("WaitAttempts: %v", err)
+	}
+	// Both Attempts have arrived, so a response would have been written by
+	// now unless held. Waiting longer could only make the check pass by luck.
+	select {
+	case s := <-status:
+		t.Fatalf("Attempt answered %d before release", s)
+	default:
+	}
+	close(release)
+
+	for range 2 {
+		if s := <-status; s != http.StatusOK {
+			t.Errorf("status after release = %d, want 200", s)
+		}
+	}
+}
+
+func TestEndpointVerifiesSignatures(t *testing.T) {
+	t.Parallel()
+	secret := signing.NewSecret()
+	tests := []struct {
+		name string
+		// secret is the Endpoint's signing secret, unset if empty.
+		secret string
+		// signWith are the secrets the Attempt is signed with; none leaves it
+		// unsigned.
+		signWith []string
+		wantErr  error // nil when the signature verifies; errAny for any error
+	}{
+		{"signed with its secret", secret, []string{secret}, nil},
+		{"signed with its secret among others", secret, []string{signing.NewSecret(), secret}, nil},
+		{"signed with another secret", secret, []string{signing.NewSecret()}, signing.ErrNoMatchingSignature},
+		{"unsigned", secret, nil, errAny},
+		{"no secret set", "", []string{secret}, errAny},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := startServer(t)
+			ep := srv.NewEndpoint(endpointtest.Succeed())
+			if tt.secret != "" {
+				ep.SetSecret(tt.secret)
+			}
+			payload := []byte(`{"invoice": 42}`)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ep.URL, bytes.NewReader(payload))
+			if err != nil {
+				t.Fatalf("new request: %v", err)
+			}
+			if len(tt.signWith) > 0 {
+				h, err := signing.Sign("msg_1", time.Now(), payload, tt.signWith)
+				if err != nil {
+					t.Fatalf("Sign: %v", err)
+				}
+				req.Header = h
+			}
+			send(t, req)
+
+			got, err := ep.WaitAttempts(t.Context(), 1)
+			if err != nil {
+				t.Fatalf("WaitAttempts: %v", err)
+			}
+			switch gotErr := got[0].SignatureErr; {
+			case tt.wantErr == nil && gotErr != nil:
+				t.Errorf("SignatureErr = %v, want nil", gotErr)
+			case tt.wantErr == errAny && gotErr == nil:
+				t.Error("SignatureErr = nil, want an error")
+			case tt.wantErr != nil && tt.wantErr != errAny && !errors.Is(gotErr, tt.wantErr):
+				t.Errorf("SignatureErr = %v, want %v", gotErr, tt.wantErr)
+			}
+		})
+	}
+}
+
+// errAny stands for any error in a test's expectations.
+var errAny = errors.New("any error")
+
+// startServer starts a Server on a loopback port and closes it when the test
+// ends.
+func startServer(t *testing.T) *endpointtest.Server {
+	t.Helper()
+	srv, err := endpointtest.Start("127.0.0.1:0", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// post sends an unsigned webhook to url and returns the status code of the
+// response, or 0 if there was none. It may be called from any goroutine.
+func post(t *testing.T, url, webhookID, body string) int {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, bytes.NewBufferString(body))
+	if err != nil {
+		t.Errorf("new request: %v", err)
+		return 0
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("webhook-id", webhookID)
+	return send(t, req)
+}
+
+// send sends req and returns the status code of the response, or 0 if there
+// was none. It may be called from any goroutine.
+func send(t *testing.T, req *http.Request) int {
+	t.Helper()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Errorf("POST %s: %v", req.URL, err)
+		return 0
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}
