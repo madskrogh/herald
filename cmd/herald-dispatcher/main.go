@@ -18,6 +18,9 @@
 //	                      "true" lets Attempts connect to loopback, private
 //	                      and other non-public addresses; for the local stack
 //	                      and tests only (default false)
+//	HERALD_RETRY_SCALE    a factor in (0, 1] that shrinks every delay in the
+//	                      retry schedule, so the local stack and end-to-end
+//	                      tests run it in seconds (default 1)
 package main
 
 import (
@@ -102,6 +105,9 @@ type config struct {
 	// allowInsecureEndpoints lets Attempts connect to non-public addresses
 	// (HERALD_ALLOW_INSECURE_ENDPOINTS).
 	allowInsecureEndpoints bool
+	// schedule is the retry schedule, at full length unless HERALD_RETRY_SCALE
+	// shrinks it.
+	schedule retry.Schedule
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -130,6 +136,18 @@ func loadConfig(getenv func(string) string) (config, error) {
 			return config{}, fmt.Errorf("HERALD_ALLOW_INSECURE_ENDPOINTS: %w", err)
 		}
 		cfg.allowInsecureEndpoints = allow
+	}
+	// Scale 1: the retry schedule at full length, as docs/design.md gives it.
+	scale := 1.0
+	if s := getenv("HERALD_RETRY_SCALE"); s != "" {
+		scale, err = strconv.ParseFloat(s, 64)
+		if err != nil {
+			return config{}, fmt.Errorf("HERALD_RETRY_SCALE: %w", err)
+		}
+	}
+	cfg.schedule, err = retry.New(scale, rand.Float64)
+	if err != nil {
+		return config{}, fmt.Errorf("HERALD_RETRY_SCALE: %w", err)
 	}
 	return cfg, nil
 }
@@ -161,15 +179,9 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return fmt.Errorf("connect to NATS: %w", err)
 	}
 	store := delivery.NewStore(pool)
-	// Scale 1: the retry schedule at full length, as docs/design.md gives it.
-	schedule, err := retry.New(1, rand.Float64)
-	if err != nil {
-		nc.Close()
-		return fmt.Errorf("retry schedule: %w", err)
-	}
 	workers := delivery.NewWorkers(store, delivery.WorkersConfig{
 		Keyring:      cfg.keyring,
-		Schedule:     schedule,
+		Schedule:     cfg.schedule,
 		Now:          time.Now,
 		DrainTimeout: attemptDrainTimeout,
 
