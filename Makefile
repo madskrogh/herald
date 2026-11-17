@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated up down admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated up down e2e admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -69,6 +69,14 @@ endif
 # --build so the stack always runs this checkout's code and migrations.
 up: .env
 	docker compose up -d --wait --build
+
+# Runs the end-to-end tests against this checkout's stack, started with
+# `make up`. Without these variables the tests skip, as in `make test`.
+e2e: .env
+	@. ./.env && \
+		HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
+		HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
+		go test -race -count=1 ./internal/e2e/
 
 # Runs herald-admin against this checkout's stack.
 # Usage: make admin ARGS='tenant create --name Acme'
