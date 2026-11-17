@@ -99,6 +99,23 @@ func TestEndpointsAnswerOnTheirOwn(t *testing.T) {
 	}
 }
 
+// TestEndpointTimesOutAttempts checks that the first Attempts get no answer
+// until their client gives up, and the rest succeed.
+func TestEndpointTimesOutAttempts(t *testing.T) {
+	t.Parallel()
+	srv := startServer(t)
+	ep := srv.NewEndpoint(endpointtest.TimeOutTimes(1))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if s, err := postStatus(ctx, ep.URL, "msg_1", `{}`); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("first Attempt: %d, %v; want no answer before the client gives up", s, err)
+	}
+	if s := post(t, ep.URL, "msg_1", `{}`); s != http.StatusOK {
+		t.Errorf("second Attempt: %d, want 200", s)
+	}
+}
+
 func TestEndpointHoldsAttemptsUntilReleased(t *testing.T) {
 	t.Parallel()
 	srv := startServer(t)

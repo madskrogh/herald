@@ -181,6 +181,19 @@ func Hold(release <-chan struct{}) Respond {
 	}
 }
 
+// TimeOutTimes leaves the first n Attempts unanswered until their client
+// gives up, and answers the rest with 200.
+func TimeOutTimes(n int) Respond {
+	return func(ctx context.Context, number int) int {
+		if number <= n {
+			<-ctx.Done()
+			// The client has gone, so the status is never sent.
+			return http.StatusServiceUnavailable
+		}
+		return http.StatusOK
+	}
+}
+
 // FailTimes answers the first n Attempts with 500 and the rest with 200.
 func FailTimes(n int) Respond {
 	return func(_ context.Context, number int) int {

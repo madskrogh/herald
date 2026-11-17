@@ -95,6 +95,32 @@ func TestFailedAttemptsAreRetriedWithTheSameWebhookID(t *testing.T) {
 	checkSigned(t, attempts, messageID, payload)
 }
 
+// TestAttemptThatTimesOutIsRetried leaves an Endpoint's first Attempt
+// unanswered. The dispatcher must give up on it after 15 seconds, record it
+// and retry, once: a lease that ran out while the Attempt hung would let
+// another worker make a third.
+func TestAttemptThatTimesOutIsRetried(t *testing.T) {
+	t.Parallel()
+	ctx, tenant, app := setup(t)
+	ep := stack.Endpoints.NewEndpoint(endpointtest.TimeOutTimes(1))
+	createEndpoint(ctx, t, tenant, app, ep)
+
+	payload := `{"invoice": 42}`
+	messageID := sendMessage(ctx, t, tenant, app, payload, "")
+
+	waitOneDelivery(ctx, t, messageID, delivery.StateSucceeded)
+	// The Delivery has succeeded, so no Attempt comes after these.
+	attempts := waitAttempts(ctx, t, ep, 2)
+	if len(attempts) != 2 {
+		t.Fatalf("Endpoint received %d Attempts, want 2: one timed out, then one succeeded", len(attempts))
+	}
+	checkSigned(t, attempts, messageID, payload)
+	// The retry comes only once the dispatcher has given up, not sooner.
+	if gap := attempts[1].ReceivedAt.Sub(attempts[0].ReceivedAt); gap < 15*time.Second {
+		t.Errorf("second Attempt %s after the first, want at least the 15 s timeout", gap)
+	}
+}
+
 func TestDeliveryFailsWhenTheRetryScheduleRunsOut(t *testing.T) {
 	t.Parallel()
 	ctx, tenant, app := setup(t)
