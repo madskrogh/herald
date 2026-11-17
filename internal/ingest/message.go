@@ -41,7 +41,8 @@ type Message struct {
 	Payload       []byte
 	CreatedAt     time.Time
 	// HandedOffAt is when the Message's Deliveries were handed off to the
-	// dispatchers, or zero while they wait in the outbox.
+	// dispatchers, or zero while they wait in the outbox or after the Message
+	// was parked.
 	HandedOffAt time.Time
 	Deliveries  []Delivery
 }
