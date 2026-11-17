@@ -29,7 +29,7 @@ The reviewer works like a coach. They hold the context (the business, the users,
 
 ## Shape
 
-Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and say that decisions were recorded there; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Verification and the Review notes always stay: they are the evidence for later changes to the agent setup.
+Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and if decisions were recorded there, say so; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Verification and the Review notes always stay: they are the evidence for later changes to the agent setup.
 
 If the PR fixes a problem an earlier PR shipped, replace the template's comment under `Closes #` with `Regression from #<n>`. Otherwise delete the comment.
 
@@ -42,7 +42,7 @@ Two lists, never left out:
 
 ## The opening and plain explanation
 
-- Come first, so the reader forms their own view before seeing yours.
+- Come first, before the mechanics and the evidence.
 - Five sentences at most. Vagueness shows in five; it hides in twenty.
 - If you can't explain it plainly, that is a finding: say so in Surprises.
 
@@ -77,7 +77,7 @@ Route rejected findings by the reason given:
 ## Before publishing, check
 
 - Could someone new to the codebase understand the opening?
-- Does the description link the issue and say decisions were recorded there, without repeating them?
+- Does the description link the issue and, if decisions were recorded there, say so without repeating them?
 - Is every rejection that rests on intent either settled by a decision recorded on the issue or marked "settled by reading the issue"?
 - Does every reassuring word have a pointer?
 - Does Verification say what wasn't checked, or "nothing"?

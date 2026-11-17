@@ -4,7 +4,7 @@
 
 Closes #
 
-<!-- Decisions the human made while the work was underway are recorded on the issue. Say so; don't repeat them. -->
+<!-- If decisions were recorded on the issue, replace this comment with a line saying so; don't repeat them. Otherwise delete it. -->
 
 <!-- If this PR fixes a problem an earlier PR shipped, replace this comment with: Regression from #<n> -->
 

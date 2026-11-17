@@ -39,4 +39,4 @@ Record each answer as a comment on the issue, as "Asking the human" says. Run `m
 
 ### 4. Record it
 
-In the Review notes, each rejected finding's outcome says what the rejection review concluded: "Rejected, upheld: <reason>", "Disputed, fixed: <what changed>", or "Disputed, settled by the human: <decision>". An upheld rejection that rests on the issue's intent adds "settled by the human: <decision>" or "settled by reading the issue". Each decision is the one recorded on the issue.
+In the Review notes, each rejected finding's outcome says what the rejection review concluded: "Rejected, upheld: <reason>", "Disputed, fixed: <what changed>", or "Disputed, settled by the human: <decision>". An upheld rejection that rests on the issue's intent adds "settled by the human: <decision>" or "settled by reading the issue". A point the human left open reads "left open, ships as the PR does it". Each decision is the one recorded on the issue.
