@@ -22,7 +22,7 @@ If there are none, stop: write "no rejections" under Review notes.
 Give it only:
 
 - the diff command: `git diff origin/main...HEAD`;
-- the originating issue (`gh issue view <n>`);
+- the originating issue with its comments, where decisions are recorded (`gh issue view <n> --comments`);
 - the standards sources: `CLAUDE.md`, `.claude/rules/`, `GLOSSARY.md`, `docs/adr/`;
 - the rejection list from step 1.
 
@@ -32,11 +32,11 @@ The brief: "For each rejection, read the code it concerns and answer **Upheld** 
 
 ### 3. Act on the verdicts
 
-- **Upheld**: the finding stays rejected. If the reason rests on the issue, the spec, a non-goal or "not needed yet", the judge could check the issue's wording, not what the human meant: `write-pr` decides whether it also goes to the PR's **Decide** block.
-- **Disputed**: fix it, test-first like any other change. Only if you have an argument the judge didn't address does it go to the PR's **Decide** block instead, with both sides in one line each, for the human to settle.
+- **Upheld**: the finding stays rejected. If the reason rests on the issue, the spec, a non-goal or "not needed yet", the judge could check the issue's wording, not what the human meant: if it passes the gates in `CLAUDE.md`'s "Asking the human", ask the human before `make ci` and the push. If it fails them, it stays rejected, marked "settled by reading the issue".
+- **Disputed**: fix it, test-first like any other change. Only if you have an argument the judge didn't address, and it passes the same gates, ask the human instead, with both sides in one line each.
 
-Run `make ci` after any fixes.
+Record each answer as a comment on the issue, as "Asking the human" says. Run `make ci` after any fixes.
 
 ### 4. Record it
 
-In the Review notes, each rejected finding's outcome says what the rejection review concluded: "Rejected, upheld: <reason>", "Disputed, fixed: <what changed>", or "Disputed, see Decide <n>". An upheld rejection that rests on the issue's intent adds "see Decide <n>" or "settled by reading the issue".
+In the Review notes, each rejected finding's outcome says what the rejection review concluded: "Rejected, upheld: <reason>", "Disputed, fixed: <what changed>", or "Disputed, settled by the human: <decision>". An upheld rejection that rests on the issue's intent adds "settled by the human: <decision>" or "settled by reading the issue". A point the human left open reads "left open, ships as the PR does it". Each decision is the one recorded on the issue: link its comment.

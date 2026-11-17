@@ -19,7 +19,7 @@ The reviewer works like a coach. They hold the context (the business, the users,
 
 ## Before writing, gather
 
-- The issue or spec: goal, why it matters, stakes and risk appetite, non-goals, anything marked undecided.
+- The issue or spec: goal, why it matters, stakes and risk appetite, non-goals, and the decisions recorded in its comments.
 - Surprises recorded during implementation: anywhere reality didn't match the issue or plan.
 - Review findings and their outcomes, with the reason given for each and the rejection review's verdict.
 - Evidence for load-bearing claims: tests, file and line, logs, queries.
@@ -29,7 +29,7 @@ The reviewer works like a coach. They hold the context (the business, the users,
 
 ## Shape
 
-Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Delete the template's comments and any section that would be empty. Never pad. Verification and the Review notes always stay: they are the evidence for later changes to the agent setup.
+Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and if decisions were recorded there, say so; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Verification and the Review notes always stay: they are the evidence for later changes to the agent setup.
 
 If the PR fixes a problem an earlier PR shipped, replace the template's comment under `Closes #` with `Regression from #<n>`. Otherwise delete the comment.
 
@@ -42,22 +42,9 @@ Two lists, never left out:
 
 ## The opening and plain explanation
 
-- Come before Decide, so the reader forms their own view before seeing yours.
+- Come first, before the mechanics and the evidence.
 - Five sentences at most. Vagueness shows in five; it hides in twenty.
 - If you can't explain it plainly, that is a finding: say so in Surprises.
-
-## Decide
-
-A decision goes here only if it passes all three gates: hard to reverse, surprising to someone without context, a real trade-off. No other rule overrides the gates. Everything else is yours.
-
-- **Check the stakes before posing the question.** State the worst case of each option and when it happens. If every worst case is rare or small, it is not a Decide item. "Old URL or new URL" for an in-flight Message sounds like a data leak, but the leak needs an outage and a URL change at the same moment.
-- **Pose the question in the human's terms.** "When Endpoints become editable, should an in-flight Message go to the old URL or the new one?" not "store endpoint_id or copy the URL". If the technical framing hides a product question, ask the product question.
-- **One decision per item.** A limit change and a status-code change are two decisions.
-- **Stakes and reversibility first.** Order items by cost of being wrong.
-- **Neutral alternatives.** Each option gets its consequence; none gets a defence. State your lean separately, in one sentence.
-- **No default-yes endings.** Never write "approve as is" or anything that turns thinking into a vote. Keep the template's line on how to answer.
-- **Undecided means Decide.** Anything the issue or spec marks as undecided, or never discussed, is escalated here. Never settle it by reading the issue literally.
-- **Changes to your own rules are decisions.** A proposed change to `CLAUDE.md`, `.claude/rules/` or a skill goes at the top of Decide, not the bottom of the PR. If the reviewer agrees, it lands in its own PR.
 
 ## Read closely
 
@@ -80,18 +67,18 @@ Each item is a location plus what makes a mistake there costly: it can't be chan
 
 Below the table, the Claude Code version (`claude --version`): the built-in `/code-review` changes with it, and the Setup commit can't show that.
 
-**Findings table.** Every finding from the standards, spec and bug reviews. Findings the rejection review disputed come first, whether they were then fixed or sent to Decide: they are where the author was wrong and only the second look caught it. Then rejected, then fixed. Each has its **Severity**: High, Medium or Low as the review stated it. Don't assign one yourself; if the review gave none, write "unstated" and keep those findings in the order the review gave them (`/code-review` lists the most severe first).
+**Findings table.** Every finding from the standards, spec and bug reviews. Findings the rejection review disputed come first, whether they were then fixed or settled by the human: they are where the author was wrong and only the second look caught it. Then rejected, then fixed. Each has its **Severity**: High, Medium or Low as the review stated it. Don't assign one yourself; if the review gave none, write "unstated" and keep those findings in the order the review gave them (`/code-review` lists the most severe first).
 
 Route rejected findings by the reason given:
 
 - **Justified by how the code works** (a transaction, a library's behaviour, a test's needs): stays in the Review notes.
-- **Justified by the issue, the spec, a non-goal or "not needed yet"**: agents can check their reading of the human's words, not the human's intent, however many reviewers agree. So it goes to Decide if it passes the three gates, even when the rejection review upheld it. If it fails them, it stays in the Review notes, marked "settled by reading the issue", so the reviewer can still pull it up.
+- **Justified by the issue, the spec, a non-goal or "not needed yet"**: agents can check their reading of the human's words, not the human's intent, however many reviewers agree. So the human is asked if it passes the three gates, even when the rejection review upheld it (see `CLAUDE.md`, "Asking the human"), and the Outcome cites the decision recorded on the issue. If it fails them, it stays in the Review notes, marked "settled by reading the issue", so the reviewer can still pull it up.
 
 ## Before publishing, check
 
 - Could someone new to the codebase understand the opening?
-- Is every Decide item a question in human terms, with stakes and reversibility?
-- Is every rejection that rests on intent either in Decide or marked "settled by reading the issue"?
+- Does the description link the issue and, if decisions were recorded there, say so without repeating them?
+- Is every rejection that rests on intent either settled by a decision recorded on the issue or marked "settled by reading the issue"?
 - Does every reassuring word have a pointer?
 - Does Verification say what wasn't checked, or "nothing"?
 - Does every review that ran have a row, including those with no findings?

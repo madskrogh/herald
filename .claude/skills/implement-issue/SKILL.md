@@ -10,7 +10,7 @@ Issue: $ARGUMENTS
 
 ## 1. Get the issue
 
-Take the issue number from the arguments or the request; if there is none, ask for it. Run `gh issue view <n>`. If the issue doesn't exist or is closed, stop and tell the user.
+Take the issue number from the arguments or the request; if there is none, ask for it. Run `gh issue view <n> --comments`: a resumed issue carries the decisions already recorded on it. If the issue doesn't exist or is closed, stop and tell the user.
 
 ## 2. Enter its worktree
 
