@@ -33,10 +33,11 @@ func TestMigrate(t *testing.T) {
 		{
 			{Level: "INFO", Msg: "applied migration", Service: "herald-dispatcher", Version: 1},
 			{Level: "INFO", Msg: "applied migration", Service: "herald-dispatcher", Version: 2},
-			{Level: "INFO", Msg: "schema up to date", Service: "herald-dispatcher", Version: 2},
+			{Level: "INFO", Msg: "applied migration", Service: "herald-dispatcher", Version: 3},
+			{Level: "INFO", Msg: "schema up to date", Service: "herald-dispatcher", Version: 3},
 		},
 		{
-			{Level: "INFO", Msg: "schema up to date", Service: "herald-dispatcher", Version: 2},
+			{Level: "INFO", Msg: "schema up to date", Service: "herald-dispatcher", Version: 3},
 		},
 	}
 	for i, want := range wantLogs {
