@@ -68,8 +68,7 @@ jobs:
   # The end-to-end suite against the compose stack, on main only, as
   # docs/design.md says. Locally, it is `make up` then `make e2e`.
   e2e:
-    # Temporarily on PRs too, to check the suite on Linux before merge.
-    # if: github.event_name == 'push'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
