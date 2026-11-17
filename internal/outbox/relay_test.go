@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -174,11 +175,13 @@ func TestRelayParksAMessageTheDispatcherAlwaysRejects(t *testing.T) {
 		// poison is which of the four Messages, by position in the outbox,
 		// the dispatcher rejects.
 		poison []int
+		// handedOff is how many of the four the relay hands off.
+		handedOff int
 	}{
-		{"first", []int{0}},
-		{"in the middle", []int{2}},
-		{"last", []int{3}},
-		{"two of them", []int{0, 2}},
+		{"first", []int{0}, 3},
+		{"in the middle", []int{2}, 3},
+		{"last", []int{3}, 3},
+		{"two of them", []int{0, 2}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -191,34 +194,25 @@ func TestRelayParksAMessageTheDispatcherAlwaysRejects(t *testing.T) {
 				messages = append(messages, app.message(t, "invoice.paid", fmt.Appendf(nil, `{"invoice": %d}`, i)))
 			}
 			poison := map[string]bool{}
+			var poisonIDs []uuid.UUID
 			for _, i := range tt.poison {
 				poison[messages[i].ID.String()] = true
+				poisonIDs = append(poisonIDs, messages[i].ID)
 			}
 			relay := env.relay(t, outbox.Config{})
-			// The dispatcher listens on a subject of its own. The relay's
-			// subject forwards Batches to it, except those with a poison
-			// Message, which it rejects as a dispatcher's database constraint
-			// would.
-			dispatcherSubject := natstest.Subject(t)
-			env.dispatcher(t, dispatcherSubject)
-			var sentPoison atomic.Int32
-			env.respond(t, env.subject, func(batch *handoffv1.Batch) *handoffv1.BatchReply {
-				for _, m := range batch.GetMessages() {
-					if poison[m.GetId()] {
-						sentPoison.Add(1)
-						return &handoffv1.BatchReply{Committed: false, Error: "payload violates a constraint"}
-					}
-				}
-				return env.forward(t, dispatcherSubject, batch)
-			})
+			rejected := env.rejecting(t, "payload violates a constraint", poisonIDs...)
 
-			wantHandedOff := len(messages) - len(tt.poison)
 			n, _, err := relay.RunOnce(t.Context(), handedOff)
 			if err != nil {
 				t.Fatalf("RunOnce: %v", err)
 			}
-			if n != wantHandedOff {
-				t.Errorf("RunOnce handed off %d Messages, want %d", n, wantHandedOff)
+			if n != tt.handedOff {
+				t.Errorf("RunOnce handed off %d Messages, want %d", n, tt.handedOff)
+			}
+			// The control for the check below: the poison Messages did reach
+			// the dispatcher, so the count can rise.
+			if rejected.Load() == 0 {
+				t.Error("the dispatcher rejected no Batch in the first round, want at least one")
 			}
 			for _, msg := range messages {
 				want := !poison[msg.ID.String()]
@@ -228,7 +222,7 @@ func TestRelayParksAMessageTheDispatcherAlwaysRejects(t *testing.T) {
 			}
 
 			// The poison Messages are parked: later rounds leave them alone.
-			sentBefore := sentPoison.Load()
+			rejectedBefore := rejected.Load()
 			n, _, err = relay.RunOnce(t.Context(), handedOff)
 			if err != nil {
 				t.Fatalf("second RunOnce: %v", err)
@@ -236,8 +230,8 @@ func TestRelayParksAMessageTheDispatcherAlwaysRejects(t *testing.T) {
 			if n != 0 {
 				t.Errorf("second RunOnce handed off %d Messages, want 0", n)
 			}
-			if got := sentPoison.Load(); got != sentBefore {
-				t.Errorf("the relay sent a parked Message %d more times, want 0", got-sentBefore)
+			if got := rejected.Load(); got != rejectedBefore {
+				t.Errorf("the relay sent a parked Message %d more times, want 0", got-rejectedBefore)
 			}
 		})
 	}
@@ -255,16 +249,7 @@ func TestRelayLogsAParkedMessageWithTheDispatchersError(t *testing.T) {
 	app.endpoint(t, "https://example.com/webhooks", nil)
 	app.message(t, "invoice.paid", []byte(`{"invoice": 1}`))
 	poison := app.message(t, "invoice.paid", []byte(`{"invoice": 2}`))
-	dispatcherSubject := natstest.Subject(t)
-	env.dispatcher(t, dispatcherSubject)
-	env.respond(t, env.subject, func(batch *handoffv1.Batch) *handoffv1.BatchReply {
-		for _, m := range batch.GetMessages() {
-			if m.GetId() == poison.ID.String() {
-				return &handoffv1.BatchReply{Committed: false, Error: "payload violates a constraint"}
-			}
-		}
-		return env.forward(t, dispatcherSubject, batch)
-	})
+	env.rejecting(t, "payload violates a constraint", poison.ID)
 	var logs bytes.Buffer
 	relay := outbox.NewRelay(env.ingest, env.nc, outbox.Config{Subject: env.subject}, slog.New(slog.NewJSONHandler(&logs, nil)))
 
@@ -301,18 +286,21 @@ func TestRelayParksAMessageTooLargeToSend(t *testing.T) {
 	app.endpoint(t, "https://example.com/webhooks", nil)
 	first := app.message(t, "invoice.paid", []byte(`{"invoice": 1}`))
 	// Twice NATS's default maximum payload of 1 MiB.
-	tooLarge := app.message(t, "invoice.paid", []byte(`"`+strings.Repeat("x", 2<<20-2)+`"`))
+	app.message(t, "invoice.paid", []byte(`"`+strings.Repeat("x", 2<<20-2)+`"`))
 	last := app.message(t, "invoice.paid", []byte(`{"invoice": 3}`))
 	relay := env.relay(t, outbox.Config{})
 	dispatcherSubject := natstest.Subject(t)
 	env.dispatcher(t, dispatcherSubject)
-	var sentTooLarge atomic.Int32
+	var (
+		mu   sync.Mutex
+		seen []string // the IDs of the Messages the dispatchers were sent
+	)
 	env.respond(t, env.subject, func(batch *handoffv1.Batch) *handoffv1.BatchReply {
+		mu.Lock()
 		for _, m := range batch.GetMessages() {
-			if m.GetId() == tooLarge.ID.String() {
-				sentTooLarge.Add(1)
-			}
+			seen = append(seen, m.GetId())
 		}
+		mu.Unlock()
 		return env.forward(t, dispatcherSubject, batch)
 	})
 
@@ -341,8 +329,13 @@ func TestRelayParksAMessageTooLargeToSend(t *testing.T) {
 			t.Errorf("Message %s: stored %d Deliveries, want 1", msg.ID, got)
 		}
 	}
-	if got := sentTooLarge.Load(); got != 0 {
-		t.Errorf("the relay sent the Message that is too large %d times, want 0", got)
+	// The dispatchers were sent the other two, and never the one that is too
+	// large.
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{first.ID.String(), last.ID.String()}
+	if diff := cmp.Diff(want, seen, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+		t.Errorf("Messages sent to the dispatchers (-want +got):\n%s", diff)
 	}
 }
 
@@ -1030,6 +1023,27 @@ func runOnceInBackground(t *testing.T, relay *outbox.Relay) <-chan roundResult {
 		result <- roundResult{n, err}
 	}()
 	return result
+}
+
+// rejecting puts a dispatcher behind the test's subject that rejects, with
+// reason, every Batch that holds one of the bad Messages, as a database
+// constraint would, and stores the rest. It returns how many Batches it has
+// rejected.
+func (e *env) rejecting(t *testing.T, reason string, bad ...uuid.UUID) *atomic.Int32 {
+	t.Helper()
+	dispatcherSubject := natstest.Subject(t)
+	e.dispatcher(t, dispatcherSubject)
+	var rejected atomic.Int32
+	e.respond(t, e.subject, func(batch *handoffv1.Batch) *handoffv1.BatchReply {
+		for _, m := range batch.GetMessages() {
+			if slices.ContainsFunc(bad, func(id uuid.UUID) bool { return id.String() == m.GetId() }) {
+				rejected.Add(1)
+				return &handoffv1.BatchReply{Committed: false, Error: reason}
+			}
+		}
+		return e.forward(t, dispatcherSubject, batch)
+	})
+	return &rejected
 }
 
 // forward sends batch to subject, as the relay would, and returns the reply.

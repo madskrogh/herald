@@ -41,9 +41,9 @@ type ParkedMessage struct {
 	Reason string
 }
 
-// Sent is what send did with the Messages it was given. Messages it neither
+// SendResult is what send did with the Messages it was given. Messages it neither
 // handed off nor parked stay in the outbox.
-type Sent struct {
+type SendResult struct {
 	// HandedOff holds the IDs of the Messages a dispatcher committed.
 	HandedOff []uuid.UUID
 	// Parked holds the Messages to take out of the outbox without handing
@@ -70,7 +70,7 @@ type Handoff struct {
 // runs. The claimed Messages stay locked until it ends, so a concurrent
 // HandOff skips them and claims others. If send returns an error, nothing is
 // marked, and the Messages wait in the outbox for a later round.
-func (s *Store) HandOff(ctx context.Context, limit int, now time.Time, send func(context.Context, []OutboxMessage) (Sent, error)) (Handoff, error) {
+func (s *Store) HandOff(ctx context.Context, limit int, now time.Time, send func(context.Context, []OutboxMessage) (SendResult, error)) (Handoff, error) {
 	var h Handoff
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)

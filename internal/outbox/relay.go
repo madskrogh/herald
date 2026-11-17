@@ -144,7 +144,7 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 // A dispatcher that commits none may be failing as a whole (its database is
 // down, say), and then no Message is to blame: the round fails and the
 // Messages wait in the outbox.
-func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (ingest.Sent, error) {
+func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (ingest.SendResult, error) {
 	// The server's maximum payload, which it told the connection.
 	batch := pack(messages, int(r.nc.MaxPayload()))
 	n := len(batch.GetMessages())
@@ -154,21 +154,21 @@ func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (inge
 		// No dispatcher could take it, whatever state it is in, so it is
 		// parked without sending. The rest wait for the next round.
 		reason := fmt.Sprintf("message is too large for a batch of at most %d bytes", r.nc.MaxPayload())
-		return ingest.Sent{Parked: []ingest.ParkedMessage{{ID: messages[0].ID, Reason: reason}}}, nil
+		return ingest.SendResult{Parked: []ingest.ParkedMessage{{ID: messages[0].ID, Reason: reason}}}, nil
 	}
 	committed, reason, err := r.request(ctx, batch.GetMessages())
 	if err != nil {
-		return ingest.Sent{}, err
+		return ingest.SendResult{}, err
 	}
 	if committed {
-		return ingest.Sent{HandedOff: messageIDs(messages[:n])}, nil
+		return ingest.SendResult{HandedOff: messageIDs(messages[:n])}, nil
 	}
-	var sent ingest.Sent
+	var sent ingest.SendResult
 	if err := r.bisect(ctx, messages[:n], batch.GetMessages(), reason, &sent); err != nil {
-		return ingest.Sent{}, err
+		return ingest.SendResult{}, err
 	}
 	if len(sent.HandedOff) == 0 {
-		return ingest.Sent{}, fmt.Errorf("batch not committed: %s", reason)
+		return ingest.SendResult{}, fmt.Errorf("batch not committed: %s", reason)
 	}
 	return sent, nil
 }
@@ -177,7 +177,7 @@ func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (inge
 // told, with reason, that it didn't commit them together; encoded holds the
 // same Messages as they are sent. It adds the Messages a dispatcher commits
 // to sent.HandedOff, and those that fail alone to sent.Parked.
-func (r *Relay) bisect(ctx context.Context, messages []ingest.OutboxMessage, encoded []*handoffv1.Message, reason string, sent *ingest.Sent) error {
+func (r *Relay) bisect(ctx context.Context, messages []ingest.OutboxMessage, encoded []*handoffv1.Message, reason string, sent *ingest.SendResult) error {
 	if len(messages) == 1 {
 		sent.Parked = append(sent.Parked, ingest.ParkedMessage{ID: messages[0].ID, Reason: reason})
 		return nil
