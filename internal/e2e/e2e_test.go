@@ -48,6 +48,9 @@ const waitTimeout = time.Minute
 // that bounds its waits and a Tenant of its own with one Application.
 func setup(t *testing.T) (context.Context, *e2e.Tenant, string) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("end-to-end")
+	}
 	if stack == nil {
 		t.Skip("no stack: run with make e2e")
 	}
@@ -71,7 +74,7 @@ func TestMessageIsDeliveredSigned(t *testing.T) {
 
 	attempts := waitAttempts(ctx, t, ep, 1)
 	checkSigned(t, attempts, messageID, payload)
-	checkStates(ctx, t, messageID, delivery.StateSucceeded)
+	waitOneDelivery(ctx, t, messageID, delivery.StateSucceeded)
 }
 
 func TestFailedAttemptsAreRetriedWithTheSameWebhookID(t *testing.T) {
@@ -83,7 +86,7 @@ func TestFailedAttemptsAreRetriedWithTheSameWebhookID(t *testing.T) {
 	payload := `{"invoice": 42}`
 	messageID := sendMessage(ctx, t, tenant, app, payload, "")
 
-	checkStates(ctx, t, messageID, delivery.StateSucceeded)
+	waitOneDelivery(ctx, t, messageID, delivery.StateSucceeded)
 	// The Delivery has succeeded, so no Attempt comes after these.
 	attempts := waitAttempts(ctx, t, ep, 3)
 	if len(attempts) != 3 {
@@ -111,8 +114,8 @@ func TestRepeatedIdempotencyKeyMakesOneDelivery(t *testing.T) {
 	if other == first {
 		t.Errorf("another Idempotency-Key: Message ID = %s, the same as the first's", other)
 	}
-	checkStates(ctx, t, first, delivery.StateSucceeded)
-	checkStates(ctx, t, other, delivery.StateSucceeded)
+	waitOneDelivery(ctx, t, first, delivery.StateSucceeded)
+	waitOneDelivery(ctx, t, other, delivery.StateSucceeded)
 	// Both Messages' Deliveries have succeeded, so no Attempt comes after
 	// these.
 	attempts := waitAttempts(ctx, t, ep, 2)
@@ -156,7 +159,7 @@ func TestSlowEndpointDoesNotDelayAnother(t *testing.T) {
 	// held every worker. It must succeed well before then.
 	fastCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	checkStates(fastCtx, t, fastMessage, delivery.StateSucceeded)
+	waitOneDelivery(fastCtx, t, fastMessage, delivery.StateSucceeded)
 	// Nothing has released the slow Endpoint's Attempts, so the fast Delivery
 	// didn't wait for any of them, and the cap held the slow Endpoint to 4.
 	if got := len(waitAttempts(ctx, t, slow, 0)); got != 4 {
@@ -164,7 +167,7 @@ func TestSlowEndpointDoesNotDelayAnother(t *testing.T) {
 	}
 	releaseOnce()
 	for _, m := range slowMessages {
-		checkStates(ctx, t, m, delivery.StateSucceeded)
+		waitOneDelivery(ctx, t, m, delivery.StateSucceeded)
 	}
 }
 
@@ -220,9 +223,9 @@ func checkSigned(t *testing.T, attempts []endpointtest.Attempt, messageID, paylo
 	}
 }
 
-// checkStates waits until the Message's Deliveries have finished and checks
-// that it has one, in state want.
-func checkStates(ctx context.Context, t *testing.T, messageID string, want delivery.State) {
+// waitOneDelivery waits until the Message's Deliveries have finished and
+// checks that it has one, in state want.
+func waitOneDelivery(ctx context.Context, t *testing.T, messageID string, want delivery.State) {
 	t.Helper()
 	deliveries, err := stack.WaitDeliveries(ctx, messageID)
 	if err != nil {

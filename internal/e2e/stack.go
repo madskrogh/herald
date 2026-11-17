@@ -37,32 +37,27 @@ type Config struct {
 	EndpointHost string
 }
 
-// ConfigFromEnv reads the Config from the environment, as `make e2e` sets
-// it. ok is false when HERALD_E2E_API_URL is unset: no stack to test.
+// ConfigFromEnv reads the Config for the compose stack from the environment,
+// as `make e2e` sets it. ok is false when HERALD_E2E_API_URL is unset: no
+// stack to test.
 //
 //	HERALD_E2E_API_URL         the Tenant API's REST base URL
 //	HERALD_E2E_DATABASE_URL    the stack's Postgres
-//	HERALD_E2E_ENDPOINT_ADDR   where the fake Endpoints listen (default :0)
-//	HERALD_E2E_ENDPOINT_HOST   the host name herald-dispatcher reaches them by
-//	                           (default host.docker.internal)
+//
+// The fake Endpoints listen on a free port on every interface, and
+// herald-dispatcher reaches them as host.docker.internal (compose.yaml).
 func ConfigFromEnv(getenv func(string) string) (cfg Config, ok bool, err error) {
 	cfg = Config{
 		APIURL:       getenv("HERALD_E2E_API_URL"),
 		DatabaseURL:  getenv("HERALD_E2E_DATABASE_URL"),
-		EndpointAddr: getenv("HERALD_E2E_ENDPOINT_ADDR"),
-		EndpointHost: getenv("HERALD_E2E_ENDPOINT_HOST"),
+		EndpointAddr: ":0",
+		EndpointHost: "host.docker.internal",
 	}
 	if cfg.APIURL == "" {
 		return Config{}, false, nil
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, false, errors.New("HERALD_E2E_DATABASE_URL is not set")
-	}
-	if cfg.EndpointAddr == "" {
-		cfg.EndpointAddr = ":0"
-	}
-	if cfg.EndpointHost == "" {
-		cfg.EndpointHost = "host.docker.internal"
 	}
 	return cfg, true, nil
 }
@@ -89,7 +84,7 @@ func Connect(ctx context.Context, cfg Config) (*Stack, error) {
 		pool.Close()
 		return nil, fmt.Errorf("connect to database: %w", err)
 	}
-	endpoints, err := endpointtest.Start(cfg.EndpointAddr, cfg.EndpointHost)
+	endpoints, err := endpointtest.Start(ctx, cfg.EndpointAddr, cfg.EndpointHost)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -178,10 +173,9 @@ func (t *Tenant) CreateApplication(ctx context.Context, name string) (string, er
 	return resp.Application.ID, err
 }
 
-// CreateEndpoint registers ep under an Application, with an event-type
-// filter if any, and tells ep its signing secret. It returns the Endpoint's
-// ID.
-func (t *Tenant) CreateEndpoint(ctx context.Context, applicationID string, ep *endpointtest.Endpoint, filter ...string) (string, error) {
+// CreateEndpoint registers ep under an Application, accepting every Event
+// type, and tells ep its signing secret. It returns the Endpoint's ID.
+func (t *Tenant) CreateEndpoint(ctx context.Context, applicationID string, ep *endpointtest.Endpoint) (string, error) {
 	var resp struct {
 		Endpoint struct {
 			ID string `json:"id"`
@@ -189,7 +183,7 @@ func (t *Tenant) CreateEndpoint(ctx context.Context, applicationID string, ep *e
 		SigningSecret string `json:"signing_secret"`
 	}
 	path := "/v1/applications/" + applicationID + "/endpoints"
-	if err := t.call(ctx, path, map[string]any{"url": ep.URL, "filter": filter}, nil, &resp); err != nil {
+	if err := t.call(ctx, path, map[string]any{"url": ep.URL}, nil, &resp); err != nil {
 		return "", err
 	}
 	ep.SetSecret(resp.SigningSecret)

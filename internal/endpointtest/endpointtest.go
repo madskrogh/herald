@@ -29,8 +29,9 @@ type Server struct {
 // Start starts a Server listening on addr. Endpoint URLs name host, which is
 // how Herald reaches the Server: from a container, that is not the address it
 // listens on.
-func Start(addr, host string) (*Server, error) {
-	lis, err := net.Listen("tcp", addr)
+func Start(ctx context.Context, addr, host string) (*Server, error) {
+	var lc net.ListenConfig
+	lis, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
@@ -78,10 +79,11 @@ func (s *Server) serveAttempt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	number := e.record(Attempt{
-		ReceivedAt: time.Now(),
-		WebhookID:  r.Header.Get("webhook-id"),
-		Header:     r.Header.Clone(),
-		Body:       body,
+		EndpointURL: e.URL,
+		ReceivedAt:  time.Now(),
+		WebhookID:   r.Header.Get("webhook-id"),
+		Header:      r.Header.Clone(),
+		Body:        body,
 	})
 	w.WriteHeader(e.respond(r.Context(), number))
 }
@@ -144,6 +146,8 @@ func (e *Endpoint) WaitAttempts(ctx context.Context, n int) ([]Attempt, error) {
 
 // Attempt is an Attempt the Endpoint received.
 type Attempt struct {
+	// EndpointURL is the URL of the Endpoint that received the Attempt.
+	EndpointURL string
 	// Number counts the Endpoint's Attempts from 1, in the order received.
 	Number     int
 	ReceivedAt time.Time

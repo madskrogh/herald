@@ -9,10 +9,16 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"go.uber.org/goleak"
 
 	"github.com/madskrogh/herald/internal/endpointtest"
 	"github.com/madskrogh/herald/internal/signing"
 )
+
+// TestMain checks that a closed Server leaves no goroutine behind.
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestEndpointRecordsEachAttempt(t *testing.T) {
 	t.Parallel()
@@ -27,8 +33,8 @@ func TestEndpointRecordsEachAttempt(t *testing.T) {
 		t.Fatalf("WaitAttempts: %v", err)
 	}
 	want := []endpointtest.Attempt{
-		{Number: 1, WebhookID: "msg_1", Body: []byte(`{"invoice": 42}`)},
-		{Number: 2, WebhookID: "msg_2", Body: []byte(`{"invoice": 43}`)},
+		{EndpointURL: ep.URL, Number: 1, WebhookID: "msg_1", Body: []byte(`{"invoice": 42}`)},
+		{EndpointURL: ep.URL, Number: 2, WebhookID: "msg_2", Body: []byte(`{"invoice": 43}`)},
 	}
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "Header", "ReceivedAt", "SignatureErr")); diff != "" {
 		t.Errorf("Attempts (-want +got):\n%s", diff)
@@ -130,13 +136,15 @@ func TestEndpointVerifiesSignatures(t *testing.T) {
 		// signWith are the secrets the Attempt is signed with; none leaves it
 		// unsigned.
 		signWith []string
-		wantErr  error // nil when the signature verifies; errAny for any error
+		wantErr  bool
+		// wantIs is the error SignatureErr must match, if any in particular.
+		wantIs error
 	}{
-		{"signed with its secret", secret, []string{secret}, nil},
-		{"signed with its secret among others", secret, []string{signing.NewSecret(), secret}, nil},
-		{"signed with another secret", secret, []string{signing.NewSecret()}, signing.ErrNoMatchingSignature},
-		{"unsigned", secret, nil, errAny},
-		{"no secret set", "", []string{secret}, errAny},
+		{name: "signed with its secret", secret: secret, signWith: []string{secret}},
+		{name: "signed with its secret among others", secret: secret, signWith: []string{signing.NewSecret(), secret}},
+		{name: "signed with another secret", secret: secret, signWith: []string{signing.NewSecret()}, wantErr: true, wantIs: signing.ErrNoMatchingSignature},
+		{name: "unsigned", secret: secret, wantErr: true},
+		{name: "no secret set", signWith: []string{secret}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -165,25 +173,22 @@ func TestEndpointVerifiesSignatures(t *testing.T) {
 				t.Fatalf("WaitAttempts: %v", err)
 			}
 			switch gotErr := got[0].SignatureErr; {
-			case tt.wantErr == nil && gotErr != nil:
+			case !tt.wantErr && gotErr != nil:
 				t.Errorf("SignatureErr = %v, want nil", gotErr)
-			case tt.wantErr == errAny && gotErr == nil:
+			case tt.wantErr && gotErr == nil:
 				t.Error("SignatureErr = nil, want an error")
-			case tt.wantErr != nil && tt.wantErr != errAny && !errors.Is(gotErr, tt.wantErr):
-				t.Errorf("SignatureErr = %v, want %v", gotErr, tt.wantErr)
+			case tt.wantIs != nil && !errors.Is(gotErr, tt.wantIs):
+				t.Errorf("SignatureErr = %v, want %v", gotErr, tt.wantIs)
 			}
 		})
 	}
 }
 
-// errAny stands for any error in a test's expectations.
-var errAny = errors.New("any error")
-
 // startServer starts a Server on a loopback port and closes it when the test
 // ends.
 func startServer(t *testing.T) *endpointtest.Server {
 	t.Helper()
-	srv, err := endpointtest.Start("127.0.0.1:0", "127.0.0.1")
+	srv, err := endpointtest.Start(t.Context(), "127.0.0.1:0", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -191,7 +196,7 @@ func startServer(t *testing.T) *endpointtest.Server {
 	return srv
 }
 
-// post sends an unsigned webhook to url and returns the status code of the
+// post sends an unsigned Attempt to url and returns the status code of the
 // response, or 0 if there was none. It may be called from any goroutine.
 func post(t *testing.T, url, webhookID, body string) int {
 	t.Helper()
