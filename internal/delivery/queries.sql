@@ -19,6 +19,14 @@ FROM delivery.deliveries d
 JOIN delivery.messages m ON m.id = d.message_id
 WHERE d.id = @id;
 
+-- name: ListMessageDeliveries :many
+SELECT d.id, d.message_id, m.tenant_id, m.event_type, m.payload,
+       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at
+FROM delivery.deliveries d
+JOIN delivery.messages m ON m.id = d.message_id
+WHERE d.message_id = @message_id
+ORDER BY d.id;
+
 -- name: ListDueEndpoints :many
 -- Lists up to @max_endpoints Endpoints with Deliveries due at @now, most
 -- overdue first, leaving out those with @max_in_flight unexpired leases: an

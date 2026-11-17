@@ -81,6 +81,53 @@ func TestLoadConfigAllowInsecureEndpoints(t *testing.T) {
 	}
 }
 
+// TestLoadConfigRetryScale checks that the retry schedule runs at full length
+// unless configured to shrink, by the delay before a Delivery's second
+// Attempt: 5 seconds, scaled, give or take 10% jitter.
+func TestLoadConfigRetryScale(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		value    string // unset if empty
+		min, max time.Duration
+		wantErr  bool
+	}{
+		{name: "unset", min: 4500 * time.Millisecond, max: 5500 * time.Millisecond},
+		{name: "1", value: "1", min: 4500 * time.Millisecond, max: 5500 * time.Millisecond},
+		{name: "0.001", value: "0.001", min: 4500 * time.Microsecond, max: 5500 * time.Microsecond},
+		{name: "zero", value: "0", wantErr: true},
+		{name: "above 1", value: "2", wantErr: true},
+		{name: "not a number", value: "fast", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{
+				"HERALD_DATABASE_URL": "postgres://localhost/herald",
+				"HERALD_KEYRING":      testKeyring,
+				"HERALD_NATS_URL":     "nats://localhost:4222",
+			}
+			if tt.value != "" {
+				env["HERALD_RETRY_SCALE"] = tt.value
+			}
+			cfg, err := loadConfig(mapEnv(env))
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("loadConfig accepted %q, want an error", tt.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("loadConfig: %v", err)
+			}
+			got, ok := cfg.schedule.Next(1)
+			if !ok || got < tt.min || got > tt.max {
+				t.Errorf("schedule.Next(1) = %v, %t; want between %v and %v, true", got, ok, tt.min, tt.max)
+			}
+		})
+	}
+}
+
 // TestRunDeliversHandedOffBatchesUntilCancelled sends a Batch on the subject
 // herald-api's relay uses, with one Delivery to a local Endpoint, and checks
 // that it arrives signed. It is the only test in this package on that
@@ -100,6 +147,7 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 		"HERALD_NATS_URL":     natstest.URL(t),
 		// The Endpoint is on a loopback address.
 		"HERALD_ALLOW_INSECURE_ENDPOINTS": "true",
+		"HERALD_RETRY_SCALE":              "0.5",
 	}
 	type received struct {
 		header http.Header
@@ -145,15 +193,19 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 	})
 	defer stop() //nolint:errcheck // Only for an early return; checked below.
 
-	// HERALD_ALLOW_INSECURE_ENDPOINTS is set, so a production deployment
-	// that sets it by mistake says so as it starts.
-	warning, ok := <-logs
-	if !ok {
-		t.Fatalf("run exited before it started: %v", stop())
-	}
-	wantWarning := logRecord{Level: "WARN", Msg: "insecure Endpoints allowed: for local development only", Service: "herald-dispatcher"}
-	if warning != wantWarning {
-		t.Fatalf("first log line is %+v, want %+v", warning, wantWarning)
+	// HERALD_ALLOW_INSECURE_ENDPOINTS and HERALD_RETRY_SCALE are set, so a
+	// production deployment that sets either by mistake says so as it starts.
+	for _, want := range []logRecord{
+		{Level: "WARN", Msg: "insecure Endpoints allowed: for local development only", Service: "herald-dispatcher"},
+		{Level: "WARN", Msg: "retry schedule shrunk: for local development only", Service: "herald-dispatcher"},
+	} {
+		warning, ok := <-logs
+		if !ok {
+			t.Fatalf("run exited before it started: %v", stop())
+		}
+		if warning != want {
+			t.Fatalf("log line is %+v, want %+v", warning, want)
+		}
 	}
 	started, ok := <-logs
 	if !ok {

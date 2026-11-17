@@ -311,6 +311,59 @@ func (q *Queries) ListDueEndpoints(ctx context.Context, arg ListDueEndpointsPara
 	return items, nil
 }
 
+const listMessageDeliveries = `-- name: ListMessageDeliveries :many
+SELECT d.id, d.message_id, m.tenant_id, m.event_type, m.payload,
+       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at
+FROM delivery.deliveries d
+JOIN delivery.messages m ON m.id = d.message_id
+WHERE d.message_id = $1
+ORDER BY d.id
+`
+
+type ListMessageDeliveriesRow struct {
+	ID             uuid.UUID
+	MessageID      uuid.UUID
+	TenantID       uuid.UUID
+	EventType      string
+	Payload        []byte
+	EndpointID     uuid.UUID
+	EndpointURL    string
+	SigningSecrets [][]byte
+	State          string
+	NextAttemptAt  time.Time
+}
+
+func (q *Queries) ListMessageDeliveries(ctx context.Context, messageID uuid.UUID) ([]ListMessageDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, listMessageDeliveries, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMessageDeliveriesRow
+	for rows.Next() {
+		var i ListMessageDeliveriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.TenantID,
+			&i.EventType,
+			&i.Payload,
+			&i.EndpointID,
+			&i.EndpointURL,
+			&i.SigningSecrets,
+			&i.State,
+			&i.NextAttemptAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const releaseLease = `-- name: ReleaseLease :execrows
 UPDATE delivery.deliveries
 SET next_attempt_at = $1::timestamptz,

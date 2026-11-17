@@ -113,6 +113,20 @@ func (s *Store) insert(ctx context.Context, messages []deliverydb.InsertMessageP
 	})
 }
 
+// MessageDeliveries returns the Deliveries of the Message with the given ID,
+// ordered by ID. A Message that hasn't been handed off has none.
+func (s *Store) MessageDeliveries(ctx context.Context, messageID uuid.UUID) ([]Delivery, error) {
+	rows, err := s.q.ListMessageDeliveries(ctx, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("list deliveries of message %s: %w", messageID, err)
+	}
+	var deliveries []Delivery
+	for _, row := range rows {
+		deliveries = append(deliveries, deliveryFromRow(deliverydb.GetDeliveryRow(row)))
+	}
+	return deliveries, nil
+}
+
 // Delivery returns the Delivery with the given ID.
 func (s *Store) Delivery(ctx context.Context, id uuid.UUID) (Delivery, error) {
 	row, err := s.q.GetDelivery(ctx, id)
@@ -122,6 +136,12 @@ func (s *Store) Delivery(ctx context.Context, id uuid.UUID) (Delivery, error) {
 	if err != nil {
 		return Delivery{}, fmt.Errorf("get delivery %s: %w", id, err)
 	}
+	return deliveryFromRow(row), nil
+}
+
+// deliveryFromRow returns the Delivery a query read. Every query that reads a
+// whole Delivery returns the same columns, so its rows convert to this type.
+func deliveryFromRow(row deliverydb.GetDeliveryRow) Delivery {
 	return Delivery{
 		ID:        row.ID,
 		MessageID: row.MessageID,
@@ -135,5 +155,5 @@ func (s *Store) Delivery(ctx context.Context, id uuid.UUID) (Delivery, error) {
 		},
 		State:         State(row.State),
 		NextAttemptAt: row.NextAttemptAt,
-	}, nil
+	}
 }
