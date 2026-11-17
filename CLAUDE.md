@@ -33,17 +33,35 @@ Run `make ci` before every push. It is exactly what CI runs.
 One GitHub issue = one branch = one worktree = one PR.
 
 1. Start with the `implement-issue` skill (`/implement-issue <n>`): it reads the issue and moves the session into worktree `issue-<n>`.
-2. Build it test-first with the `tdd` skill. Agree the seams before writing tests.
+2. Build it test-first with the `tdd` skill. Agree the seams before writing tests, and settle the issue's open points with the human first (see "Asking the human").
 3. Tests green: run the `standards-review` skill against `origin/main`, and refactor on its findings.
 4. Run the built-in `/code-review` on the final diff for bugs.
-5. Run the `rejection-review` skill on every finding from steps 3 and 4 that you rejected. A disputed rejection gets fixed, or goes to the PR's Decide block if you have an argument the reviewer didn't address. A rejection that rests on the issue's intent goes to Decide even when upheld, if it passes `write-pr`'s gates.
-6. `make ci`, push, and open a PR. Write its description with the `write-pr` skill, which fills in [.github/pull_request_template.md](.github/pull_request_template.md). Its **Verification** says what you ran and what you didn't check. Its **Review notes** record every review that ran, even one that found nothing, and each finding from steps 3 and 4 with its severity and outcome (fixed, or rejected with the reason and the rejection review's verdict). These are the evidence for later changes to the agent setup; `write-pr` says what goes in them.
+5. Run the `rejection-review` skill on every finding from steps 3 and 4 that you rejected. A disputed rejection gets fixed, unless you have an argument the reviewer didn't address: then ask the human. So does a rejection that rests on the issue's intent, even when upheld.
+6. `make ci`, push, and open a PR. Write its description with the `write-pr` skill, which fills in [.github/pull_request_template.md](.github/pull_request_template.md). Its **Verification** says what you ran and what you didn't check. Its **Review notes** record every review that ran, even one that found nothing, and each finding from steps 3 and 4 with its severity and outcome (fixed, or rejected with the reason, the rejection review's verdict and the decision that settled it). The description links the issue and says decisions were recorded there; it doesn't repeat them. These are the evidence for later changes to the agent setup; `write-pr` says what goes in them.
 7. After the PR opens, follow `write-pr`'s "After the PR opens": a commit that addresses review says what was wrong, and every review comment gets a reply.
 
 Setup defects (sandbox, hooks, worktrees, skills) that would affect anyone using this checkout are filed as issues labelled `agent-setup`. Problems with one machine's setup are not.
 
 PRs are squash-merged; it is the only merge method, so a branch's own history never reaches `main`. To bring a pushed branch up to date, merge `origin/main` into it. Don't rebase or force-push a branch once it is pushed: that loses the reviewer's "changes since last review" view, and a squash leaves nothing for it to clean up.
 
-Agent setup (`CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, `.claude/settings.json`, `.github/pull_request_template.md`, `docs/ai-workflow.md`) changes only in its own PR, never inside a feature PR. When a task suggests a new rule or skill, propose it at the top of the PR's Decide block instead of making the change.
+Agent setup (`CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, `.claude/settings.json`, `.github/pull_request_template.md`, `docs/ai-workflow.md`) changes only in its own PR, never inside a feature PR. When a task suggests a new rule or skill, don't make the change: ask the human (see "Asking the human"), and file it as an `agent-setup` issue if they agree.
 
 Worktrees: `implement-issue` (or `claude -w <name>` from a terminal) creates `.claude/worktrees/<name>/` on branch `worktree-<name>` from `origin/main`. Each worktree gets its own compose project and ports through `.env` (see `scripts/worktree-env.sh`). Integration tests use testcontainers and need nothing from `.env`.
+
+## Asking the human
+
+Some decisions are the human's, and are settled before the PR opens, not in it. Ask when a point is one of the cases below **and** passes all three gates: hard to reverse, surprising to someone without context, a real trade-off. Everything else is your call.
+
+1. **Open in the issue.** The issue (comments included) leaves it open, and you can't settle it from the issue, `docs/design.md`, an ADR or `GLOSSARY.md`. This includes a surprise that invalidates the issue's premise: stop and ask, don't work around it. Ask before the first test at the latest, and again whenever a new point appears.
+2. **Disputed in review.** `rejection-review` disputes a rejection and you have an argument the judge didn't address, or a rejection rests on the issue's intent. Ask before `make ci` and the push.
+3. **A change to the agent setup.** A suggested change to `CLAUDE.md`, `.claude/rules/` or a skill. Ask before `make ci` and the push.
+
+How to ask:
+
+- **Check the stakes first.** State the worst case of each option and when it happens. If every worst case is rare or small, it fails the gates. "Old URL or new URL" for an in-flight Message sounds like a data leak, but the leak needs an outage and a URL change at the same moment.
+- **Pose it in the human's terms.** "When Endpoints become editable, should an in-flight Message go to the old URL or the new one?" not "store endpoint_id or copy the URL". If the technical framing hides a product question, ask the product question.
+- **One decision per question.** A limit change and a status-code change are two decisions. Ask the costliest to get wrong first.
+- **Neutral alternatives.** Each option gets its consequence; none gets a defence. State your lean separately, in one sentence.
+- **No default-yes endings.** Never write "approve as is" or anything that turns thinking into a vote.
+
+Record each decision as a comment on the issue, with the question or finding it answers. The issue is the spec, so `standards-review` checks the code against it. A point the human chooses to leave open is recorded as "left open, ships as the PR does it".

@@ -4,26 +4,9 @@
 
 Closes #
 
+<!-- Decisions the human made while the work was underway are recorded on the issue. Say so; don't repeat them. -->
+
 <!-- If this PR fixes a problem an earlier PR shipped, replace this comment with: Regression from #<n> -->
-
-## Decide
-
-<!--
-Only what is hard to reverse, surprising without context, and a real trade-off, and only if an
-option's worst case is likely or large. Ordered by cost of being wrong. Each item is a question in the reviewer's terms, not an implementation choice.
-Options are neutral; the lean is one separate sentence. Work for later goes in an issue, not here.
--->
-
-**1. _The question_**
-_Who notices, and when. Reversible or not._ _Lean, in one sentence._
-
-<details><summary>Details</summary>
-
-_The options and the consequence of each; mechanics and reasoning._
-
-</details>
-
-Answer each item in a PR comment ("Decide 1: …"). Anything unanswered at merge ships as this PR does it.
 
 ## Read closely
 
