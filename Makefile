@@ -70,12 +70,23 @@ endif
 up: .env
 	docker compose up -d --wait --build
 
+# The host address the end-to-end tests serve their Endpoints on: the one
+# host.docker.internal reaches from a container. Docker Desktop reaches the
+# host's loopback; on Linux it is the default bridge's gateway, which
+# compose.yaml maps the name to.
+ifeq ($(shell uname -s),Linux)
+E2E_ENDPOINT_IP = $(shell docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+else
+E2E_ENDPOINT_IP = 127.0.0.1
+endif
+
 # Runs the end-to-end tests against this checkout's stack, started with
 # `make up`. Without these variables the tests skip, as in `make test`.
 e2e: .env
 	@. ./.env && \
 		HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
 		HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
+		HERALD_E2E_ENDPOINT_IP="$(E2E_ENDPOINT_IP)" \
 		go test -race -count=1 ./internal/e2e/
 
 # Runs herald-admin against this checkout's stack.

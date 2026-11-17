@@ -108,6 +108,8 @@ type config struct {
 	// schedule is the retry schedule, at full length unless HERALD_RETRY_SCALE
 	// shrinks it.
 	schedule retry.Schedule
+	// shrunkSchedule is whether HERALD_RETRY_SCALE shrinks the schedule.
+	shrunkSchedule bool
 }
 
 func loadConfig(getenv func(string) string) (config, error) {
@@ -149,6 +151,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if err != nil {
 		return config{}, fmt.Errorf("HERALD_RETRY_SCALE: %w", err)
 	}
+	cfg.shrunkSchedule = scale < 1
 	return cfg, nil
 }
 
@@ -159,6 +162,11 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	// First, before anything else can log.
 	if cfg.allowInsecureEndpoints {
 		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
+	}
+	// A shrunk schedule gives up on a failing Endpoint within minutes rather
+	// than about 24 hours.
+	if cfg.shrunkSchedule {
+		logger.WarnContext(ctx, "retry schedule shrunk: for local development only")
 	}
 	pool, err := pgxpool.New(ctx, cfg.databaseURL)
 	if err != nil {

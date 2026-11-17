@@ -2,7 +2,9 @@ package endpointtest_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -102,9 +104,18 @@ func TestEndpointHoldsAttemptsUntilReleased(t *testing.T) {
 	srv := startServer(t)
 	release := make(chan struct{})
 	ep := srv.NewEndpoint(endpointtest.Hold(release))
-	status := make(chan int, 2)
+	// The goroutines report back rather than call t, which they may outlive
+	// if the test fails: closing the Server then ends their requests.
+	type result struct {
+		status int
+		err    error
+	}
+	results := make(chan result, 2)
 	for range 2 {
-		go func() { status <- post(t, ep.URL, "msg_1", `{}`) }()
+		go func() {
+			s, err := postStatus(t.Context(), ep.URL, "msg_1", `{}`)
+			results <- result{s, err}
+		}()
 	}
 
 	if _, err := ep.WaitAttempts(t.Context(), 2); err != nil {
@@ -113,15 +124,15 @@ func TestEndpointHoldsAttemptsUntilReleased(t *testing.T) {
 	// Both Attempts have arrived, so a response would have been written by
 	// now unless held. Waiting longer could only make the check pass by luck.
 	select {
-	case s := <-status:
-		t.Fatalf("Attempt answered %d before release", s)
+	case r := <-results:
+		t.Fatalf("Attempt answered before release: %d, %v", r.status, r.err)
 	default:
 	}
 	close(release)
 
 	for range 2 {
-		if s := <-status; s != http.StatusOK {
-			t.Errorf("status after release = %d, want 200", s)
+		if r := <-results; r.err != nil || r.status != http.StatusOK {
+			t.Errorf("after release: %d, %v; want 200", r.status, r.err)
 		}
 	}
 }
@@ -197,28 +208,44 @@ func startServer(t *testing.T) *endpointtest.Server {
 }
 
 // post sends an unsigned Attempt to url and returns the status code of the
-// response, or 0 if there was none. It may be called from any goroutine.
+// response.
 func post(t *testing.T, url, webhookID, body string) int {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, bytes.NewBufferString(body))
+	status, err := postStatus(t.Context(), url, webhookID, body)
 	if err != nil {
-		t.Errorf("new request: %v", err)
-		return 0
+		t.Fatal(err)
+	}
+	return status
+}
+
+// postStatus sends an unsigned Attempt to url and returns the status code of
+// the response.
+func postStatus(ctx context.Context, url, webhookID, body string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBufferString(body))
+	if err != nil {
+		return 0, fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("webhook-id", webhookID)
-	return send(t, req)
+	return do(req)
 }
 
-// send sends req and returns the status code of the response, or 0 if there
-// was none. It may be called from any goroutine.
+// send sends req and returns the status code of the response.
 func send(t *testing.T, req *http.Request) int {
 	t.Helper()
+	status, err := do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return status
+}
+
+// do sends req and returns the status code of the response.
+func do(req *http.Request) (int, error) {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Errorf("POST %s: %v", req.URL, err)
-		return 0
+		return 0, fmt.Errorf("POST %s: %w", req.URL, err)
 	}
 	resp.Body.Close()
-	return resp.StatusCode
+	return resp.StatusCode, nil
 }

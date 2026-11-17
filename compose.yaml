@@ -66,9 +66,9 @@ services:
       HERALD_NATS_URL: nats://nats:4222
       # As for herald-api.
       HERALD_ALLOW_INSECURE_ENDPOINTS: "true"
-      # The retry schedule in about 86 seconds rather than 24 hours, so a
+      # The retry schedule in about 80 seconds rather than 24 hours, so a
       # failing Endpoint is retried, and given up on, while you watch, and
-      # the end-to-end tests finish in seconds.
+      # the end-to-end tests finish in under two minutes.
       HERALD_RETRY_SCALE: "0.001"
     # The end-to-end tests serve their Endpoints from the host. Docker
     # Desktop defines this name already; on Linux it needs mapping.

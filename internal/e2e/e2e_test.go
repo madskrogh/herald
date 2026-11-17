@@ -40,9 +40,9 @@ func TestMain(m *testing.M) {
 }
 
 // waitTimeout bounds each test's waits. With the local stack's retry scale
-// (HERALD_RETRY_SCALE in compose.yaml), every scenario here finishes in a few
-// seconds.
-const waitTimeout = time.Minute
+// (HERALD_RETRY_SCALE in compose.yaml), the whole retry schedule takes about
+// 80 seconds, 88 at most with jitter, and every other scenario here a few.
+const waitTimeout = 2 * time.Minute
 
 // setup skips the test unless a stack is configured, and returns a context
 // that bounds its waits and a Tenant of its own with one Application.
@@ -91,6 +91,25 @@ func TestFailedAttemptsAreRetriedWithTheSameWebhookID(t *testing.T) {
 	attempts := waitAttempts(ctx, t, ep, 3)
 	if len(attempts) != 3 {
 		t.Errorf("Endpoint received %d Attempts, want 3: two failed, then one succeeded", len(attempts))
+	}
+	checkSigned(t, attempts, messageID, payload)
+}
+
+func TestDeliveryFailsWhenTheRetryScheduleRunsOut(t *testing.T) {
+	t.Parallel()
+	ctx, tenant, app := setup(t)
+	// Fails every Attempt the schedule has, and would accept a ninth.
+	ep := stack.Endpoints.NewEndpoint(endpointtest.FailTimes(8))
+	createEndpoint(ctx, t, tenant, app, ep)
+
+	payload := `{"invoice": 42}`
+	messageID := sendMessage(ctx, t, tenant, app, payload, "")
+
+	waitOneDelivery(ctx, t, messageID, delivery.StateFailed)
+	// The Delivery has failed, so no Attempt comes after these.
+	attempts := waitAttempts(ctx, t, ep, 8)
+	if len(attempts) != 8 {
+		t.Errorf("Endpoint received %d Attempts, want the schedule's 8", len(attempts))
 	}
 	checkSigned(t, attempts, messageID, payload)
 }

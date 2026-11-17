@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 	"uuid"
@@ -43,14 +44,21 @@ type Config struct {
 //
 //	HERALD_E2E_API_URL         the Tenant API's REST base URL
 //	HERALD_E2E_DATABASE_URL    the stack's Postgres
+//	HERALD_E2E_ENDPOINT_IP     the host address the fake Endpoints listen on,
+//	                           the one host.docker.internal reaches
+//	                           (default 127.0.0.1, as on Docker Desktop)
 //
-// The fake Endpoints listen on a free port on every interface, and
-// herald-dispatcher reaches them as host.docker.internal (compose.yaml).
+// herald-dispatcher reaches the fake Endpoints as host.docker.internal
+// (compose.yaml), on a port picked when they start.
 func ConfigFromEnv(getenv func(string) string) (cfg Config, ok bool, err error) {
+	ip := getenv("HERALD_E2E_ENDPOINT_IP")
+	if ip == "" {
+		ip = "127.0.0.1"
+	}
 	cfg = Config{
 		APIURL:       getenv("HERALD_E2E_API_URL"),
 		DatabaseURL:  getenv("HERALD_E2E_DATABASE_URL"),
-		EndpointAddr: ":0",
+		EndpointAddr: net.JoinHostPort(ip, "0"),
 		EndpointHost: "host.docker.internal",
 	}
 	if cfg.APIURL == "" {

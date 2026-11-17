@@ -147,6 +147,7 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 		"HERALD_NATS_URL":     natstest.URL(t),
 		// The Endpoint is on a loopback address.
 		"HERALD_ALLOW_INSECURE_ENDPOINTS": "true",
+		"HERALD_RETRY_SCALE":              "0.5",
 	}
 	type received struct {
 		header http.Header
@@ -192,15 +193,19 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 	})
 	defer stop() //nolint:errcheck // Only for an early return; checked below.
 
-	// HERALD_ALLOW_INSECURE_ENDPOINTS is set, so a production deployment
-	// that sets it by mistake says so as it starts.
-	warning, ok := <-logs
-	if !ok {
-		t.Fatalf("run exited before it started: %v", stop())
-	}
-	wantWarning := logRecord{Level: "WARN", Msg: "insecure Endpoints allowed: for local development only", Service: "herald-dispatcher"}
-	if warning != wantWarning {
-		t.Fatalf("first log line is %+v, want %+v", warning, wantWarning)
+	// HERALD_ALLOW_INSECURE_ENDPOINTS and HERALD_RETRY_SCALE are set, so a
+	// production deployment that sets either by mistake says so as it starts.
+	for _, want := range []logRecord{
+		{Level: "WARN", Msg: "insecure Endpoints allowed: for local development only", Service: "herald-dispatcher"},
+		{Level: "WARN", Msg: "retry schedule shrunk: for local development only", Service: "herald-dispatcher"},
+	} {
+		warning, ok := <-logs
+		if !ok {
+			t.Fatalf("run exited before it started: %v", stop())
+		}
+		if warning != want {
+			t.Fatalf("log line is %+v, want %+v", warning, want)
+		}
 	}
 	started, ok := <-logs
 	if !ok {
