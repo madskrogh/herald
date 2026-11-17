@@ -37,8 +37,12 @@ One Message on its way to one Endpoint. A Message to an Application with two mat
 _Avoid_: Dispatch, send, job
 
 **Outbox**:
-The Messages Herald has accepted whose Deliveries haven't been handed off yet.
+The Messages Herald has accepted whose Deliveries haven't been handed off yet, other than those that are Parked.
 _Avoid_: Queue, pending messages
+
+**Parked**:
+Taken out of the Outbox without being handed off, because the dispatcher rejects the Message every time, alone as well as in a Batch. A parked Message no longer blocks the Messages behind it. It keeps the time it was parked and the dispatcher's error, and returns to the Outbox when both are cleared.
+_Avoid_: Dead-lettered, poisoned, quarantined, failed
 
 **Handoff**:
 Passing a Message's Deliveries from the side of Herald that accepts Messages to the side that makes Attempts. A Message is handed off once the other side has stored all its Deliveries.

@@ -9,13 +9,14 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"uuid"
 )
 
 const claimOutbox = `-- name: ClaimOutbox :many
 SELECT id, tenant_id, event_type, payload
 FROM ingest.messages
-WHERE handed_off_at IS NULL
+WHERE handed_off_at IS NULL AND parked_at IS NULL
 ORDER BY id
 LIMIT $1
 FOR UPDATE SKIP LOCKED
@@ -31,7 +32,7 @@ type ClaimOutboxRow struct {
 // Claims up to @max_messages of the Messages waiting in the outbox, oldest
 // first, for the relay's transaction. Rows another relay has claimed are
 // skipped rather than waited for, so concurrent relays claim different
-// Messages.
+// Messages. Parked Messages are not in the outbox.
 func (q *Queries) ClaimOutbox(ctx context.Context, maxMessages int32) ([]ClaimOutboxRow, error) {
 	rows, err := q.db.Query(ctx, claimOutbox, maxMessages)
 	if err != nil {
@@ -191,7 +192,7 @@ SELECT
 FROM ingest.applications a
 WHERE a.tenant_id = $6 AND a.id = $7
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-RETURNING id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at
+RETURNING id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at, parked_at, park_error
 `
 
 type CreateMessageParams struct {
@@ -229,6 +230,8 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (I
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.HandedOffAt,
+		&i.ParkedAt,
+		&i.ParkError,
 	)
 	return i, err
 }
@@ -311,7 +314,7 @@ func (q *Queries) GetEndpoint(ctx context.Context, arg GetEndpointParams) (Inges
 }
 
 const getMessageByIdempotencyKey = `-- name: GetMessageByIdempotencyKey :one
-SELECT id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at
+SELECT id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at, parked_at, park_error
 FROM ingest.messages
 WHERE tenant_id = $1 AND idempotency_key = $2::text
 `
@@ -333,6 +336,8 @@ func (q *Queries) GetMessageByIdempotencyKey(ctx context.Context, arg GetMessage
 		&i.IdempotencyKey,
 		&i.CreatedAt,
 		&i.HandedOffAt,
+		&i.ParkedAt,
+		&i.ParkError,
 	)
 	return i, err
 }
@@ -597,6 +602,25 @@ type MarkHandedOffParams struct {
 // Takes the Messages out of the outbox.
 func (q *Queries) MarkHandedOff(ctx context.Context, arg MarkHandedOffParams) error {
 	_, err := q.db.Exec(ctx, markHandedOff, arg.Now, arg.Ids)
+	return err
+}
+
+const parkMessage = `-- name: ParkMessage :exec
+UPDATE ingest.messages
+SET parked_at = $1::timestamptz, park_error = $2
+WHERE id = $3
+`
+
+type ParkMessageParams struct {
+	Now       time.Time
+	ParkError pgtype.Text
+	ID        uuid.UUID
+}
+
+// Takes the Message out of the outbox without handing it off, with the error
+// a dispatcher gave when it rejected the Message alone.
+func (q *Queries) ParkMessage(ctx context.Context, arg ParkMessageParams) error {
+	_, err := q.db.Exec(ctx, parkMessage, arg.Now, arg.ParkError, arg.ID)
 	return err
 }
 

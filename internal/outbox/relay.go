@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/nats-io/nats.go"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -39,8 +40,8 @@ type Config struct {
 	Subject string
 	// MaxMessages is the most Messages a round claims and sends.
 	MaxMessages int
-	// RequestTimeout is how long a round waits for a dispatcher's reply. The
-	// round's transaction stays open for as long.
+	// RequestTimeout is how long a round waits for a dispatcher's reply to
+	// each Batch it sends. The round's transaction stays open for as long.
 	RequestTimeout time.Duration
 }
 
@@ -90,10 +91,11 @@ func (r *Relay) Run(ctx context.Context) {
 // RunOnce runs one round of the relay at the time now: it claims up to
 // MaxMessages Messages from the outbox (fewer after rounds whose Messages
 // didn't all fit in a Batch), sends as many as fit in one Batch, and marks
-// them handed off once a dispatcher has committed them. It returns how many
-// Messages it handed off, and whether more may be waiting: it claimed as many
-// as it asked for, or sent fewer than it claimed. On an error, none are
-// handed off.
+// them handed off once a dispatcher has committed them. A Message that a
+// dispatcher rejects on its own is parked instead (see send), and logged. It
+// returns how many Messages it handed off, and whether more may be waiting: it
+// claimed as many as it asked for, or sent or parked fewer than it claimed. On
+// an error, none are handed off or parked.
 //
 // A round that claims fewer than it asked for reports nothing more waiting,
 // even when other relays' rounds hold the rest locked. Those Messages are
@@ -101,7 +103,8 @@ func (r *Relay) Run(ctx context.Context) {
 // still locked.
 //
 // The round is one transaction, which stays open, holding the claimed rows,
-// while it waits up to RequestTimeout for the reply.
+// while it waits up to RequestTimeout for each reply. A Batch that is not
+// committed is sent again in parts, so a round can wait for several.
 func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more bool, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -112,13 +115,19 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 		return 0, false, fmt.Errorf("not connected to NATS (%s)", r.nc.Status())
 	}
 	h, err := r.store.HandOff(ctx, r.claimLimit, now, r.send)
-	more = h.Claimed == r.claimLimit || h.HandedOff < h.Claimed
+	// One record per parked Message, so that they can be found and counted.
+	for _, p := range h.Parked {
+		r.logger.WarnContext(ctx, "message parked", "message_id", p.ID, "error", p.Reason)
+	}
+	// Parked Messages are done with, as handed off ones are.
+	sent := h.HandedOff + len(h.Parked)
+	more = h.Claimed == r.claimLimit || sent < h.Claimed
 	// Size the next claim (see claimLimit).
 	switch {
 	case err != nil:
 		// A failed round says nothing about how many fit.
-	case h.HandedOff < h.Claimed:
-		r.claimLimit = h.HandedOff + 1
+	case sent < h.Claimed:
+		r.claimLimit = sent + 1
 	case h.Claimed == r.claimLimit:
 		r.claimLimit = min(2*r.claimLimit, r.cfg.MaxMessages)
 	}
@@ -126,37 +135,105 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 }
 
 // send sends as many of messages as fit, from the start, to the dispatchers
-// as one Batch, and returns how many it sent. The rest stay in the outbox for
-// a later round.
-func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (int, error) {
+// as one Batch. The rest stay in the outbox for a later round.
+//
+// If the dispatcher doesn't commit the Batch, send looks for the Message that
+// makes it fail: it sends each half of the Batch on its own, and each half
+// that fails in turn, until it has the Messages that fail alone. Those are
+// parked, but only if a dispatcher committed some other Message of the Batch.
+// A dispatcher that commits none may be failing as a whole (its database is
+// down, say), and then no Message is to blame: the round fails and the
+// Messages wait in the outbox.
+func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (ingest.SendResult, error) {
 	// The server's maximum payload, which it told the connection.
 	batch := pack(messages, int(r.nc.MaxPayload()))
 	n := len(batch.GetMessages())
 	if n == 0 {
 		// The limits on payloads and Endpoints keep every Message well under
 		// the maximum, so this means a limit was raised without the other.
-		return 0, fmt.Errorf("message %s is too large for a batch of at most %d bytes", messages[0].ID, r.nc.MaxPayload())
+		// No dispatcher could take it, whatever state it is in, so it is
+		// parked without sending. The rest wait for the next round.
+		reason := fmt.Sprintf("message is too large for a batch of at most %d bytes", r.nc.MaxPayload())
+		return ingest.SendResult{Parked: []ingest.ParkedMessage{{ID: messages[0].ID, Reason: reason}}}, nil
 	}
-	data, err := proto.Marshal(batch)
+	committed, reason, err := r.request(ctx, batch.GetMessages())
 	if err != nil {
-		return 0, fmt.Errorf("encode batch: %w", err)
+		return ingest.SendResult{}, err
+	}
+	if committed {
+		return ingest.SendResult{HandedOff: messageIDs(messages[:n])}, nil
+	}
+	var sent ingest.SendResult
+	if err := r.bisect(ctx, messages[:n], batch.GetMessages(), reason, &sent); err != nil {
+		return ingest.SendResult{}, err
+	}
+	if len(sent.HandedOff) == 0 {
+		return ingest.SendResult{}, fmt.Errorf("batch not committed: %s", reason)
+	}
+	return sent, nil
+}
+
+// bisect finds which of messages a dispatcher rejects on their own. It was
+// told, with reason, that it didn't commit them together; encoded holds the
+// same Messages as they are sent. It adds the Messages a dispatcher commits
+// to sent.HandedOff, and those that fail alone to sent.Parked.
+func (r *Relay) bisect(ctx context.Context, messages []ingest.OutboxMessage, encoded []*handoffv1.Message, reason string, sent *ingest.SendResult) error {
+	if len(messages) == 1 {
+		sent.Parked = append(sent.Parked, ingest.ParkedMessage{ID: messages[0].ID, Reason: reason})
+		return nil
+	}
+	mid := len(messages) / 2
+	for _, half := range []struct {
+		messages []ingest.OutboxMessage
+		encoded  []*handoffv1.Message
+	}{
+		{messages[:mid], encoded[:mid]},
+		{messages[mid:], encoded[mid:]},
+	} {
+		committed, reason, err := r.request(ctx, half.encoded)
+		if err != nil {
+			return err
+		}
+		if committed {
+			sent.HandedOff = append(sent.HandedOff, messageIDs(half.messages)...)
+			continue
+		}
+		if err := r.bisect(ctx, half.messages, half.encoded, reason, sent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// request sends messages to the dispatchers as one Batch and reports whether
+// a dispatcher committed it, and if not, why. A reply that doesn't say so, or
+// none within RequestTimeout, is an error: it says nothing about the Messages.
+func (r *Relay) request(ctx context.Context, messages []*handoffv1.Message) (committed bool, reason string, err error) {
+	data, err := proto.Marshal(&handoffv1.Batch{Messages: messages})
+	if err != nil {
+		return false, "", fmt.Errorf("encode batch: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, r.cfg.RequestTimeout)
 	defer cancel()
 	resp, err := r.nc.RequestWithContext(ctx, r.cfg.Subject, data)
 	if err != nil {
-		return 0, fmt.Errorf("send batch: %w", err)
+		return false, "", fmt.Errorf("send batch: %w", err)
 	}
 	// Only an explicit committed = true counts (see BatchReply). A reply that
 	// doesn't decode is not one.
 	var reply handoffv1.BatchReply
 	if err := proto.Unmarshal(resp.Data, &reply); err != nil {
-		return 0, fmt.Errorf("decode batch reply: %w", err)
+		return false, "", fmt.Errorf("decode batch reply: %w", err)
 	}
-	if !reply.GetCommitted() {
-		return 0, fmt.Errorf("batch not committed: %s", reply.GetError())
+	return reply.GetCommitted(), reply.GetError(), nil
+}
+
+func messageIDs(messages []ingest.OutboxMessage) []uuid.UUID {
+	ids := make([]uuid.UUID, len(messages))
+	for i, m := range messages {
+		ids[i] = m.ID
 	}
-	return n, nil
+	return ids
 }
 
 // poll runs round until ctx is cancelled. A round that reports more waiting is

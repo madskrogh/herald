@@ -131,10 +131,10 @@ ORDER BY endpoint_id;
 -- Claims up to @max_messages of the Messages waiting in the outbox, oldest
 -- first, for the relay's transaction. Rows another relay has claimed are
 -- skipped rather than waited for, so concurrent relays claim different
--- Messages.
+-- Messages. Parked Messages are not in the outbox.
 SELECT id, tenant_id, event_type, payload
 FROM ingest.messages
-WHERE handed_off_at IS NULL
+WHERE handed_off_at IS NULL AND parked_at IS NULL
 ORDER BY id
 LIMIT @max_messages
 FOR UPDATE SKIP LOCKED;
@@ -156,3 +156,10 @@ ORDER BY d.message_id, e.id;
 UPDATE ingest.messages
 SET handed_off_at = @now::timestamptz
 WHERE id = ANY(@ids::uuid[]);
+
+-- name: ParkMessage :exec
+-- Takes the Message out of the outbox without handing it off, with the error
+-- a dispatcher gave when it rejected the Message alone.
+UPDATE ingest.messages
+SET parked_at = @now::timestamptz, park_error = @park_error
+WHERE id = @id;

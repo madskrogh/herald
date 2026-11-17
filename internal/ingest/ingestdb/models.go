@@ -48,6 +48,8 @@ type IngestMessage struct {
 	IdempotencyKey pgtype.Text
 	CreatedAt      time.Time
 	HandedOffAt    pgtype.Timestamptz
+	ParkedAt       pgtype.Timestamptz
+	ParkError      pgtype.Text
 }
 
 type IngestSigningSecret struct {
