@@ -1,7 +1,10 @@
 package outbox_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -155,6 +158,238 @@ func TestRelayKeepsMessagesWhenTheBatchIsNotCommitted(t *testing.T) {
 	}
 	if got := len(env.storedDeliveries(t, msg)); got != 1 {
 		t.Errorf("stored %d Deliveries, want 1", got)
+	}
+}
+
+// TestRelayParksAMessageTheDispatcherAlwaysRejects sends a Batch with Messages
+// that no dispatcher will ever store. The relay finds them, hands off the
+// others, and leaves them out of later Batches.
+func TestRelayParksAMessageTheDispatcherAlwaysRejects(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	tests := []struct {
+		name string
+		// poison is which of the four Messages, by position in the outbox,
+		// the dispatcher rejects.
+		poison []int
+	}{
+		{"first", []int{0}},
+		{"in the middle", []int{2}},
+		{"last", []int{3}},
+		{"two of them", []int{0, 2}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := newEnv(t)
+			app := env.application(t)
+			app.endpoint(t, "https://example.com/webhooks", nil)
+			var messages []ingest.Message
+			for i := range 4 {
+				messages = append(messages, app.message(t, "invoice.paid", fmt.Appendf(nil, `{"invoice": %d}`, i)))
+			}
+			poison := map[string]bool{}
+			for _, i := range tt.poison {
+				poison[messages[i].ID.String()] = true
+			}
+			relay := env.relay(t, outbox.Config{})
+			// The dispatcher listens on a subject of its own. The relay's
+			// subject forwards Batches to it, except those with a poison
+			// Message, which it rejects as a dispatcher's database constraint
+			// would.
+			dispatcherSubject := natstest.Subject(t)
+			env.dispatcher(t, dispatcherSubject)
+			var sentPoison atomic.Int32
+			env.respond(t, env.subject, func(batch *handoffv1.Batch) *handoffv1.BatchReply {
+				for _, m := range batch.GetMessages() {
+					if poison[m.GetId()] {
+						sentPoison.Add(1)
+						return &handoffv1.BatchReply{Committed: false, Error: "payload violates a constraint"}
+					}
+				}
+				return env.forward(t, dispatcherSubject, batch)
+			})
+
+			wantHandedOff := len(messages) - len(tt.poison)
+			n, _, err := relay.RunOnce(t.Context(), handedOff)
+			if err != nil {
+				t.Fatalf("RunOnce: %v", err)
+			}
+			if n != wantHandedOff {
+				t.Errorf("RunOnce handed off %d Messages, want %d", n, wantHandedOff)
+			}
+			for _, msg := range messages {
+				want := !poison[msg.ID.String()]
+				if got := env.isStored(t, msg); got != want {
+					t.Errorf("Message %s: stored = %t, want %t", msg.ID, got, want)
+				}
+			}
+
+			// The poison Messages are parked: later rounds leave them alone.
+			sentBefore := sentPoison.Load()
+			n, _, err = relay.RunOnce(t.Context(), handedOff)
+			if err != nil {
+				t.Fatalf("second RunOnce: %v", err)
+			}
+			if n != 0 {
+				t.Errorf("second RunOnce handed off %d Messages, want 0", n)
+			}
+			if got := sentPoison.Load(); got != sentBefore {
+				t.Errorf("the relay sent a parked Message %d more times, want 0", got-sentBefore)
+			}
+		})
+	}
+}
+
+// TestRelayLogsAParkedMessageWithTheDispatchersError checks the record an
+// operator, and later a metric, finds a parked Message by.
+func TestRelayLogsAParkedMessageWithTheDispatchersError(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	env := newEnv(t)
+	app := env.application(t)
+	app.endpoint(t, "https://example.com/webhooks", nil)
+	app.message(t, "invoice.paid", []byte(`{"invoice": 1}`))
+	poison := app.message(t, "invoice.paid", []byte(`{"invoice": 2}`))
+	dispatcherSubject := natstest.Subject(t)
+	env.dispatcher(t, dispatcherSubject)
+	env.respond(t, env.subject, func(batch *handoffv1.Batch) *handoffv1.BatchReply {
+		for _, m := range batch.GetMessages() {
+			if m.GetId() == poison.ID.String() {
+				return &handoffv1.BatchReply{Committed: false, Error: "payload violates a constraint"}
+			}
+		}
+		return env.forward(t, dispatcherSubject, batch)
+	})
+	var logs bytes.Buffer
+	relay := outbox.NewRelay(env.ingest, env.nc, outbox.Config{Subject: env.subject}, slog.New(slog.NewJSONHandler(&logs, nil)))
+
+	if _, _, err := relay.RunOnce(t.Context(), handedOff); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	var got []map[string]any
+	for line := range bytes.Lines(logs.Bytes()) {
+		var record map[string]any
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatalf("decode log record %q: %v", line, err)
+		}
+		if record["msg"] == "message parked" {
+			got = append(got, map[string]any{"message_id": record["message_id"], "error": record["error"]})
+		}
+	}
+	want := []map[string]any{{"message_id": poison.ID.String(), "error": "payload violates a constraint"}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("\"message parked\" records (-want +got):\n%s", diff)
+	}
+}
+
+// TestRelayParksAMessageTooLargeToSend has a Message in the outbox that alone
+// exceeds the maximum NATS payload, which no Batch can hold. The relay parks
+// it without sending, and hands off the Messages around it.
+func TestRelayParksAMessageTooLargeToSend(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	env := newEnv(t)
+	app := env.application(t)
+	app.endpoint(t, "https://example.com/webhooks", nil)
+	first := app.message(t, "invoice.paid", []byte(`{"invoice": 1}`))
+	// Twice NATS's default maximum payload of 1 MiB.
+	tooLarge := app.message(t, "invoice.paid", []byte(`"`+strings.Repeat("x", 2<<20-2)+`"`))
+	last := app.message(t, "invoice.paid", []byte(`{"invoice": 3}`))
+	relay := env.relay(t, outbox.Config{})
+	dispatcherSubject := natstest.Subject(t)
+	env.dispatcher(t, dispatcherSubject)
+	var sentTooLarge atomic.Int32
+	env.respond(t, env.subject, func(batch *handoffv1.Batch) *handoffv1.BatchReply {
+		for _, m := range batch.GetMessages() {
+			if m.GetId() == tooLarge.ID.String() {
+				sentTooLarge.Add(1)
+			}
+		}
+		return env.forward(t, dispatcherSubject, batch)
+	})
+
+	// Rounds go on until the outbox is empty. Each may park the Message or
+	// hand off the others, but none fails.
+	handedOffTotal := 0
+	for round := 1; ; round++ {
+		if round > 5 {
+			t.Fatalf("the outbox is not empty after %d rounds", round-1)
+		}
+		n, more, err := relay.RunOnce(t.Context(), handedOff)
+		if err != nil {
+			t.Fatalf("round %d: RunOnce: %v", round, err)
+		}
+		handedOffTotal += n
+		if !more && n == 0 {
+			break
+		}
+	}
+
+	if handedOffTotal != 2 {
+		t.Errorf("the relay handed off %d Messages, want 2", handedOffTotal)
+	}
+	for _, msg := range []ingest.Message{first, last} {
+		if got := len(env.storedDeliveries(t, msg)); got != 1 {
+			t.Errorf("Message %s: stored %d Deliveries, want 1", msg.ID, got)
+		}
+	}
+	if got := sentTooLarge.Load(); got != 0 {
+		t.Errorf("the relay sent the Message that is too large %d times, want 0", got)
+	}
+}
+
+// TestRelayParksNothingWhenTheDispatcherFailsAsAWhole refuses every Batch, as
+// a dispatcher whose database is down does, whatever Messages it holds. No
+// Message is to blame, so none is parked: they all wait in the outbox, and are
+// handed off once the dispatcher recovers.
+func TestRelayParksNothingWhenTheDispatcherFailsAsAWhole(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	env := newEnv(t)
+	app := env.application(t)
+	app.endpoint(t, "https://example.com/webhooks", nil)
+	var backlog []ingest.Message
+	for i := range 3 {
+		backlog = append(backlog, app.message(t, "invoice.paid", fmt.Appendf(nil, `{"invoice": %d}`, i)))
+	}
+	relay := env.relay(t, outbox.Config{})
+	down := env.respond(t, env.subject, func(*handoffv1.Batch) *handoffv1.BatchReply {
+		return &handoffv1.BatchReply{Committed: false, Error: "database unavailable"}
+	})
+
+	n, _, err := relay.RunOnce(t.Context(), handedOff)
+	if err == nil {
+		t.Error("RunOnce succeeded while the dispatcher refused every Batch, want an error")
+	}
+	if n != 0 {
+		t.Errorf("RunOnce handed off %d Messages, want 0", n)
+	}
+
+	if err := down.Unsubscribe(); err != nil {
+		t.Fatalf("unsubscribe: %v", err)
+	}
+	env.dispatcher(t, env.subject)
+	n, _, err = relay.RunOnce(t.Context(), handedOff)
+	if err != nil {
+		t.Fatalf("second RunOnce: %v", err)
+	}
+	if n != len(backlog) {
+		t.Errorf("second RunOnce handed off %d Messages, want %d", n, len(backlog))
+	}
+	for _, msg := range backlog {
+		if got := len(env.storedDeliveries(t, msg)); got != 1 {
+			t.Errorf("Message %s: stored %d Deliveries, want 1", msg.ID, got)
+		}
 	}
 }
 
@@ -836,6 +1071,16 @@ func (e *env) relay(t *testing.T, cfg outbox.Config) *outbox.Relay {
 	t.Helper()
 	cfg.Subject = e.subject
 	return outbox.NewRelay(e.ingest, e.nc, cfg, slog.New(slog.DiscardHandler))
+}
+
+// isStored reports whether the dispatcher stored msg's Delivery. msg has one.
+func (e *env) isStored(t *testing.T, msg ingest.Message) bool {
+	t.Helper()
+	_, err := e.delivery.Delivery(t.Context(), msg.Deliveries[0].ID)
+	if err != nil && !errors.Is(err, delivery.ErrNotFound) {
+		t.Fatalf("Delivery(%s): %v", msg.Deliveries[0].ID, err)
+	}
+	return err == nil
 }
 
 // storedDeliveries returns msg's Deliveries as the dispatcher stored them,

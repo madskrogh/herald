@@ -7,6 +7,7 @@ import (
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/madskrogh/herald/internal/ingest/ingestdb"
 )
@@ -33,23 +34,43 @@ type OutboxDelivery struct {
 	SigningSecrets [][]byte
 }
 
+// ParkedMessage is a Message that a dispatcher rejects on its own, every
+// time, with the error it gave.
+type ParkedMessage struct {
+	ID     uuid.UUID
+	Reason string
+}
+
+// Sent is what send did with the Messages it was given. Messages it neither
+// handed off nor parked stay in the outbox.
+type Sent struct {
+	// HandedOff holds the IDs of the Messages a dispatcher committed.
+	HandedOff []uuid.UUID
+	// Parked holds the Messages to take out of the outbox without handing
+	// them off.
+	Parked []ParkedMessage
+}
+
 // Handoff is what one HandOff did.
 type Handoff struct {
 	// Claimed is how many Messages it claimed from the outbox.
 	Claimed int
 	// HandedOff is how many of them it handed off.
 	HandedOff int
+	// Parked holds the Messages it parked.
+	Parked []ParkedMessage
 }
 
 // HandOff claims up to limit of the Messages waiting in the outbox, oldest
-// first, and passes them to send. send returns how many of them, from the
-// start, it handed off; HandOff marks those handed off at now.
+// first, and passes them to send. send returns which of them it handed off
+// and which to park; HandOff marks those handed off, and parks the others, at
+// now.
 //
-// The claim and the mark are one transaction, which stays open while send
+// The claim and the marks are one transaction, which stays open while send
 // runs. The claimed Messages stay locked until it ends, so a concurrent
 // HandOff skips them and claims others. If send returns an error, nothing is
 // marked, and the Messages wait in the outbox for a later round.
-func (s *Store) HandOff(ctx context.Context, limit int, now time.Time, send func(context.Context, []OutboxMessage) (int, error)) (Handoff, error) {
+func (s *Store) HandOff(ctx context.Context, limit int, now time.Time, send func(context.Context, []OutboxMessage) (Sent, error)) (Handoff, error) {
 	var h Handoff
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -59,18 +80,20 @@ func (s *Store) HandOff(ctx context.Context, limit int, now time.Time, send func
 			return err
 		}
 		h.Claimed = len(messages)
-		n, err := send(ctx, messages)
+		sent, err := send(ctx, messages)
 		if err != nil {
 			return err
 		}
-		ids := make([]uuid.UUID, n)
-		for i, m := range messages[:n] {
-			ids[i] = m.ID
-		}
-		if err := q.MarkHandedOff(ctx, ingestdb.MarkHandedOffParams{Now: now, Ids: ids}); err != nil {
+		if err := q.MarkHandedOff(ctx, ingestdb.MarkHandedOffParams{Now: now, Ids: sent.HandedOff}); err != nil {
 			return fmt.Errorf("mark handed off: %w", err)
 		}
-		h.HandedOff = n
+		for _, p := range sent.Parked {
+			if err := q.ParkMessage(ctx, ingestdb.ParkMessageParams{Now: now, ParkError: pgtype.Text{String: p.Reason, Valid: true}, ID: p.ID}); err != nil {
+				return fmt.Errorf("park message %s: %w", p.ID, err)
+			}
+		}
+		h.HandedOff = len(sent.HandedOff)
+		h.Parked = sent.Parked
 		return nil
 	})
 	if err != nil {
