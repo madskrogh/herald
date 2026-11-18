@@ -66,7 +66,8 @@ endif
 WAIT_CI_TIMEOUT ?= 120
 
 # Waits for the CI workflow's run on HEAD's commit to finish and exits with its result.
-# Run it after pushing to a branch with an open PR. Right after a push the run
+# Run it after pushing to a branch with an open PR. GitHub starts no run for a
+# PR that conflicts with its base. Right after a push the run
 # may not exist yet, and `gh pr checks --watch` exits with "no checks reported"
 # instead of waiting, so this first waits for the run to appear. It matches the
 # run by commit, not branch, so an earlier push's finished run can't answer.
@@ -78,7 +79,7 @@ wait-ci:
 		id=$$(gh run list --workflow ci.yml --commit "$$sha" --limit 1 --json databaseId --jq '.[].databaseId') || exit 1; \
 		test -n "$$id" && break; \
 		if [ "$$(date +%s)" -ge "$$deadline" ]; then \
-			echo "wait-ci: no CI run for $$sha after $(WAIT_CI_TIMEOUT)s. Is the commit pushed, with a PR open?"; \
+			echo "wait-ci: no CI run for $$sha after $(WAIT_CI_TIMEOUT)s. Is the commit pushed, with a PR open and no merge conflicts?"; \
 			exit 1; \
 		fi; \
 		sleep 5; \
