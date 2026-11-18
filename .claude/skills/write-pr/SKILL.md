@@ -86,6 +86,7 @@ Route rejected findings by the reason given:
 
 ## After the PR opens
 
+- After each push that addresses review, run `make wait-ci` to wait for CI.
 - A commit that addresses review says what was wrong, not only what changed: `Release the key when the insert fails` is a change; `Fix key leak when the insert fails` says what was wrong.
 - Every review comment gets a reply: "Fixed in `<sha>`", the answer, or the reason it was rejected.
 - When fixes change what the description says, update it, including Verification and the Review notes.
