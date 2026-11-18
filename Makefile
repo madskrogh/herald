@@ -62,8 +62,10 @@ ifneq ($(strip $(GENERATED_DIRS)),)
 		exit 1; }
 endif
 
-# Per-checkout compose project name and ports. Generated on first use.
-.env:
+# Per-checkout compose project name and ports. Generated on first use, and
+# regenerated, in the same slot, when the script changes, so a checkout's
+# .env gains the ports of services added since.
+.env: scripts/worktree-env.sh
 	./scripts/worktree-env.sh
 
 # --build so the stack always runs this checkout's code and migrations.
@@ -82,12 +84,16 @@ endif
 
 # Runs the end-to-end tests against this checkout's stack, started with
 # `make up`. Without these variables the tests skip, as in `make test`.
+# RUN selects tests as go test's -run does; without it, all of them run.
+# Usage: make e2e RUN=TestSpanIsStoredInClickHouse
 e2e: .env
 	@. ./.env && \
 		HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
 		HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
 		HERALD_E2E_ENDPOINT_IP="$(E2E_ENDPOINT_IP)" \
-		go test -race -count=1 ./internal/e2e/
+		HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
+		HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
+		go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
 
 # Runs herald-admin against this checkout's stack.
 # Usage: make admin ARGS='tenant create --name Acme'
