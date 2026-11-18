@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated up down e2e admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -61,6 +61,30 @@ ifneq ($(strip $(GENERATED_DIRS)),)
 		echo "generated code is out of date: run 'make generate' and stage the result"; \
 		exit 1; }
 endif
+
+# How long wait-ci waits for a CI run to appear, in seconds.
+WAIT_CI_TIMEOUT ?= 120
+
+# Waits for the CI run on HEAD's commit to finish and exits with its result.
+# Run it after pushing to a branch with an open PR. Right after a push the run
+# may not exist yet, and `gh pr checks --watch` exits with "no checks reported"
+# instead of waiting, so this first waits for the run to appear. It matches the
+# run by commit, not branch, so an earlier push's finished run can't answer.
+# The watch's progress is discarded, and only the final summary is printed.
+wait-ci:
+	@sha=$$(git rev-parse HEAD); \
+	deadline=$$(( $$(date +%s) + $(WAIT_CI_TIMEOUT) )); \
+	while :; do \
+		id=$$(gh run list --commit "$$sha" --limit 1 --json databaseId --jq '.[].databaseId') || exit 1; \
+		test -n "$$id" && break; \
+		if [ "$$(date +%s)" -ge "$$deadline" ]; then \
+			echo "wait-ci: no CI run for $$sha after $(WAIT_CI_TIMEOUT)s. Is the commit pushed, with a PR open?"; \
+			exit 1; \
+		fi; \
+		sleep 5; \
+	done; \
+	gh run watch "$$id" --interval 15 >/dev/null || exit 1; \
+	gh run view "$$id" --exit-status
 
 # Per-checkout compose project name and ports. Generated on first use.
 .env:
