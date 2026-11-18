@@ -74,8 +74,8 @@ func TestCreateUser_Retrievable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUser: %v", err)
 	}
-	if got.Name != "Alice" {
-		t.Errorf("Name = %q, want %q", got.Name, "Alice")
+	if want := "Alice"; got.Name != want {
+		t.Errorf("GetUser(%v).Name = %q, want %q", u.ID, got.Name, want)
 	}
 }
 ```

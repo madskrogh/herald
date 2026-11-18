@@ -69,7 +69,7 @@ Claude Code version:
 <!--
 Every finding from the standards, spec and bug reviews. Findings the rejection review disputed
 first, then rejected, then fixed; each group ordered by severity, most severe first, "unstated" last. Severity is High, Medium or Low as the review
-stated it. The author rates each bug-review finding, marked "(author)": "Medium (author)". A standards or
+stated it. The author rates each `/code-review` finding, marked "(author)": "Medium (author)". A standards or
 spec finding without one is "unstated" (kept in the review's order). A rejection says why, and what the rejection review concluded;
 deferring to a later issue counts as rejected, with that issue's number.
 -->

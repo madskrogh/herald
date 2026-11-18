@@ -7,7 +7,7 @@ paths:
 # Go tests
 
 - Use the standard `testing` package and `github.com/google/go-cmp/cmp` for comparisons (`if diff := cmp.Diff(want, got); diff != "" { t.Errorf("... (-want +got):\n%s", diff) }`). No testify, no assertion libraries.
-- `cmp.Diff` is for structs, slices and maps. Compare scalars with `==` or `!=` and a got/want message: `if got != want { t.Errorf("Backoff(3) = %v, want %v", got, want) }`.
+- Compare numbers, bools, durations and single-line strings with `!=` and a got/want message: `if got != want { t.Errorf("Backoff(3) = %v, want %v", got, want) }`. Use `cmp.Diff` for everything else: structs, slices, maps, pointers, protos and multi-line strings.
 - Table-driven tests with `t.Run` subtests when there is more than one case. Call `t.Parallel()` in tests and subtests unless they share state that makes it unsafe; say why in a comment when you leave it out.
 - Tests always run with `-race`.
 - Expected values are literals or worked examples, never recomputed the way the code computes them.
