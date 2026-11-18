@@ -175,23 +175,23 @@ func TestLoadErrors(t *testing.T) {
 	}
 }
 
-// checkKeyring checks that kr holds the key in testKeyring: it decrypts what
-// that key encrypted.
+// checkKeyring checks that kr holds the key in testKeyring: it decrypts
+// "secret", encrypted once with that key.
 func checkKeyring(t *testing.T, kr *keyring.Keyring) {
 	t.Helper()
 	if kr == nil {
 		t.Fatal("Keyring is nil")
 	}
-	want, err := keyring.Parse(testKeyring)
+	ciphertext, err := base64.StdEncoding.DecodeString("BHRlc3ReP+eJ05oidNKAnGAHlW8/rfnopZxbqkHogHgrE0PUvTOB")
 	if err != nil {
-		t.Fatalf("parse test keyring: %v", err)
+		t.Fatalf("decode ciphertext: %v", err)
 	}
-	ciphertext, err := want.Encrypt([]byte("secret"), nil)
+	got, err := kr.Decrypt(ciphertext, nil)
 	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
+		t.Fatalf("Keyring doesn't decrypt with the configured key: %v", err)
 	}
-	if _, err := kr.Decrypt(ciphertext, nil); err != nil {
-		t.Errorf("Keyring doesn't decrypt with the configured key: %v", err)
+	if string(got) != "secret" {
+		t.Errorf("Decrypt = %q, want %q", got, "secret")
 	}
 }
 
