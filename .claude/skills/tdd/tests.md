@@ -74,8 +74,8 @@ func TestCreateUser_Retrievable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUser: %v", err)
 	}
-	if diff := cmp.Diff("Alice", got.Name); diff != "" {
-		t.Errorf("Name (-want +got):\n%s", diff)
+	if got.Name != "Alice" {
+		t.Errorf("Name = %q, want %q", got.Name, "Alice")
 	}
 }
 ```

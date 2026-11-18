@@ -67,7 +67,7 @@ Each item is a location plus what makes a mistake there costly: it can't be chan
 
 Below the table, the Claude Code version (`claude --version`): the built-in `/code-review` changes with it, and the Setup commit can't show that.
 
-**Findings table.** Every finding from the standards, spec and bug reviews. Findings the rejection review disputed come first, whether they were then fixed or settled by the human: they are where the author was wrong and only the second look caught it. Then rejected, then fixed. Each has its **Severity**: High, Medium or Low as the review stated it. `/code-review` states none, so rate each of its findings High, Medium or Low yourself and mark the rating "(author)", for example "Medium (author)". Rate no other review's findings: if a standards or spec finding has no severity, write "unstated" and keep those findings in the order the review gave them.
+**Findings table.** Every finding from the standards, spec and bug reviews. Findings the rejection review disputed come first, whether they were then fixed or settled by the human: they are where the author was wrong and only the second look caught it. Then rejected, then fixed. Within each group, most severe first, with "unstated" findings last. Each has its **Severity**: High, Medium or Low as the review stated it. `/code-review` states none, so rate each of its findings High, Medium or Low yourself and mark the rating "(author)", for example "Medium (author)". Rate no other review's findings: if a standards or spec finding has no severity, write "unstated" and keep those findings in the order the review gave them.
 
 Route rejected findings by the reason given:
 
