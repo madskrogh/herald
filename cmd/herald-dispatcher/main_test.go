@@ -37,54 +37,10 @@ type logRecord struct {
 // testKeyring is the dispatcher's keyring in these tests.
 const testKeyring = "test:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
-// TestLoadConfigAllowInsecureEndpoints checks that the block on non-public
-// addresses is relaxed only when configured.
-func TestLoadConfigAllowInsecureEndpoints(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		value   string // unset if empty
-		want    bool
-		wantErr bool
-	}{
-		{name: "unset"},
-		{name: "true", value: "true", want: true},
-		{name: "1", value: "1", want: true},
-		{name: "false", value: "false"},
-		{name: "invalid", value: "yes please", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			env := map[string]string{
-				"HERALD_DATABASE_URL": "postgres://localhost/herald",
-				"HERALD_KEYRING":      testKeyring,
-				"HERALD_NATS_URL":     "nats://localhost:4222",
-			}
-			if tt.value != "" {
-				env["HERALD_ALLOW_INSECURE_ENDPOINTS"] = tt.value
-			}
-			cfg, err := loadConfig(mapEnv(env))
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("loadConfig accepted %q, want an error", tt.value)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("loadConfig: %v", err)
-			}
-			if cfg.allowInsecureEndpoints != tt.want {
-				t.Errorf("allowInsecureEndpoints = %t, want %t", cfg.allowInsecureEndpoints, tt.want)
-			}
-		})
-	}
-}
-
-// TestLoadConfigRetryScale checks that the retry schedule runs at full length
+// TestLoadSettingsRetryScale checks that the retry schedule runs at full length
 // unless configured to shrink, by the delay before a Delivery's second
 // Attempt: 5 seconds, scaled, give or take 10% jitter.
-func TestLoadConfigRetryScale(t *testing.T) {
+func TestLoadSettingsRetryScale(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -110,15 +66,15 @@ func TestLoadConfigRetryScale(t *testing.T) {
 			if tt.value != "" {
 				env["HERALD_RETRY_SCALE"] = tt.value
 			}
-			cfg, err := loadConfig(mapEnv(env))
+			cfg, err := loadSettings(mapEnv(env))
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("loadConfig accepted %q, want an error", tt.value)
+					t.Errorf("loadSettings accepted %q, want an error", tt.value)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("loadConfig: %v", err)
+				t.Fatalf("loadSettings: %v", err)
 			}
 			got, ok := cfg.schedule.Next(1)
 			if !ok || got < tt.min || got > tt.max {

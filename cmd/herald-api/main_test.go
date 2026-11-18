@@ -34,50 +34,6 @@ type logRecord struct {
 // testKeyring is a keyring with one key of 32 zero bytes, under the ID "test".
 var testKeyring = "test:" + base64.StdEncoding.EncodeToString(make([]byte, 32))
 
-// TestLoadConfigAllowInsecureEndpoints checks that http Endpoint URLs are
-// accepted only when configured.
-func TestLoadConfigAllowInsecureEndpoints(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		value   string // unset if empty
-		want    bool
-		wantErr bool
-	}{
-		{name: "unset"},
-		{name: "true", value: "true", want: true},
-		{name: "1", value: "1", want: true},
-		{name: "false", value: "false"},
-		{name: "invalid", value: "yes please", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			env := map[string]string{
-				"HERALD_DATABASE_URL": "postgres://localhost/herald",
-				"HERALD_KEYRING":      testKeyring,
-				"HERALD_NATS_URL":     "nats://localhost:4222",
-			}
-			if tt.value != "" {
-				env["HERALD_ALLOW_INSECURE_ENDPOINTS"] = tt.value
-			}
-			cfg, err := loadConfig(mapEnv(env))
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("loadConfig accepted %q, want an error", tt.value)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("loadConfig: %v", err)
-			}
-			if cfg.allowInsecureEndpoints != tt.want {
-				t.Errorf("allowInsecureEndpoints = %t, want %t", cfg.allowInsecureEndpoints, tt.want)
-			}
-		})
-	}
-}
-
 func TestRunServesTheTenantAPIUntilCancelled(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

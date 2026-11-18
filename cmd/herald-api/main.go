@@ -32,7 +32,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -41,9 +40,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/madskrogh/herald/internal/config"
 	"github.com/madskrogh/herald/internal/handoff"
 	"github.com/madskrogh/herald/internal/ingest"
-	"github.com/madskrogh/herald/internal/keyring"
 	"github.com/madskrogh/herald/internal/outbox"
 	"github.com/madskrogh/herald/internal/tenantapi"
 )
@@ -73,7 +72,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	logger := slog.New(slog.NewJSONHandler(stdout, nil)).With("service", "herald-api")
 
 	if len(args) == 0 {
-		cfg, err := loadConfig(getenv)
+		cfg, err := loadSettings(getenv)
 		if err != nil {
 			return err
 		}
@@ -84,9 +83,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		if len(args) > 1 {
 			return fmt.Errorf("migrate: unexpected argument %q", args[1])
 		}
-		dbURL := getenv("HERALD_DATABASE_URL")
-		if dbURL == "" {
-			return errors.New("HERALD_DATABASE_URL is not set")
+		dbURL, err := config.DatabaseURL(getenv)
+		if err != nil {
+			return err
 		}
 		return ingest.Migrate(ctx, dbURL, logger)
 	default:
@@ -94,39 +93,22 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	}
 }
 
-// config is the service's configuration.
-type config struct {
-	databaseURL string
-	keyring     *keyring.Keyring
-	natsURL     string
-	grpcAddr    string
-	httpAddr    string
-	// allowInsecureEndpoints accepts http Endpoint URLs
-	// (HERALD_ALLOW_INSECURE_ENDPOINTS).
-	allowInsecureEndpoints bool
+// settings is the service's configuration.
+type settings struct {
+	shared   config.Shared
+	grpcAddr string
+	httpAddr string
 }
 
-func loadConfig(getenv func(string) string) (config, error) {
-	cfg := config{
-		databaseURL: getenv("HERALD_DATABASE_URL"),
-		grpcAddr:    getenv("HERALD_GRPC_ADDR"),
-		httpAddr:    getenv("HERALD_HTTP_ADDR"),
-	}
-	if cfg.databaseURL == "" {
-		return config{}, errors.New("HERALD_DATABASE_URL is not set")
-	}
-	keys := getenv("HERALD_KEYRING")
-	if keys == "" {
-		return config{}, errors.New("HERALD_KEYRING is not set")
-	}
-	kr, err := keyring.Parse(keys)
+func loadSettings(getenv func(string) string) (settings, error) {
+	shared, err := config.Load(getenv)
 	if err != nil {
-		return config{}, fmt.Errorf("HERALD_KEYRING: %w", err)
+		return settings{}, err
 	}
-	cfg.keyring = kr
-	cfg.natsURL = getenv("HERALD_NATS_URL")
-	if cfg.natsURL == "" {
-		return config{}, errors.New("HERALD_NATS_URL is not set")
+	cfg := settings{
+		shared:   shared,
+		grpcAddr: getenv("HERALD_GRPC_ADDR"),
+		httpAddr: getenv("HERALD_HTTP_ADDR"),
 	}
 	if cfg.grpcAddr == "" {
 		cfg.grpcAddr = ":9090"
@@ -134,31 +116,24 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.httpAddr == "" {
 		cfg.httpAddr = ":8080"
 	}
-	if s := getenv("HERALD_ALLOW_INSECURE_ENDPOINTS"); s != "" {
-		allow, err := strconv.ParseBool(s)
-		if err != nil {
-			return config{}, fmt.Errorf("HERALD_ALLOW_INSECURE_ENDPOINTS: %w", err)
-		}
-		cfg.allowInsecureEndpoints = allow
-	}
 	return cfg, nil
 }
 
 // serve runs the Tenant API over gRPC and REST until ctx is cancelled or a
 // server fails, then shuts both down, letting calls in progress finish.
-func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
+func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	// First, before anything else can log.
-	if cfg.allowInsecureEndpoints {
+	if cfg.shared.AllowInsecureEndpoints {
 		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
 	}
-	pool, err := pgxpool.New(ctx, cfg.databaseURL)
+	pool, err := pgxpool.New(ctx, cfg.shared.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
 	defer pool.Close()
 	store := ingest.NewStore(pool)
 
-	nc, err := nats.Connect(cfg.natsURL,
+	nc, err := nats.Connect(cfg.shared.NATSURL,
 		nats.Name("herald-api"),
 		// Start without NATS, and keep reconnecting however long it is away:
 		// accepting Messages doesn't need it (ADR 0002). Meanwhile the
@@ -182,8 +157,8 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 		return fmt.Errorf("listen for REST: %w", err)
 	}
 
-	grpcServer := tenantapi.NewGRPCServer(store, cfg.keyring, tenantapi.Config{
-		AllowHTTPEndpoints: cfg.allowInsecureEndpoints,
+	grpcServer := tenantapi.NewGRPCServer(store, cfg.shared.Keyring, tenantapi.Config{
+		AllowHTTPEndpoints: cfg.shared.AllowInsecureEndpoints,
 	}, logger)
 	// The gateway calls the gRPC server like any other client, so REST calls
 	// pass through the same interceptors.

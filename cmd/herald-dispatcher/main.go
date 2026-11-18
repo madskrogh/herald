@@ -25,7 +25,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -39,9 +38,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 
+	"github.com/madskrogh/herald/internal/config"
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/handoff"
-	"github.com/madskrogh/herald/internal/keyring"
 	"github.com/madskrogh/herald/internal/retry"
 )
 
@@ -76,7 +75,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	logger := slog.New(slog.NewJSONHandler(stdout, nil)).With("service", "herald-dispatcher")
 
 	if len(args) == 0 {
-		cfg, err := loadConfig(getenv)
+		cfg, err := loadSettings(getenv)
 		if err != nil {
 			return err
 		}
@@ -87,9 +86,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		if len(args) > 1 {
 			return fmt.Errorf("migrate: unexpected argument %q", args[1])
 		}
-		dbURL := getenv("HERALD_DATABASE_URL")
-		if dbURL == "" {
-			return errors.New("HERALD_DATABASE_URL is not set")
+		dbURL, err := config.DatabaseURL(getenv)
+		if err != nil {
+			return err
 		}
 		return delivery.Migrate(ctx, dbURL, logger)
 	default:
@@ -97,14 +96,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	}
 }
 
-// config is the service's configuration.
-type config struct {
-	databaseURL string
-	keyring     *keyring.Keyring
-	natsURL     string
-	// allowInsecureEndpoints lets Attempts connect to non-public addresses
-	// (HERALD_ALLOW_INSECURE_ENDPOINTS).
-	allowInsecureEndpoints bool
+// settings is the service's configuration.
+type settings struct {
+	shared config.Shared
 	// schedule is the retry schedule, at full length unless HERALD_RETRY_SCALE
 	// shrinks it.
 	schedule retry.Schedule
@@ -112,44 +106,23 @@ type config struct {
 	shrunkSchedule bool
 }
 
-func loadConfig(getenv func(string) string) (config, error) {
-	cfg := config{
-		databaseURL: getenv("HERALD_DATABASE_URL"),
-		natsURL:     getenv("HERALD_NATS_URL"),
-	}
-	if cfg.databaseURL == "" {
-		return config{}, errors.New("HERALD_DATABASE_URL is not set")
-	}
-	keys := getenv("HERALD_KEYRING")
-	if keys == "" {
-		return config{}, errors.New("HERALD_KEYRING is not set")
-	}
-	kr, err := keyring.Parse(keys)
+func loadSettings(getenv func(string) string) (settings, error) {
+	shared, err := config.Load(getenv)
 	if err != nil {
-		return config{}, fmt.Errorf("HERALD_KEYRING: %w", err)
+		return settings{}, err
 	}
-	cfg.keyring = kr
-	if cfg.natsURL == "" {
-		return config{}, errors.New("HERALD_NATS_URL is not set")
-	}
-	if s := getenv("HERALD_ALLOW_INSECURE_ENDPOINTS"); s != "" {
-		allow, err := strconv.ParseBool(s)
-		if err != nil {
-			return config{}, fmt.Errorf("HERALD_ALLOW_INSECURE_ENDPOINTS: %w", err)
-		}
-		cfg.allowInsecureEndpoints = allow
-	}
+	cfg := settings{shared: shared}
 	// Scale 1: the retry schedule at full length, as docs/design.md gives it.
 	scale := 1.0
 	if s := getenv("HERALD_RETRY_SCALE"); s != "" {
 		scale, err = strconv.ParseFloat(s, 64)
 		if err != nil {
-			return config{}, fmt.Errorf("HERALD_RETRY_SCALE: %w", err)
+			return settings{}, fmt.Errorf("HERALD_RETRY_SCALE: %w", err)
 		}
 	}
 	cfg.schedule, err = retry.New(scale, rand.Float64)
 	if err != nil {
-		return config{}, fmt.Errorf("HERALD_RETRY_SCALE: %w", err)
+		return settings{}, fmt.Errorf("HERALD_RETRY_SCALE: %w", err)
 	}
 	cfg.shrunkSchedule = scale < 1
 	return cfg, nil
@@ -158,9 +131,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 // serve stores the Batches handed off by herald-api and makes their
 // Attempts until ctx is cancelled. Then it lets the Batches already received
 // and the Attempts in flight finish.
-func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
+func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	// First, before anything else can log.
-	if cfg.allowInsecureEndpoints {
+	if cfg.shared.AllowInsecureEndpoints {
 		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
 	}
 	// A shrunk schedule gives up on a failing Endpoint within minutes rather
@@ -168,14 +141,14 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	if cfg.shrunkSchedule {
 		logger.WarnContext(ctx, "retry schedule shrunk: for local development only")
 	}
-	pool, err := pgxpool.New(ctx, cfg.databaseURL)
+	pool, err := pgxpool.New(ctx, cfg.shared.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
 	defer pool.Close()
 
 	closed := make(chan struct{})
-	nc, err := nats.Connect(cfg.natsURL,
+	nc, err := nats.Connect(cfg.shared.NATSURL,
 		nats.Name("herald-dispatcher"),
 		// Keep reconnecting however long NATS is away. Giving up would leave
 		// the service running with no subscription, taking no Batches.
@@ -188,12 +161,12 @@ func serve(ctx context.Context, cfg config, logger *slog.Logger) error {
 	}
 	store := delivery.NewStore(pool)
 	workers := delivery.NewWorkers(store, delivery.WorkersConfig{
-		Keyring:      cfg.keyring,
+		Keyring:      cfg.shared.Keyring,
 		Schedule:     cfg.schedule,
 		Now:          time.Now,
 		DrainTimeout: attemptDrainTimeout,
 
-		AllowPrivateAddresses: cfg.allowInsecureEndpoints,
+		AllowPrivateAddresses: cfg.shared.AllowInsecureEndpoints,
 	}, logger)
 	intake := delivery.NewIntake(store, time.Now, logger)
 	if _, err := intake.Subscribe(ctx, nc, handoff.Subject, handoff.QueueGroup); err != nil {
