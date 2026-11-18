@@ -51,8 +51,23 @@ func (s *Stack) SendSpan(ctx context.Context, span Span) error {
 		return fmt.Errorf("send span: encode: %w", err)
 	}
 	header := http.Header{"Content-Type": {"application/json"}}
-	if _, err := s.post(ctx, s.otlpURL+"/v1/traces", header, body); err != nil {
+	data, err := s.post(ctx, s.otlpURL+"/v1/traces", header, body)
+	if err != nil {
 		return fmt.Errorf("send span: %w", err)
+	}
+	// The Collector answers 200 OK even when it rejects the span, and says
+	// so in the response.
+	var resp struct {
+		PartialSuccess struct {
+			RejectedSpans string `json:"rejectedSpans"`
+			ErrorMessage  string `json:"errorMessage"`
+		} `json:"partialSuccess"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return fmt.Errorf("send span: decode response: %w", err)
+	}
+	if p := resp.PartialSuccess; p.RejectedSpans != "" && p.RejectedSpans != "0" {
+		return fmt.Errorf("send span: Collector rejected it: %s", p.ErrorMessage)
 	}
 	return nil
 }
@@ -63,9 +78,11 @@ func (s *Stack) SendSpan(ctx context.Context, span Span) error {
 //go:embed spans.sql
 var spansQuery string
 
-// WaitSpans waits until ClickHouse holds spans of the trace with the given
-// ID, and returns them, ordered by span ID. The Collector batches spans
-// before it exports them, so they arrive a moment after they are sent.
+// WaitSpans waits until ClickHouse holds at least one span of the trace with
+// the given ID, and returns the trace's spans stored so far, ordered by span
+// ID. The Collector batches spans before it exports them, so they arrive a
+// moment after they are sent, and the spans of a larger trace may arrive in
+// more than one batch.
 func (s *Stack) WaitSpans(ctx context.Context, traceID string) ([]Span, error) {
 	var spans []Span
 	err := poll(ctx, func() (bool, error) {
@@ -81,7 +98,10 @@ func (s *Stack) WaitSpans(ctx context.Context, traceID string) ([]Span, error) {
 
 // traceSpans reads the spans of one trace from ClickHouse.
 func (s *Stack) traceSpans(ctx context.Context, traceID string) ([]Span, error) {
-	target := s.clickHouseURL + "/?" + url.Values{"param_trace_id": {traceID}}.Encode()
+	// wait_end_of_query makes ClickHouse report an error that happens while
+	// it streams rows as an error status, not as text after the rows.
+	query := url.Values{"param_trace_id": {traceID}, "wait_end_of_query": {"1"}}
+	target := s.clickHouseURL + "/?" + query.Encode()
 	header := http.Header{"Content-Type": {"text/plain"}}
 	data, err := s.post(ctx, target, header, []byte(spansQuery))
 	if err != nil {

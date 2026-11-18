@@ -181,7 +181,10 @@ func (s *Stack) WaitDeliveries(ctx context.Context, messageID string) ([]deliver
 		deliveries, err = s.deliveries.MessageDeliveries(ctx, id)
 		return len(deliveries) > 0 && !anyPending(deliveries), err
 	})
-	if err != nil {
+	switch {
+	case err != nil && ctx.Err() == nil:
+		return nil, err
+	case err != nil:
 		return deliveries, fmt.Errorf("message %s: %d Deliveries, waiting for all to finish: %w", messageID, len(deliveries), err)
 	}
 	return deliveries, nil

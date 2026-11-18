@@ -81,8 +81,8 @@ func TestSpanIsStoredInClickHouse(t *testing.T) {
 	ctx := stackContext(t)
 	// The trace ID is the test's own, so the span is found among any others.
 	span := e2e.Span{
-		TraceID:     randomHex(t, 16),
-		SpanID:      randomHex(t, 8),
+		TraceID:     randomHex(16),
+		SpanID:      randomHex(8),
 		Name:        "e2e.check",
 		ServiceName: "herald-e2e",
 		Attributes:  map[string]string{"herald.test": "TestSpanIsStoredInClickHouse"},
@@ -100,12 +100,9 @@ func TestSpanIsStoredInClickHouse(t *testing.T) {
 }
 
 // randomHex returns n random bytes in hex, as OTLP writes trace and span IDs.
-func randomHex(t *testing.T, n int) string {
-	t.Helper()
+func randomHex(n int) string {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatalf("random ID: %v", err)
-	}
+	rand.Read(b) // Never returns an error; it crashes the program instead.
 	return hex.EncodeToString(b)
 }
 
