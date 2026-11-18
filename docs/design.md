@@ -28,7 +28,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 ```
 
 - **herald-api** authenticates Tenants, manages Applications and Endpoints, accepts Messages, and works out each Message's Deliveries (event-type filter on each Endpoint). It writes the Message with `handed_off_at = NULL` in the same transaction. A relay claims rows that haven't been handed off (`FOR UPDATE SKIP LOCKED`), sends them in batches, and sets `handed_off_at` once a dispatcher replies. See [ADR 0002](adr/0002-two-services-outbox-nats-handoff.md). Each process runs one relay, which sends one batch at a time, and a dispatcher stores one batch at a time. So handoff stores at most as many batches at once as there are herald-api replicas, and dispatchers beyond that number add no handoff throughput (see Deferred).
-- **herald-dispatcher** stores the Deliveries it receives (`ON CONFLICT DO NOTHING`) and replies only after the commit. Workers claim Deliveries that are due (`next_attempt_at <= now()`, `SKIP LOCKED`) and make the Attempts. From M2 it also serves the internal gRPC `DeliveryService`, which herald-api calls on behalf of Tenants.
+- **herald-dispatcher** stores the Deliveries it receives (`ON CONFLICT DO NOTHING`) and replies only after the commit. Workers claim Deliveries that are due (`next_attempt_at <= now()`, `SKIP LOCKED`) and make the Attempts. From M3 it also serves the internal gRPC `DeliveryService`, which herald-api calls on behalf of Tenants.
 - **herald-admin** is an operator CLI that connects directly to the `ingest` schema (`tenant create`, `apikey create`).
 - Each service owns its schema's migrations. They are embedded with goose and run as a one-shot `migrate` step before the services start, never at startup.
 
@@ -39,7 +39,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 - **Success:** any `2xx` response within **15 s**. Anything else (other status codes, timeout, connection error) is retried.
 - **Retry schedule:** 8 Attempts, exponential backoff with jitter: immediately, 5 s, 1 m, 10 m, 1 h, 3 h, 6 h, 12 h (about 24 h in total).
 - **Delivery states:** `pending` → `succeeded` | `failed`. A failed Delivery keeps its full Attempt history (status code, latency, start of the response body).
-- **Replay** (M2): any Delivery, succeeded or failed, can be replayed through the API. A replay starts a fresh retry schedule with the same `webhook-id`.
+- **Replay** (M3): any Delivery, succeeded or failed, can be replayed through the API. A replay starts a fresh retry schedule with the same `webhook-id`.
 - **Retention:** Deliveries and Attempts are deleted after 30 days.
 
 ## Isolation
@@ -55,7 +55,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 - **Endpoint scheme:** Endpoint URLs must use `https`, checked when an Endpoint is created (`400`, `INVALID_ARGUMENT`, like any other invalid URL). Signing proves who sent a payload, but over plain `http` anyone on the path can read it, or answer `200` in the Endpoint's place. herald-dispatcher doesn't follow redirects, so an `https` Endpoint can't be downgraded.
 - **Local development:** `HERALD_ALLOW_INSECURE_ENDPOINTS=true` relaxes both rules above, in herald-api and herald-dispatcher, for the local stack and tests, whose Endpoints are on private addresses without TLS. It is off unless set, and production never sets it.
 - **Secrets at rest:** AES-GCM, with a key ID stored in each ciphertext and a keyring in config. Deliveries carry the encrypted copy, which the dispatcher decrypts just before signing.
-- **Signing-secret rotation** (M3): the new secret is added and the old one expires after 48 h (longer than the retry window). Deliveries are signed with every secret that hasn't expired, and replays use the Endpoint's current secrets.
+- **Signing-secret rotation** (M4): the new secret is added and the old one expires after 48 h (longer than the retry window). Deliveries are signed with every secret that hasn't expired, and replays use the Endpoint's current secrets.
 
 ## Limits and validation
 
@@ -88,7 +88,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 | Postgres | `pgx/v5` + sqlc, goose migrations embedded in the binaries |
 | Messaging | `nats.go` (core request-reply, queue groups) |
 | gRPC / REST | `google.golang.org/grpc`, grpc-gateway, `buf` |
-| Observability | OpenTelemetry traces (context passed in NATS headers), Prometheus metrics |
+| Observability | OpenTelemetry traces (context passed in NATS headers), stored in ClickHouse through the OpenTelemetry Collector ([ADR 0006](adr/0006-clickhouse-telemetry-store.md)); `net/http/pprof` |
 | Tests | standard `testing`, `go-cmp`, testcontainers-go |
 
 ## Testing
@@ -96,17 +96,40 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 - **Unit tests** for pure logic: routing and filters, the retry schedule, signing.
 - **Integration tests** with testcontainers-go against real Postgres and NATS. No mocks of either.
 - **End-to-end tests** run the full compose stack against a fake receiver that can be scripted to fail or slow down. They prove retries, duplicate protection and isolation.
+- **Behaviour comparison.** End-to-end tests check what Herald should do. The comparison checks what it does, and shows when that changes. A scenario of realistic use runs against the `main` build and the candidate build. Herald has no production traffic, so the scenario stands in for it, and it covers only the inputs it generates: it catches unintended changes in behaviour, not inputs nobody imagined. To cover as much as it can:
+  - **Generated traffic from a seed.** Applications, Endpoints with varied filters, and Messages with varied Event types, payload sizes and Idempotency-Keys are generated from a seed that each run records, so a run can be repeated exactly.
+  - **Endpoints that behave like real ones:** success, failures then success, slow responses, timeouts, connection resets, oversized or malformed responses, redirects, TLS errors, and Endpoints that flap.
+  - **Faults during the run:** a dispatcher restarted, NATS paused, Postgres slowed down.
+  - **Every bug becomes a case.** A fix for a bug that reached `main` adds the case that shows it to the scenario, so the scenario grows from what actually went wrong.
+
+  Two witnesses are compared:
+  - **The edge recording:** what the fake Endpoints received (Endpoint, headers, body, order, time since the Delivery's first Attempt) and each Delivery's final state. What varies between runs (IDs, timestamps, retry jitter) is normalised, and signatures are verified rather than compared byte for byte. It is taken outside Herald, so a change to Herald's instrumentation can't change it.
+  - **Telemetry statistics:** per run, from the spans: Attempts by outcome, retry timing, Attempt latency and handoff lag, each with a margin.
+
+  The expected results are committed. A difference fails the comparison unless the PR updates them, so an intended change shows up as a diff the reviewer approves, and a change that should alter nothing must leave them alone. Recordings keep whatever the recorded version did, bugs included: they show change, not correctness. "Replay" is a Delivery operation, so this feature avoids the word.
+- **Telemetry invariants,** checked after every scenario run: every accepted Message has a trace that reaches its Attempts, no span lacks its parent, no span records an unexpected error, handoff lag and how late each Attempt starts stay under fixed limits, and each service's goroutines return to their idle set (from the goroutine profile, compared by stack, which names the leak when it fails). Every check fails on missing data: a query that returns no rows, or rows without an expected attribute, is a failure, never a pass.
+- **Load tests** (`make loadtest`) run the scenario scaled up, with several replicas of each service, on demand. They don't run on PRs, where shared runners make timings too noisy to gate on. They settle the tuning questions under Deferred that wait on load.
+
+## Observability
+
+- Both services emit OpenTelemetry traces. A trace starts at the Tenant API call and follows the Message through the Outbox, the handoff (context carried in NATS headers) and every Attempt.
+- Each handoff and each Attempt is one wide span carrying everything known at that point: Tenant, Application, Endpoint, Message, Delivery, attempt number, outcome, status code, latency, Batch size, error and build version. A question nobody planned for is a new query, not new instrumentation.
+- The span schema (span names and attribute keys) is defined in one place, and a test fails when a service emits a span that doesn't match it. Renaming or dropping an attribute is a visible change, not a check that silently reads nothing.
+- The OpenTelemetry Collector writes spans to ClickHouse, where checks and people query them with SQL ([ADR 0006](adr/0006-clickhouse-telemetry-store.md)). There are no separately instrumented metrics: rates and distributions are queries over spans, and current state (Deliveries by state) is a query on Postgres.
+- Each scenario run sets a run ID and the build version as resource attributes, so the runs being compared share one store.
+- Each service serves `net/http/pprof` on an internal port, separate from the Tenant-facing ones. `make profile` captures CPU, heap and allocation profiles and an execution trace from both builds while the scenario runs, and diffs them (`go tool pprof -diff_base`). Profiles aren't a gate, because CPU time on a small, I/O-bound scenario is noise. They explain a difference the comparison found, or back a claim about performance.
+- Logs stay `log/slog` JSON with trace IDs.
 
 ## CI (GitHub Actions)
 
-On every PR: `golangci-lint`, `go test -race` (unit and integration), `buf lint` and `buf breaking` against `main`, a check that sqlc and protobuf generated code is up to date, and Docker image builds. End-to-end tests run on `main`.
+On every PR, and on `main` after each merge: `golangci-lint`, `go test -race` (unit and integration), `buf lint` and `buf breaking` against `main`, a check that sqlc and protobuf generated code is up to date, Docker image builds, and against the compose stack the end-to-end tests, the behaviour comparison and the telemetry invariants.
 
 ## Milestones
 
 1. **M1: Core delivery path.** Admin CLI (Tenant, API key). Tenant API for Applications, Endpoints and Messages, with idempotency keys. Outbox → NATS → dispatcher. Signed Attempts with retries and the per-Endpoint concurrency cap. Deliveries end up `succeeded` or `failed`. Structured logs. `docker compose up`, plus an end-to-end test.
-2. **M2: Delivery API and replay.** Internal gRPC `DeliveryService` through herald-api: status, Attempt history, replay. Retention job.
-3. **M3: Rotation.** Signing-secret rotation, and encryption-key rotation through the keyring.
-4. **M4: Observability.** OpenTelemetry tracing across api → NATS → dispatcher, Prometheus metrics (handoff lag, Attempt latency, Deliveries by state, how full each Endpoint's concurrency cap is), Jaeger and Prometheus in compose.
+2. **M2: Observability and behaviour comparison.** OpenTelemetry traces across api → NATS → dispatcher, stored in ClickHouse through the Collector, with a span schema the tests enforce. The scenario, its edge recording and telemetry statistics, compared between `main` and the candidate, and the telemetry invariants, on every PR. pprof on an internal port, `make profile`, and `make loadtest`, used to settle the tuning questions under Deferred that wait on load. Every later milestone is checked against this.
+3. **M3: Delivery API and replay.** Internal gRPC `DeliveryService` through herald-api: status, Attempt history, replay. Retention job.
+4. **M4: Rotation.** Signing-secret rotation, and encryption-key rotation through the keyring.
 5. **M5: Kubernetes.** kind and Kustomize manifests, migrations as a Job, `make kind-up`.
 
 ## Deferred
@@ -116,6 +139,9 @@ On every PR: `golangci-lint`, `go test -race` (unit and integration), `buf lint`
 - Re-encrypting stored secrets after an encryption-key rotation.
 - Tenant self-service and an admin API.
 - Ordered delivery.
-- Scaling handoff past one relay per herald-api replica. When handoff lag shows the relays can't keep up (M4), run several relays per process, each its own `outbox.Relay` with its own claim limit (`SKIP LOCKED` keeps their claims apart), behind a setting. Each relay holds a pooled database connection for up to the request timeout while it waits for a reply, so the pool must grow with it, and there must be at least as many dispatchers as relays across all replicas.
-- A setting for the number of delivery workers per dispatcher, fixed today at 32, a guess that no measurement backs. Make it configurable once load tests or M4 metrics show what to set it to.
-- Holding Endpoint claim locks for a whole claim. A dispatcher claims for all its due Endpoints in one transaction and holds each Endpoint's lock until that transaction ends. Another replica that finds an Endpoint locked skips it until its next round, up to 500 ms later. With few busy Endpoints and several replicas, those Endpoints' Deliveries could keep slipping by a round. To evaluate: a load test with several dispatcher replicas and a few busy Endpoints, measuring how late each Attempt starts after its Delivery falls due (M4 metrics). If the lateness shows, claim each Endpoint in its own transaction, which frees its lock right after its leases at the cost of a commit per Endpoint.
+- Scaling handoff past one relay per herald-api replica. When the load test shows handoff lag growing because the relays can't keep up, run several relays per process, each its own `outbox.Relay` with its own claim limit (`SKIP LOCKED` keeps their claims apart), behind a setting. Each relay holds a pooled database connection for up to the request timeout while it waits for a reply, so the pool must grow with it, and there must be at least as many dispatchers as relays across all replicas.
+- A setting for the number of delivery workers per dispatcher, fixed today at 32, a guess that no measurement backs. Make it configurable once the load test shows what to set it to.
+- Holding Endpoint claim locks for a whole claim. A dispatcher claims for all its due Endpoints in one transaction and holds each Endpoint's lock until that transaction ends. Another replica that finds an Endpoint locked skips it until its next round, up to 500 ms later. With few busy Endpoints and several replicas, those Endpoints' Deliveries could keep slipping by a round. To evaluate: a load test with several dispatcher replicas and a few busy Endpoints, measuring how late each Attempt starts after its Delivery falls due (from the Attempt spans). If the lateness shows, claim each Endpoint in its own transaction, which frees its lock right after its leases at the cost of a commit per Endpoint.
+- Grafana on ClickHouse, for browsing spans. Checks and ad hoc questions need only SQL.
+- Benchmarks for hot pure code (signing, filter matching, Batch encoding), once a profile or the load test shows a hot spot. An Attempt waits up to 15 s on the network; nothing yet shows these paths matter.
+- Continuous profiling, which pays off only with sustained traffic. Herald is run and read, not hosted.
