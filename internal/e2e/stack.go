@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -36,6 +35,12 @@ type Config struct {
 	// EndpointHost is the host name in the fake Endpoints' URLs: how
 	// herald-dispatcher reaches this process.
 	EndpointHost string
+	// OTLPURL is the Collector's OTLP/HTTP base URL, such as
+	// http://localhost:4318.
+	OTLPURL string
+	// ClickHouseURL is ClickHouse's HTTP interface, with its credentials,
+	// such as http://herald:herald@localhost:8123.
+	ClickHouseURL string
 }
 
 // ConfigFromEnv reads the Config for the compose stack from the environment,
@@ -47,6 +52,8 @@ type Config struct {
 //	HERALD_E2E_ENDPOINT_IP     the host address the fake Endpoints listen on,
 //	                           the one host.docker.internal reaches
 //	                           (default 127.0.0.1, as on Docker Desktop)
+//	HERALD_E2E_OTLP_URL        the Collector's OTLP/HTTP base URL
+//	HERALD_E2E_CLICKHOUSE_URL  ClickHouse's HTTP interface, with credentials
 //
 // herald-dispatcher reaches the fake Endpoints as host.docker.internal
 // (compose.yaml), on a port picked when they start.
@@ -56,27 +63,38 @@ func ConfigFromEnv(getenv func(string) string) (cfg Config, ok bool, err error) 
 		ip = "127.0.0.1"
 	}
 	cfg = Config{
-		APIURL:       getenv("HERALD_E2E_API_URL"),
-		DatabaseURL:  getenv("HERALD_E2E_DATABASE_URL"),
-		EndpointAddr: net.JoinHostPort(ip, "0"),
-		EndpointHost: "host.docker.internal",
+		APIURL:        getenv("HERALD_E2E_API_URL"),
+		DatabaseURL:   getenv("HERALD_E2E_DATABASE_URL"),
+		EndpointAddr:  net.JoinHostPort(ip, "0"),
+		EndpointHost:  "host.docker.internal",
+		OTLPURL:       getenv("HERALD_E2E_OTLP_URL"),
+		ClickHouseURL: getenv("HERALD_E2E_CLICKHOUSE_URL"),
 	}
 	if cfg.APIURL == "" {
 		return Config{}, false, nil
 	}
-	if cfg.DatabaseURL == "" {
-		return Config{}, false, errors.New("HERALD_E2E_DATABASE_URL is not set")
+	required := []struct{ name, value string }{
+		{"HERALD_E2E_DATABASE_URL", cfg.DatabaseURL},
+		{"HERALD_E2E_OTLP_URL", cfg.OTLPURL},
+		{"HERALD_E2E_CLICKHOUSE_URL", cfg.ClickHouseURL},
+	}
+	for _, r := range required {
+		if r.value == "" {
+			return Config{}, false, fmt.Errorf("%s is not set", r.name)
+		}
 	}
 	return cfg, true, nil
 }
 
 // Stack is a running Herald stack, with fake Endpoints for it to deliver to.
 type Stack struct {
-	apiURL     string
-	client     *http.Client
-	pool       *pgxpool.Pool
-	ingest     *ingest.Store
-	deliveries *delivery.Store
+	apiURL        string
+	otlpURL       string
+	clickHouseURL string
+	client        *http.Client
+	pool          *pgxpool.Pool
+	ingest        *ingest.Store
+	deliveries    *delivery.Store
 	// Endpoints serves the fake Endpoints that Tenants register.
 	Endpoints *endpointtest.Server
 }
@@ -98,12 +116,14 @@ func Connect(ctx context.Context, cfg Config) (*Stack, error) {
 		return nil, err
 	}
 	return &Stack{
-		apiURL:     cfg.APIURL,
-		client:     &http.Client{Timeout: 30 * time.Second},
-		pool:       pool,
-		ingest:     ingest.NewStore(pool),
-		deliveries: delivery.NewStore(pool),
-		Endpoints:  endpoints,
+		apiURL:        cfg.APIURL,
+		otlpURL:       cfg.OTLPURL,
+		clickHouseURL: cfg.ClickHouseURL,
+		client:        &http.Client{Timeout: 30 * time.Second},
+		pool:          pool,
+		ingest:        ingest.NewStore(pool),
+		deliveries:    delivery.NewStore(pool),
+		Endpoints:     endpoints,
 	}, nil
 }
 

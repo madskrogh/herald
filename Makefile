@@ -62,8 +62,10 @@ ifneq ($(strip $(GENERATED_DIRS)),)
 		exit 1; }
 endif
 
-# Per-checkout compose project name and ports. Generated on first use.
-.env:
+# Per-checkout compose project name and ports. Generated on first use, and
+# regenerated, in the same slot, when the script changes, so a checkout's
+# .env gains the ports of services added since.
+.env: scripts/worktree-env.sh
 	./scripts/worktree-env.sh
 
 # --build so the stack always runs this checkout's code and migrations.
@@ -87,6 +89,8 @@ e2e: .env
 		HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
 		HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
 		HERALD_E2E_ENDPOINT_IP="$(E2E_ENDPOINT_IP)" \
+		HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
+		HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
 		go test -race -count=1 ./internal/e2e/
 
 # Runs herald-admin against this checkout's stack.

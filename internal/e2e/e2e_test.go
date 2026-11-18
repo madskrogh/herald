@@ -2,6 +2,8 @@ package e2e_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"sync"
@@ -48,6 +50,18 @@ const waitTimeout = 2 * time.Minute
 // that bounds its waits and a Tenant of its own with one Application.
 func setup(t *testing.T) (context.Context, *e2e.Tenant, string) {
 	t.Helper()
+	ctx := stackContext(t)
+	tenant, err := stack.NewTenant(ctx, t.Name())
+	if err != nil {
+		t.Fatalf("NewTenant: %v", err)
+	}
+	return ctx, tenant, createApplication(ctx, t, tenant)
+}
+
+// stackContext skips the test unless a stack is configured, and returns a
+// context that bounds its waits.
+func stackContext(t *testing.T) context.Context {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("end-to-end")
 	}
@@ -56,11 +70,43 @@ func setup(t *testing.T) (context.Context, *e2e.Tenant, string) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), waitTimeout)
 	t.Cleanup(cancel)
-	tenant, err := stack.NewTenant(ctx, t.Name())
-	if err != nil {
-		t.Fatalf("NewTenant: %v", err)
+	return ctx
+}
+
+// TestSpanIsStoredInClickHouse sends a span to the stack's Collector and
+// reads it back from ClickHouse, in the exporter's table that the telemetry
+// checks query.
+func TestSpanIsStoredInClickHouse(t *testing.T) {
+	t.Parallel()
+	ctx := stackContext(t)
+	// The trace ID is the test's own, so the span is found among any others.
+	span := e2e.Span{
+		TraceID:     randomHex(t, 16),
+		SpanID:      randomHex(t, 8),
+		Name:        "e2e.check",
+		ServiceName: "herald-e2e",
+		Attributes:  map[string]string{"herald.test": "TestSpanIsStoredInClickHouse"},
 	}
-	return ctx, tenant, createApplication(ctx, t, tenant)
+	if err := stack.SendSpan(ctx, span); err != nil {
+		t.Fatalf("SendSpan: %v", err)
+	}
+	got, err := stack.WaitSpans(ctx, span.TraceID)
+	if err != nil {
+		t.Fatalf("WaitSpans: %v", err)
+	}
+	if diff := cmp.Diff([]e2e.Span{span}, got); diff != "" {
+		t.Errorf("spans in trace %s (-want +got):\n%s", span.TraceID, diff)
+	}
+}
+
+// randomHex returns n random bytes in hex, as OTLP writes trace and span IDs.
+func randomHex(t *testing.T, n int) string {
+	t.Helper()
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatalf("random ID: %v", err)
+	}
+	return hex.EncodeToString(b)
 }
 
 func TestMessageIsDeliveredSigned(t *testing.T) {

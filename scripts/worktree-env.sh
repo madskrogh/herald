@@ -7,25 +7,34 @@
 # Compose can't do arithmetic in variable interpolation, so the ports are
 # computed here and written out in full.
 #
-# Run through `make .env` (a prerequisite of `make up`). Does nothing if .env exists.
+# Run through `make .env` (a prerequisite of `make up`), which runs it again
+# when this script changes. An existing .env keeps its project name and slot,
+# so a running stack keeps its ports, and gains the ports added since.
 set -euo pipefail
 
 top=$(git rev-parse --show-toplevel)
 cd "$top"
-[[ -f .env ]] && exit 0
 
 # The first entry of `git worktree list` is always the main checkout.
 worktrees=$(git worktree list --porcelain | sed -n 's/^worktree //p')
 main=$(head -n1 <<<"$worktrees")
 
-if [[ "$top" == "$main" ]]; then
+slot=
+project=
+if [[ -f .env ]]; then
+  slot=$(sed -n 's/^HERALD_SLOT=//p' .env)
+  project=$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env)
+fi
+
+if [[ -n "$slot" && -n "$project" ]]; then
+  : # Keep them.
+elif [[ "$top" == "$main" ]]; then
   slot=0
   project=herald
 else
   used=$(while IFS= read -r wt; do
     if [[ -f "$wt/.env" ]]; then sed -n 's/^HERALD_SLOT=//p' "$wt/.env"; fi
   done <<<"$worktrees")
-  slot=
   for s in 1 2 3 4 5 6 7 8 9; do
     if ! grep -qx "$s" <<<"$used"; then slot=$s; break; fi
   done
@@ -48,5 +57,8 @@ HERALD_NATS_PORT=$((4222 + offset))
 HERALD_NATS_MONITOR_PORT=$((8222 + offset))
 HERALD_API_HTTP_PORT=$((8080 + offset))
 HERALD_API_GRPC_PORT=$((9090 + offset))
+HERALD_OTLP_GRPC_PORT=$((4317 + offset))
+HERALD_OTLP_HTTP_PORT=$((4318 + offset))
+HERALD_CLICKHOUSE_HTTP_PORT=$((8123 + offset))
 EOF
 echo "worktree-env: wrote .env ($project, slot $slot)"
