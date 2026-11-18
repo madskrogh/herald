@@ -88,7 +88,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 | Postgres | `pgx/v5` + sqlc, goose migrations embedded in the binaries |
 | Messaging | `nats.go` (core request-reply, queue groups) |
 | gRPC / REST | `google.golang.org/grpc`, grpc-gateway, `buf` |
-| Observability | OpenTelemetry traces (context passed in NATS headers), stored in ClickHouse through the OpenTelemetry Collector ([ADR 0006](adr/0006-clickhouse-telemetry-store.md)); `net/http/pprof` |
+| Observability | OpenTelemetry traces (each Message's context stored with it and carried in the Batch), stored in ClickHouse through the OpenTelemetry Collector ([ADR 0006](adr/0006-clickhouse-telemetry-store.md)); `net/http/pprof` |
 | Tests | standard `testing`, `go-cmp`, testcontainers-go |
 
 ## Testing
@@ -96,7 +96,7 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 - **Unit tests** for pure logic: routing and filters, the retry schedule, signing.
 - **Integration tests** with testcontainers-go against real Postgres and NATS. No mocks of either.
 - **End-to-end tests** run the full compose stack against a fake receiver that can be scripted to fail or slow down. They prove retries, duplicate protection and isolation.
-- **Behaviour comparison.** End-to-end tests check what Herald should do. The comparison checks what it does, and shows when that changes. A scenario of realistic use runs against the `main` build and the candidate build. Herald has no production traffic, so the scenario stands in for it, and it covers only the inputs it generates: it catches unintended changes in behaviour, not inputs nobody imagined. To cover as much as it can:
+- **Behaviour comparison.** End-to-end tests check what Herald should do. The comparison checks what it does, and shows when that changes. A scenario of realistic use runs against the candidate build, and against the `main` build where timing is compared. Herald has no production traffic, so the scenario stands in for it, and it covers only the inputs it generates: it catches unintended changes in behaviour, not inputs nobody imagined. To cover as much as it can:
   - **Generated traffic from a seed.** Applications, Endpoints with varied filters, and Messages with varied Event types, payload sizes and Idempotency-Keys are generated from a seed that each run records, so a run can be repeated exactly.
   - **Endpoints that behave like real ones:** success, failures then success, slow responses, timeouts, connection resets, oversized or malformed responses, redirects, TLS errors, and Endpoints that flap.
   - **Faults during the run:** a dispatcher restarted, NATS paused, Postgres slowed down.
@@ -104,15 +104,16 @@ Tenant ──REST/gRPC──▶ herald-api ──NATS request-reply──▶ her
 
   Two witnesses are compared:
   - **The edge recording:** what the fake Endpoints received (Endpoint, headers, body, order, time since the Delivery's first Attempt) and each Delivery's final state. What varies between runs (IDs, timestamps, retry jitter) is normalised, and signatures are verified rather than compared byte for byte. It is taken outside Herald, so a change to Herald's instrumentation can't change it.
-  - **Telemetry statistics:** per run, from the spans: Attempts by outcome, retry timing, Attempt latency and handoff lag, each with a margin.
+  - **Telemetry statistics:** per run, from the spans: Attempts by outcome, retry timing, Attempt latency and handoff lag.
 
-  The expected results are committed. A difference fails the comparison unless the PR updates them, so an intended change shows up as a diff the reviewer approves, and a change that should alter nothing must leave them alone. Recordings keep whatever the recorded version did, bugs included: they show change, not correctness. "Replay" is a Delivery operation, so this feature avoids the word.
+  What doesn't depend on the machine (the edge recording and counts such as Attempts by outcome) is compared with committed baselines. A difference fails the comparison unless the PR updates them, so an intended change shows up as a diff the reviewer approves, and a change that should alter nothing must leave them alone. Timing (retry timing, latency, lag) depends on the machine, and a baseline recorded elsewhere would need margins too wide to catch a regression. So timing is compared with a run of the `main` build on the same runner at the same time, each statistic within a margin. Recordings keep whatever the recorded version did, bugs included: they show change, not correctness. "Replay" is a Delivery operation, so this feature avoids the word.
 - **Telemetry invariants,** checked after every scenario run: every accepted Message has a trace that reaches its Attempts, no span lacks its parent, no span records an unexpected error, handoff lag and how late each Attempt starts stay under fixed limits, and each service's goroutines return to their idle set (from the goroutine profile, compared by stack, which names the leak when it fails). Every check fails on missing data: a query that returns no rows, or rows without an expected attribute, is a failure, never a pass.
 - **Load tests** (`make loadtest`) run the scenario scaled up, with several replicas of each service, on demand. They don't run on PRs, where shared runners make timings too noisy to gate on. They settle the tuning questions under Deferred that wait on load.
 
 ## Observability
 
-- Both services emit OpenTelemetry traces. A trace starts at the Tenant API call and follows the Message through the Outbox, the handoff (context carried in NATS headers) and every Attempt.
+- Both services emit OpenTelemetry traces. A trace starts at the Tenant API call and follows the Message through the Outbox, the handoff and every Attempt, so one Message's whole journey is one trace tree.
+- The Outbox and the Deliveries hold work in Postgres, where a request's context is lost: a relay claims a Message later, and a worker makes an Attempt seconds or up to a day later, possibly on another replica. So the Message row and each Delivery row keep the trace context (`traceparent`) they were created under. A Batch holds Messages from many traces, so each Message carries its own context in the Batch, and the handoff span links to each Message's span rather than having one parent.
 - Each handoff and each Attempt is one wide span carrying everything known at that point: Tenant, Application, Endpoint, Message, Delivery, attempt number, outcome, status code, latency, Batch size, error and build version. A question nobody planned for is a new query, not new instrumentation.
 - The span schema (span names and attribute keys) is defined in one place, and a test fails when a service emits a span that doesn't match it. Renaming or dropping an attribute is a visible change, not a check that silently reads nothing.
 - The OpenTelemetry Collector writes spans to ClickHouse, where checks and people query them with SQL ([ADR 0006](adr/0006-clickhouse-telemetry-store.md)). There are no separately instrumented metrics: rates and distributions are queries over spans, and current state (Deliveries by state) is a query on Postgres.
@@ -127,7 +128,7 @@ On every PR, and on `main` after each merge: `golangci-lint`, `go test -race` (u
 ## Milestones
 
 1. **M1: Core delivery path.** Admin CLI (Tenant, API key). Tenant API for Applications, Endpoints and Messages, with idempotency keys. Outbox → NATS → dispatcher. Signed Attempts with retries and the per-Endpoint concurrency cap. Deliveries end up `succeeded` or `failed`. Structured logs. `docker compose up`, plus an end-to-end test.
-2. **M2: Observability and behaviour comparison.** OpenTelemetry traces across api → NATS → dispatcher, stored in ClickHouse through the Collector, with a span schema the tests enforce. The scenario, its edge recording and telemetry statistics, compared between `main` and the candidate, and the telemetry invariants, on every PR. pprof on an internal port, `make profile`, and `make loadtest`, used to settle the tuning questions under Deferred that wait on load. Every later milestone is checked against this.
+2. **M2: Observability and behaviour comparison.** OpenTelemetry traces across api → NATS → dispatcher, stored in ClickHouse through the Collector, with a span schema the tests enforce. Trace context stored with each Message and Delivery, so a Message's journey is one trace tree. The scenario, its edge recording and counts compared with committed baselines, its timing compared with a `main` run on the same runner, and the telemetry invariants, on every PR. pprof on an internal port, `make profile`, and `make loadtest`, used to settle the tuning questions under Deferred that wait on load. Every later milestone is checked against this.
 3. **M3: Delivery API and replay.** Internal gRPC `DeliveryService` through herald-api: status, Attempt history, replay. Retention job.
 4. **M4: Rotation.** Signing-secret rotation, and encryption-key rotation through the keyring.
 5. **M5: Kubernetes.** kind and Kustomize manifests, migrations as a Job, `make kind-up`.
