@@ -93,7 +93,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 	}
 }
 
-// settings is the service's configuration.
+// settings is the service's configuration: the settings shared with the
+// other service, and its own.
 type settings struct {
 	shared   config.Shared
 	grpcAddr string

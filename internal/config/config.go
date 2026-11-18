@@ -37,10 +37,7 @@ func Load(getenv func(string) string) (Shared, error) {
 	if err != nil {
 		return Shared{}, err
 	}
-	cfg := Shared{
-		DatabaseURL: dbURL,
-		NATSURL:     getenv("HERALD_NATS_URL"),
-	}
+	cfg := Shared{DatabaseURL: dbURL}
 	keys := getenv("HERALD_KEYRING")
 	if keys == "" {
 		return Shared{}, errors.New("HERALD_KEYRING is not set")
@@ -50,6 +47,7 @@ func Load(getenv func(string) string) (Shared, error) {
 		return Shared{}, fmt.Errorf("HERALD_KEYRING: %w", err)
 	}
 	cfg.Keyring = kr
+	cfg.NATSURL = getenv("HERALD_NATS_URL")
 	if cfg.NATSURL == "" {
 		return Shared{}, errors.New("HERALD_NATS_URL is not set")
 	}
