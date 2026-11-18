@@ -28,7 +28,7 @@ type Config struct {
 	APIURL string
 	// DatabaseURL connects to the stack's Postgres. Tenants and API keys are
 	// created there, as herald-admin does, and Deliveries are read there
-	// until the Delivery API exists (M2).
+	// until the Delivery API exists (M3).
 	DatabaseURL string
 	// EndpointAddr is the address the fake Endpoints listen on. It must be
 	// reachable from herald-dispatcher's container.
