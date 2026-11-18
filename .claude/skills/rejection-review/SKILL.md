@@ -28,7 +28,7 @@ Give it only:
 
 Don't pass the rest of the author's reasoning or the conversation; independence is the point.
 
-The brief: "For each rejection, read the code it concerns and answer **Upheld** (the reason holds) or **Disputed** (it doesn't), with why, citing the code, the issue or a documented standard. Judge the reason, not whether you would have written the code differently. Check any factual claim the reason rests on ("the reference implementation does the same", "this input is never user-controlled") rather than taking it as given. Under 300 words."
+The brief: "For each rejection, read the code it concerns and answer **Upheld** (the reason holds) or **Disputed** (it doesn't), with why, citing the code, the issue or a documented standard. Judge the reason, not whether you would have written the code differently. Check any factual claim the reason rests on ("the reference implementation does the same", "this input is never user-controlled") rather than taking it as given. For a rejection that rests on a rule, say whether the rule's purpose is met in this code. A rejection that shows only that the letter is met is Disputed. Under 300 words."
 
 ### 3. Act on the verdicts
 
