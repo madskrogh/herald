@@ -75,22 +75,8 @@ func TestRunUsageErrors(t *testing.T) {
 			wantErr: `migrate: unexpected argument "down"`,
 		},
 		{
-			name:    "serve without a database URL",
-			env:     map[string]string{"HERALD_KEYRING": testKeyring},
-			wantErr: "HERALD_DATABASE_URL is not set",
-		},
-		{
-			name:    "serve without a keyring",
-			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused"},
-			wantErr: "HERALD_KEYRING is not set",
-		},
-		{
-			// The error names the key but must not show it.
-			name:    "serve with an invalid keyring",
-			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": "test:c2VjcmV0"},
-			wantErr: `HERALD_KEYRING: keyring entry 0: key "test" has 6 bytes, want 32`,
-		},
-		{
+			// The shared settings are checked in internal/config; this case
+			// checks that serving reads them.
 			name:    "serve without a NATS URL",
 			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": testKeyring},
 			wantErr: "HERALD_NATS_URL is not set",
