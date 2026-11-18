@@ -1,0 +1,39 @@
+# The OpenTelemetry Collector for the local stack: spans in over OTLP, out to
+# ClickHouse (docs/adr/0006-clickhouse-telemetry-store.md). Traces only:
+# Herald has no separately instrumented metrics, and its logs stay JSON.
+
+extensions:
+  # Compose's health check asks this from inside the container (see the
+  # Dockerfile).
+  health_check:
+    endpoint: localhost:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  # Creates the database and the otel_traces table that the telemetry checks
+  # query. Their layout is the exporter's, fixed by the image's version.
+  clickhouse:
+    endpoint: tcp://clickhouse:9000?dial_timeout=10s
+    username: herald
+    password: herald
+    database: otel
+    create_schema: true
+    traces_table_name: otel_traces
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [clickhouse]

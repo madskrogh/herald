@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -36,6 +35,12 @@ type Config struct {
 	// EndpointHost is the host name in the fake Endpoints' URLs: how
 	// herald-dispatcher reaches this process.
 	EndpointHost string
+	// OTLPURL is the Collector's OTLP/HTTP base URL, such as
+	// http://localhost:4318.
+	OTLPURL string
+	// ClickHouseURL is ClickHouse's HTTP interface, with its credentials,
+	// such as http://herald:herald@localhost:8123.
+	ClickHouseURL string
 }
 
 // ConfigFromEnv reads the Config for the compose stack from the environment,
@@ -47,6 +52,8 @@ type Config struct {
 //	HERALD_E2E_ENDPOINT_IP     the host address the fake Endpoints listen on,
 //	                           the one host.docker.internal reaches
 //	                           (default 127.0.0.1, as on Docker Desktop)
+//	HERALD_E2E_OTLP_URL        the Collector's OTLP/HTTP base URL
+//	HERALD_E2E_CLICKHOUSE_URL  ClickHouse's HTTP interface, with credentials
 //
 // herald-dispatcher reaches the fake Endpoints as host.docker.internal
 // (compose.yaml), on a port picked when they start.
@@ -56,27 +63,38 @@ func ConfigFromEnv(getenv func(string) string) (cfg Config, ok bool, err error) 
 		ip = "127.0.0.1"
 	}
 	cfg = Config{
-		APIURL:       getenv("HERALD_E2E_API_URL"),
-		DatabaseURL:  getenv("HERALD_E2E_DATABASE_URL"),
-		EndpointAddr: net.JoinHostPort(ip, "0"),
-		EndpointHost: "host.docker.internal",
+		APIURL:        getenv("HERALD_E2E_API_URL"),
+		DatabaseURL:   getenv("HERALD_E2E_DATABASE_URL"),
+		EndpointAddr:  net.JoinHostPort(ip, "0"),
+		EndpointHost:  "host.docker.internal",
+		OTLPURL:       getenv("HERALD_E2E_OTLP_URL"),
+		ClickHouseURL: getenv("HERALD_E2E_CLICKHOUSE_URL"),
 	}
 	if cfg.APIURL == "" {
 		return Config{}, false, nil
 	}
-	if cfg.DatabaseURL == "" {
-		return Config{}, false, errors.New("HERALD_E2E_DATABASE_URL is not set")
+	required := []struct{ name, value string }{
+		{"HERALD_E2E_DATABASE_URL", cfg.DatabaseURL},
+		{"HERALD_E2E_OTLP_URL", cfg.OTLPURL},
+		{"HERALD_E2E_CLICKHOUSE_URL", cfg.ClickHouseURL},
+	}
+	for _, r := range required {
+		if r.value == "" {
+			return Config{}, false, fmt.Errorf("%s is not set", r.name)
+		}
 	}
 	return cfg, true, nil
 }
 
 // Stack is a running Herald stack, with fake Endpoints for it to deliver to.
 type Stack struct {
-	apiURL     string
-	client     *http.Client
-	pool       *pgxpool.Pool
-	ingest     *ingest.Store
-	deliveries *delivery.Store
+	apiURL        string
+	otlpURL       string
+	clickHouseURL string
+	client        *http.Client
+	pool          *pgxpool.Pool
+	ingest        *ingest.Store
+	deliveries    *delivery.Store
 	// Endpoints serves the fake Endpoints that Tenants register.
 	Endpoints *endpointtest.Server
 }
@@ -98,12 +116,14 @@ func Connect(ctx context.Context, cfg Config) (*Stack, error) {
 		return nil, err
 	}
 	return &Stack{
-		apiURL:     cfg.APIURL,
-		client:     &http.Client{Timeout: 30 * time.Second},
-		pool:       pool,
-		ingest:     ingest.NewStore(pool),
-		deliveries: delivery.NewStore(pool),
-		Endpoints:  endpoints,
+		apiURL:        cfg.APIURL,
+		otlpURL:       cfg.OTLPURL,
+		clickHouseURL: cfg.ClickHouseURL,
+		client:        &http.Client{Timeout: 30 * time.Second},
+		pool:          pool,
+		ingest:        ingest.NewStore(pool),
+		deliveries:    delivery.NewStore(pool),
+		Endpoints:     endpoints,
 	}, nil
 }
 
@@ -126,9 +146,27 @@ func (s *Stack) NewTenant(ctx context.Context, name string) (*Tenant, error) {
 	return &Tenant{stack: s, apiKey: key}, nil
 }
 
-// pollInterval is how often WaitDeliveries reads the Deliveries. The stack
-// runs in other processes, so there is nothing to wait on but their state.
+// pollInterval is how often poll checks the stack's state. The stack runs in
+// other processes, so there is nothing to wait on but their state.
 const pollInterval = 100 * time.Millisecond
+
+// poll calls check every pollInterval until it reports done or fails, or
+// ctx ends.
+func poll(ctx context.Context, check func() (done bool, err error)) error {
+	tick := time.NewTicker(pollInterval)
+	defer tick.Stop()
+	for {
+		done, err := check()
+		if err != nil || done {
+			return err
+		}
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
+	}
+}
 
 // WaitDeliveries waits until the Message with the given ID has Deliveries
 // and none of them is pending, and returns them, ordered by ID.
@@ -137,22 +175,19 @@ func (s *Stack) WaitDeliveries(ctx context.Context, messageID string) ([]deliver
 	if err != nil {
 		return nil, fmt.Errorf("message ID %q: %w", messageID, err)
 	}
-	tick := time.NewTicker(pollInterval)
-	defer tick.Stop()
-	for {
-		deliveries, err := s.deliveries.MessageDeliveries(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if len(deliveries) > 0 && !anyPending(deliveries) {
-			return deliveries, nil
-		}
-		select {
-		case <-tick.C:
-		case <-ctx.Done():
-			return deliveries, fmt.Errorf("message %s: %d Deliveries, waiting for all to finish: %w", messageID, len(deliveries), context.Cause(ctx))
-		}
+	var deliveries []delivery.Delivery
+	err = poll(ctx, func() (bool, error) {
+		var err error
+		deliveries, err = s.deliveries.MessageDeliveries(ctx, id)
+		return len(deliveries) > 0 && !anyPending(deliveries), err
+	})
+	switch {
+	case err != nil && ctx.Err() == nil:
+		return nil, err
+	case err != nil:
+		return deliveries, fmt.Errorf("message %s: %d Deliveries, waiting for all to finish: %w", messageID, len(deliveries), err)
 	}
+	return deliveries, nil
 }
 
 func anyPending(deliveries []delivery.Delivery) bool {
@@ -221,29 +256,41 @@ func (t *Tenant) call(ctx context.Context, path string, body any, header http.He
 	if err != nil {
 		return fmt.Errorf("POST %s: encode request: %w", path, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.stack.apiURL+path, bytes.NewReader(data))
+	header = header.Clone()
+	if header == nil {
+		header = http.Header{}
+	}
+	header.Set("Authorization", "Bearer "+t.apiKey)
+	header.Set("Content-Type", "application/json")
+	data, err = t.stack.post(ctx, t.stack.apiURL+path, header, data)
 	if err != nil {
 		return fmt.Errorf("POST %s: %w", path, err)
-	}
-	for k, v := range header {
-		req.Header[k] = v
-	}
-	req.Header.Set("Authorization", "Bearer "+t.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	res, err := t.stack.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("POST %s: %w", path, err)
-	}
-	defer res.Body.Close()
-	data, err = io.ReadAll(res.Body)
-	if err != nil {
-		return fmt.Errorf("POST %s: read response: %w", path, err)
-	}
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("POST %s: %s: %s", path, res.Status, data)
 	}
 	if err := json.Unmarshal(data, resp); err != nil {
 		return fmt.Errorf("POST %s: decode response: %w", path, err)
 	}
 	return nil
+}
+
+// post POSTs body to target with the given header, and returns the response
+// body, or an error for any status but 200 OK.
+func (s *Stack) post(ctx context.Context, target string, header http.Header, body []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header = header
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", res.Status, data)
+	}
+	return data, nil
 }

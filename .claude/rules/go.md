@@ -19,6 +19,7 @@ Follow Effective Go and the Go Code Review Comments wiki. On top of those:
   - DDL on identifiers in test helpers (`CREATE DATABASE` for a test's own database). Identifiers can't be query parameters.
   - Fixed bootstrap statements in the migrate step (`CREATE SCHEMA`, the advisory lock around the migrations): literals with no values in them.
   - A test that checks how a row is stored when the package's API deliberately can't show it (only a hash of an API key is stored): a fixed, read-only `SELECT`.
+- A method with no production caller is allowed only when it was agreed as a test seam, and its doc comment says tests use it.
 - Use the domain terms from `GLOSSARY.md` in identifiers: `Delivery`, `Attempt`, `Endpoint`, never `job`, `try`, `target`.
 
 ## Layout
