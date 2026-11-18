@@ -84,6 +84,8 @@ endif
 
 # Runs the end-to-end tests against this checkout's stack, started with
 # `make up`. Without these variables the tests skip, as in `make test`.
+# RUN selects tests as go test's -run does; without it, all of them run.
+# Usage: make e2e RUN=TestSpanIsStoredInClickHouse
 e2e: .env
 	@. ./.env && \
 		HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
@@ -91,7 +93,7 @@ e2e: .env
 		HERALD_E2E_ENDPOINT_IP="$(E2E_ENDPOINT_IP)" \
 		HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
 		HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
-		go test -race -count=1 ./internal/e2e/
+		go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
 
 # Runs herald-admin against this checkout's stack.
 # Usage: make admin ARGS='tenant create --name Acme'
