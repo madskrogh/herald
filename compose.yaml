@@ -113,8 +113,9 @@ services:
   # Receives spans over OTLP and writes them to ClickHouse.
   otelcol:
     build: deploy/otelcol
+    # Services in the stack reach it on the compose network; this port is
+    # for spans sent from the host, as the end-to-end tests do.
     ports:
-      - "127.0.0.1:${HERALD_OTLP_GRPC_PORT:-4317}:4317"
       - "127.0.0.1:${HERALD_OTLP_HTTP_PORT:-4318}:4318"
     healthcheck:
       test: ["CMD", "/bin/wget", "-q", "-O", "/dev/null", "http://localhost:13133/"]
@@ -128,7 +129,7 @@ services:
   # The telemetry store: one row per span, queried with SQL over HTTP. The
   # Collector creates its tables.
   clickhouse:
-    image: clickhouse/clickhouse-server:26.8-alpine
+    image: clickhouse/clickhouse-server:26.8.40.7-alpine
     environment:
       CLICKHOUSE_USER: herald
       CLICKHOUSE_PASSWORD: herald

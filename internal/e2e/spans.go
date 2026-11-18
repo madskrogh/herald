@@ -6,7 +6,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -51,8 +50,8 @@ func (s *Stack) SendSpan(ctx context.Context, span Span) error {
 	if err != nil {
 		return fmt.Errorf("send span: encode: %w", err)
 	}
-	_, err = s.post(ctx, s.otlpURL+"/v1/traces", "application/json", body)
-	if err != nil {
+	header := http.Header{"Content-Type": {"application/json"}}
+	if _, err := s.post(ctx, s.otlpURL+"/v1/traces", header, body); err != nil {
 		return fmt.Errorf("send span: %w", err)
 	}
 	return nil
@@ -68,28 +67,23 @@ var spansQuery string
 // ID, and returns them, ordered by span ID. The Collector batches spans
 // before it exports them, so they arrive a moment after they are sent.
 func (s *Stack) WaitSpans(ctx context.Context, traceID string) ([]Span, error) {
-	tick := time.NewTicker(pollInterval)
-	defer tick.Stop()
-	for {
-		spans, err := s.traceSpans(ctx, traceID)
-		if err != nil {
-			return nil, err
-		}
-		if len(spans) > 0 {
-			return spans, nil
-		}
-		select {
-		case <-tick.C:
-		case <-ctx.Done():
-			return nil, fmt.Errorf("trace %s: waiting for its spans: %w", traceID, context.Cause(ctx))
-		}
+	var spans []Span
+	err := poll(ctx, func() (bool, error) {
+		var err error
+		spans, err = s.traceSpans(ctx, traceID)
+		return len(spans) > 0, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("trace %s: waiting for its spans: %w", traceID, err)
 	}
+	return spans, nil
 }
 
 // traceSpans reads the spans of one trace from ClickHouse.
 func (s *Stack) traceSpans(ctx context.Context, traceID string) ([]Span, error) {
-	u := s.clickHouseURL + "/?" + url.Values{"param_trace_id": {traceID}}.Encode()
-	data, err := s.post(ctx, u, "text/plain", []byte(spansQuery))
+	target := s.clickHouseURL + "/?" + url.Values{"param_trace_id": {traceID}}.Encode()
+	header := http.Header{"Content-Type": {"text/plain"}}
+	data, err := s.post(ctx, target, header, []byte(spansQuery))
 	if err != nil {
 		return nil, fmt.Errorf("query trace %s: %w", traceID, err)
 	}
@@ -115,29 +109,6 @@ func (s *Stack) traceSpans(ctx context.Context, traceID string) ([]Span, error) 
 		})
 	}
 	return spans, nil
-}
-
-// post POSTs body to url and returns the response body, or an error for any
-// status but 200 OK.
-func (s *Stack) post(ctx context.Context, url, contentType string, body []byte) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", contentType)
-	res, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", res.Status, data)
-	}
-	return data, nil
 }
 
 // The OTLP/JSON encoding of an export request, as much of it as SendSpan

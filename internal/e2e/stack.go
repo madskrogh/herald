@@ -146,9 +146,27 @@ func (s *Stack) NewTenant(ctx context.Context, name string) (*Tenant, error) {
 	return &Tenant{stack: s, apiKey: key}, nil
 }
 
-// pollInterval is how often WaitDeliveries reads the Deliveries. The stack
-// runs in other processes, so there is nothing to wait on but their state.
+// pollInterval is how often poll checks the stack's state. The stack runs in
+// other processes, so there is nothing to wait on but their state.
 const pollInterval = 100 * time.Millisecond
+
+// poll calls check every pollInterval until it reports done or fails, or
+// ctx ends.
+func poll(ctx context.Context, check func() (done bool, err error)) error {
+	tick := time.NewTicker(pollInterval)
+	defer tick.Stop()
+	for {
+		done, err := check()
+		if err != nil || done {
+			return err
+		}
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
+	}
+}
 
 // WaitDeliveries waits until the Message with the given ID has Deliveries
 // and none of them is pending, and returns them, ordered by ID.
@@ -157,22 +175,16 @@ func (s *Stack) WaitDeliveries(ctx context.Context, messageID string) ([]deliver
 	if err != nil {
 		return nil, fmt.Errorf("message ID %q: %w", messageID, err)
 	}
-	tick := time.NewTicker(pollInterval)
-	defer tick.Stop()
-	for {
-		deliveries, err := s.deliveries.MessageDeliveries(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if len(deliveries) > 0 && !anyPending(deliveries) {
-			return deliveries, nil
-		}
-		select {
-		case <-tick.C:
-		case <-ctx.Done():
-			return deliveries, fmt.Errorf("message %s: %d Deliveries, waiting for all to finish: %w", messageID, len(deliveries), context.Cause(ctx))
-		}
+	var deliveries []delivery.Delivery
+	err = poll(ctx, func() (bool, error) {
+		var err error
+		deliveries, err = s.deliveries.MessageDeliveries(ctx, id)
+		return len(deliveries) > 0 && !anyPending(deliveries), err
+	})
+	if err != nil {
+		return deliveries, fmt.Errorf("message %s: %d Deliveries, waiting for all to finish: %w", messageID, len(deliveries), err)
 	}
+	return deliveries, nil
 }
 
 func anyPending(deliveries []delivery.Delivery) bool {
@@ -241,29 +253,41 @@ func (t *Tenant) call(ctx context.Context, path string, body any, header http.He
 	if err != nil {
 		return fmt.Errorf("POST %s: encode request: %w", path, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.stack.apiURL+path, bytes.NewReader(data))
+	header = header.Clone()
+	if header == nil {
+		header = http.Header{}
+	}
+	header.Set("Authorization", "Bearer "+t.apiKey)
+	header.Set("Content-Type", "application/json")
+	data, err = t.stack.post(ctx, t.stack.apiURL+path, header, data)
 	if err != nil {
 		return fmt.Errorf("POST %s: %w", path, err)
-	}
-	for k, v := range header {
-		req.Header[k] = v
-	}
-	req.Header.Set("Authorization", "Bearer "+t.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	res, err := t.stack.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("POST %s: %w", path, err)
-	}
-	defer res.Body.Close()
-	data, err = io.ReadAll(res.Body)
-	if err != nil {
-		return fmt.Errorf("POST %s: read response: %w", path, err)
-	}
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("POST %s: %s: %s", path, res.Status, data)
 	}
 	if err := json.Unmarshal(data, resp); err != nil {
 		return fmt.Errorf("POST %s: decode response: %w", path, err)
 	}
 	return nil
+}
+
+// post POSTs body to target with the given header, and returns the response
+// body, or an error for any status but 200 OK.
+func (s *Stack) post(ctx context.Context, target string, header http.Header, body []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header = header
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", res.Status, data)
+	}
+	return data, nil
 }
