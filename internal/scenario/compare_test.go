@@ -136,7 +136,7 @@ func baseline() scenario.Recording {
 		return map[string]string{"Content-Type": "application/json", "User-Agent": "Herald", "Webhook-Id": message}
 	}
 	return scenario.Recording{
-		Seed: 1,
+		Seed:   1,
 		Faults: []scenario.FaultRecord{{Fault: scenario.PostgresSlowed, Late: true}},
 		Messages: []scenario.MessageRecord{
 			{Name: "m001", Outcome: "accepted"},
