@@ -20,6 +20,8 @@
 //	                      "true" accepts Endpoint URLs with the http scheme,
 //	                      not only https; for the local stack and tests only
 //	                      (default false)
+//	HERALD_PPROF_ADDR     internal address net/http/pprof is served on; never
+//	                      a Tenant-facing one (default: pprof not served)
 package main
 
 import (
@@ -44,6 +46,7 @@ import (
 	"github.com/madskrogh/herald/internal/handoff"
 	"github.com/madskrogh/herald/internal/ingest"
 	"github.com/madskrogh/herald/internal/outbox"
+	"github.com/madskrogh/herald/internal/profiling"
 	"github.com/madskrogh/herald/internal/tenantapi"
 )
 
@@ -148,6 +151,15 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	defer nc.Close()
 
 	var lc net.ListenConfig
+	var started []any // The "started" log line's attributes.
+	if cfg.shared.PprofAddr != "" {
+		pprofLis, err := lc.Listen(ctx, "tcp", cfg.shared.PprofAddr)
+		if err != nil {
+			return fmt.Errorf("listen for pprof: %w", err)
+		}
+		defer profiling.Start(ctx, pprofLis, logger)()
+		started = append(started, "pprof_addr", pprofLis.Addr().String())
+	}
 	grpcLis, err := lc.Listen(ctx, "tcp", cfg.grpcAddr)
 	if err != nil {
 		return fmt.Errorf("listen for gRPC: %w", err)
@@ -188,7 +200,8 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	errc := make(chan error, 2)
 	go func() { errc <- grpcServer.Serve(grpcLis) }()
 	go func() { errc <- httpServer.Serve(httpLis) }()
-	logger.InfoContext(ctx, "started", "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
+	started = append(started, "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
+	logger.InfoContext(ctx, "started", started...)
 
 	// One relay per process (ADR 0002): replicas each run one, and claim
 	// different Messages.

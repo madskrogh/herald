@@ -27,10 +27,14 @@ type Shared struct {
 	// herald-api accepts http Endpoint URLs, and herald-dispatcher lets
 	// Attempts connect to non-public addresses.
 	AllowInsecureEndpoints bool
+	// PprofAddr is the internal address net/http/pprof is served on
+	// (HERALD_PPROF_ADDR), separate from the Tenant-facing ones. Empty, the
+	// default, serves no pprof.
+	PprofAddr string
 }
 
 // Load reads the shared settings through getenv. All but
-// HERALD_ALLOW_INSECURE_ENDPOINTS are required. The first setting missing or
+// HERALD_ALLOW_INSECURE_ENDPOINTS and HERALD_PPROF_ADDR are required. The first setting missing or
 // invalid is reported, checked in this order: the database URL, the keyring,
 // the NATS URL, then HERALD_ALLOW_INSECURE_ENDPOINTS.
 func Load(getenv func(string) string) (Shared, error) {
@@ -59,6 +63,7 @@ func Load(getenv func(string) string) (Shared, error) {
 		}
 		cfg.AllowInsecureEndpoints = allow
 	}
+	cfg.PprofAddr = getenv("HERALD_PPROF_ADDR")
 	return cfg, nil
 }
 

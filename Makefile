@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e profile admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -121,6 +121,29 @@ e2e: .env
 		HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
 		HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
 		go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
+
+# The checkout whose stack is the base build for profile: by default the main
+# checkout, the first entry of `git worktree list`.
+BASE ?= $(shell git worktree list --porcelain | sed -n '1s/^worktree //p')
+
+# Profiles this checkout's stack (the candidate) and BASE's at the same time,
+# and prints how the candidate's profiles differ from the base's. Both stacks
+# must be up, and get the same traffic while it runs. scripts/profile.sh says
+# what it captures; DURATION and OUT pass through to it.
+# Usage: make profile [BASE=<checkout>] [DURATION=<seconds>]
+profile: .env
+	@test "$$(cd '$(BASE)' && pwd -P)" != "$$(pwd -P)" || { \
+		echo "profile: the base is this checkout; set BASE to another checkout"; exit 1; }
+	@port() { sed -n "s/^$$2=//p" "$$1/.env" 2>/dev/null; }; \
+	base_api=$$(port '$(BASE)' HERALD_API_PPROF_PORT); \
+	base_dispatcher=$$(port '$(BASE)' HERALD_DISPATCHER_PPROF_PORT); \
+	test -n "$$base_api" && test -n "$$base_dispatcher" || { \
+		echo "profile: $(BASE)/.env has no pprof ports: run 'make up' there"; exit 1; }; \
+	CANDIDATE_API=localhost:$$(port . HERALD_API_PPROF_PORT) \
+	CANDIDATE_DISPATCHER=localhost:$$(port . HERALD_DISPATCHER_PPROF_PORT) \
+	BASE_API=localhost:$$base_api \
+	BASE_DISPATCHER=localhost:$$base_dispatcher \
+		./scripts/profile.sh
 
 # Runs herald-admin against this checkout's stack.
 # Usage: make admin ARGS='tenant create --name Acme'

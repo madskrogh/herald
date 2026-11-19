@@ -126,6 +126,40 @@ func TestLoadAllowInsecureEndpoints(t *testing.T) {
 	}
 }
 
+// TestLoadPprofAddr checks that pprof has no address, and so isn't served,
+// unless one is configured.
+func TestLoadPprofAddr(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		value string // unset if empty
+		want  string
+	}{
+		{name: "unset"},
+		{name: "set", value: ":6060", want: ":6060"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{
+				"HERALD_DATABASE_URL": "postgres://localhost/herald",
+				"HERALD_KEYRING":      testKeyring,
+				"HERALD_NATS_URL":     "nats://localhost:4222",
+			}
+			if tt.value != "" {
+				env["HERALD_PPROF_ADDR"] = tt.value
+			}
+			cfg, err := config.Load(mapEnv(env))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.PprofAddr != tt.want {
+				t.Errorf("PprofAddr = %q, want %q", cfg.PprofAddr, tt.want)
+			}
+		})
+	}
+}
+
 // TestLoadErrors checks that each required setting is reported by name, in a
 // fixed order: the database URL, the keyring, then the NATS URL.
 func TestLoadErrors(t *testing.T) {
