@@ -81,8 +81,22 @@ capture() {
   done
 }
 
-echo "profile: profiling both builds for ${duration}s into $out"
+# killtree stops pid and every process under it, children first.
+killtree() {
+  local child
+  for child in $(pgrep -P "$1"); do
+    killtree "$child"
+  done
+  kill -TERM "$1" 2>/dev/null || true
+}
+
+# Background commands in a script ignore SIGINT, so Ctrl-C alone would leave
+# the captures running, holding each process's CPU profile and trace for up
+# to DURATION, and the next run would fail to start its own.
 pids=()
+trap 'for pid in "${pids[@]}"; do killtree "$pid"; done; exit 130' INT TERM
+
+echo "profile: profiling both builds for ${duration}s into $out"
 for b in "${builds[@]}"; do
   for s in "${services[@]}"; do
     mkdir -p "$out/$b/$s"

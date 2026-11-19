@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/goleak"
 
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/natstest"
@@ -16,8 +17,19 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	testmain.Run(m, pgtest.Start, natstest.Start)
+	// run starts its servers' goroutines, pprof's among them, and must stop
+	// them all before it returns. The leak check runs once the containers
+	// are gone, so their clients' goroutines have stopped.
+	goleak.VerifyTestMain(testRun(func() int {
+		return testmain.RunCode(m, pgtest.Start, natstest.Start)
+	}))
 }
+
+// testRun is a function that runs the tests and returns the exit code, as
+// goleak.VerifyTestMain takes them.
+type testRun func() int
+
+func (f testRun) Run() int { return f() }
 
 func TestMigrate(t *testing.T) {
 	t.Parallel()
