@@ -62,5 +62,6 @@ HERALD_API_PPROF_PORT=$((6060 + offset))
 HERALD_DISPATCHER_PPROF_PORT=$((6061 + offset))
 HERALD_OTLP_HTTP_PORT=$((4318 + offset))
 HERALD_CLICKHOUSE_HTTP_PORT=$((8123 + offset))
+HERALD_DEMO_ENDPOINT_PORT=$((9000 + offset))
 EOF
 echo "worktree-env: wrote .env ($project, slot $slot)"
