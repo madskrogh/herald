@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e profile admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e endpoint profile admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -99,14 +99,14 @@ wait-ci:
 up: .env
 	docker compose up -d --wait --build
 
-# The host address the end-to-end tests serve their Endpoints on: the one
-# host.docker.internal reaches from a container. Docker Desktop reaches the
-# host's loopback; on Linux it is the default bridge's gateway, which
-# compose.yaml maps the name to.
+# The host address that Endpoints served from the host listen on, for the
+# end-to-end tests and make endpoint: the one host.docker.internal reaches
+# from a container. Docker Desktop reaches the host's loopback; on Linux it is
+# the default bridge's gateway, which compose.yaml maps the name to.
 ifeq ($(shell uname -s),Linux)
-E2E_ENDPOINT_IP = $(shell docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+HOST_ENDPOINT_IP = $(shell docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
 else
-E2E_ENDPOINT_IP = 127.0.0.1
+HOST_ENDPOINT_IP = 127.0.0.1
 endif
 
 # Runs the end-to-end tests against this checkout's stack, started with
@@ -117,10 +117,20 @@ e2e: .env
 	@. ./.env && \
 		HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
 		HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
-		HERALD_E2E_ENDPOINT_IP="$(E2E_ENDPOINT_IP)" \
+		HERALD_E2E_ENDPOINT_IP="$(HOST_ENDPOINT_IP)" \
 		HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
 		HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
 		go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
+
+# Serves an Endpoint for this checkout's stack that prints each Attempt it
+# receives. Given the Endpoint's signing secret, it also says whether each
+# signature verifies. The README walks through it.
+# Usage: make endpoint [SECRET=whsec_...]
+endpoint: .env
+	@. ./.env && go run ./cmd/demo-endpoint \
+		-listen "$(HOST_ENDPOINT_IP):$$HERALD_DEMO_ENDPOINT_PORT" \
+		-url "http://host.docker.internal:$$HERALD_DEMO_ENDPOINT_PORT/" \
+		-secret '$(SECRET)'
 
 # The checkout whose stack is the base build for profile: by default the main
 # checkout, the first entry of `git worktree list`.
