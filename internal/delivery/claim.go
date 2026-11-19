@@ -107,8 +107,10 @@ func claimEndpoint(ctx context.Context, q *deliverydb.Queries, endpointID uuid.U
 				ID:        r.ID,
 				MessageID: r.MessageID,
 				TenantID:  r.TenantID,
-				EventType: r.EventType,
-				Payload:   r.Payload,
+				// Zero when NULL.
+				ApplicationID: uuid.UUID(r.ApplicationID.Bytes),
+				EventType:     r.EventType,
+				Payload:       r.Payload,
 				Endpoint: Endpoint{
 					ID:             r.EndpointID,
 					URL:            r.EndpointURL,
@@ -116,6 +118,7 @@ func claimEndpoint(ctx context.Context, q *deliverydb.Queries, endpointID uuid.U
 				},
 				State:         State(r.State),
 				NextAttemptAt: r.NextAttemptAt,
+				TraceParent:   r.Traceparent,
 			},
 		})
 	}

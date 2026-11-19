@@ -9,6 +9,7 @@ import (
 
 	"github.com/madskrogh/herald/internal/config"
 	"github.com/madskrogh/herald/internal/keyring"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // testKeyring is a keyring with one key of 32 zero bytes, under the ID "test".
@@ -28,6 +29,7 @@ func TestLoad(t *testing.T) {
 	want := config.Shared{
 		DatabaseURL: "postgres://localhost/herald",
 		NATSURL:     "nats://localhost:4222",
+		Telemetry:   telemetry.Config{BuildVersion: "dev"},
 	}
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(config.Shared{}, "Keyring")); diff != "" {
 		t.Errorf("Load (-want +got):\n%s", diff)
@@ -121,6 +123,51 @@ func TestLoadAllowInsecureEndpoints(t *testing.T) {
 			}
 			if cfg.AllowInsecureEndpoints != tt.want {
 				t.Errorf("AllowInsecureEndpoints = %t, want %t", cfg.AllowInsecureEndpoints, tt.want)
+			}
+		})
+	}
+}
+
+// TestLoadTelemetry checks the settings for exporting spans, all of them
+// optional.
+func TestLoadTelemetry(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		env  map[string]string
+		want telemetry.Config
+	}{
+		{
+			name: "unset",
+			want: telemetry.Config{BuildVersion: "dev"},
+		},
+		{
+			name: "set",
+			env: map[string]string{
+				"HERALD_OTLP_URL":      "http://otelcol:4318",
+				"HERALD_RUN_ID":        "run-42",
+				"HERALD_BUILD_VERSION": "86b342f",
+			},
+			want: telemetry.Config{OTLPURL: "http://otelcol:4318", RunID: "run-42", BuildVersion: "86b342f"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{
+				"HERALD_DATABASE_URL": "postgres://localhost/herald",
+				"HERALD_KEYRING":      testKeyring,
+				"HERALD_NATS_URL":     "nats://localhost:4222",
+			}
+			for k, v := range tt.env {
+				env[k] = v
+			}
+			cfg, err := config.Load(mapEnv(env))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if diff := cmp.Diff(tt.want, cfg.Telemetry); diff != "" {
+				t.Errorf("Telemetry (-want +got):\n%s", diff)
 			}
 		})
 	}

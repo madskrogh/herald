@@ -1,27 +1,30 @@
 -- name: InsertMessage :batchexec
 -- A Message sent again, after a lost reply, is already stored and left as it
 -- is.
-INSERT INTO delivery.messages (id, tenant_id, event_type, payload)
-VALUES (@id, @tenant_id, @event_type, @payload)
+INSERT INTO delivery.messages (id, tenant_id, application_id, event_type, payload)
+VALUES (@id, @tenant_id, sqlc.narg(application_id), @event_type, @payload)
 ON CONFLICT (id) DO NOTHING;
 
 -- name: InsertDelivery :batchexec
 -- A new Delivery is pending and due at @now. One sent again, after a lost
--- reply, is already stored and left as it is.
-INSERT INTO delivery.deliveries (id, message_id, endpoint_id, endpoint_url, signing_secrets, state, next_attempt_at)
-VALUES (@id, @message_id, @endpoint_id, @endpoint_url, @signing_secrets::bytea[], 'pending', @now)
+-- reply, is already stored and left as it is, with the trace context it was
+-- first stored under.
+INSERT INTO delivery.deliveries (id, message_id, endpoint_id, endpoint_url, signing_secrets, state, next_attempt_at, traceparent)
+VALUES (@id, @message_id, @endpoint_id, @endpoint_url, @signing_secrets::bytea[], 'pending', @now, NULLIF(@traceparent::text, ''))
 ON CONFLICT (id) DO NOTHING;
 
 -- name: GetDelivery :one
-SELECT d.id, d.message_id, m.tenant_id, m.event_type, m.payload,
-       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at
+SELECT d.id, d.message_id, m.tenant_id, m.application_id, m.event_type, m.payload,
+       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at,
+       coalesce(d.traceparent, '')::text AS traceparent
 FROM delivery.deliveries d
 JOIN delivery.messages m ON m.id = d.message_id
 WHERE d.id = @id;
 
 -- name: ListMessageDeliveries :many
-SELECT d.id, d.message_id, m.tenant_id, m.event_type, m.payload,
-       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at
+SELECT d.id, d.message_id, m.tenant_id, m.application_id, m.event_type, m.payload,
+       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at,
+       coalesce(d.traceparent, '')::text AS traceparent
 FROM delivery.deliveries d
 JOIN delivery.messages m ON m.id = d.message_id
 WHERE d.message_id = @message_id
@@ -80,11 +83,11 @@ WITH claimed AS (
         LIMIT @max_deliveries::integer
         FOR UPDATE SKIP LOCKED
     )
-    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count
+    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count, d.traceparent
 )
-SELECT c.id, c.message_id, m.tenant_id, m.event_type, m.payload,
+SELECT c.id, c.message_id, m.tenant_id, m.application_id, m.event_type, m.payload,
        c.endpoint_id, c.endpoint_url, c.signing_secrets, c.state, c.next_attempt_at,
-       c.lease_id::uuid AS lease_id, c.attempt_count
+       c.lease_id::uuid AS lease_id, c.attempt_count, coalesce(c.traceparent, '')::text AS traceparent
 FROM claimed c
 JOIN delivery.messages m ON m.id = c.message_id;
 

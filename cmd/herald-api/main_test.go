@@ -127,6 +127,15 @@ func testRunServes(t *testing.T, natsURL string) []logRecord {
 	})
 	defer stop() //nolint:errcheck // Only for an early return; checked below.
 
+	// HERALD_OTLP_URL isn't set, and a deployment that forgets it says so as
+	// it starts.
+	warning, ok := <-logs
+	if !ok {
+		t.Fatalf("run exited before it started: %v", stop())
+	}
+	if want := (logRecord{Level: "WARN", Msg: "HERALD_OTLP_URL is not set: spans are not exported", Service: "herald-api"}); warning != want {
+		t.Fatalf("first log line is %+v, want %+v", warning, want)
+	}
 	started, ok := <-logs
 	if !ok {
 		t.Fatalf("run exited before it started: %v", stop())

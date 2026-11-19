@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/telemetry/telemetrytest"
 )
 
 // TestWorkersRefuseNonPublicAddresses makes an Attempt to an Endpoint whose
@@ -24,9 +25,10 @@ func TestWorkersRefuseNonPublicAddresses(t *testing.T) {
 	store.due[0].Delivery.Endpoint.URL = strings.Replace(endpoint.url, "127.0.0.1", "localhost", 1) + "/webhooks"
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	w := delivery.NewWorkers(store, delivery.WorkersConfig{
-		Keyring:  store.keys,
-		Schedule: pinnedSchedule(t),
-		Now:      func() time.Time { return now },
+		Keyring:        store.keys,
+		Schedule:       pinnedSchedule(t),
+		Now:            func() time.Time { return now },
+		TracerProvider: telemetrytest.NewRecorder(t).Provider,
 	}, slog.New(slog.DiscardHandler))
 
 	if _, err := w.RunOnce(t.Context()); err != nil {
@@ -67,6 +69,7 @@ func TestWorkersAllowPrivateAddressesWhenConfigured(t *testing.T) {
 		Schedule:              pinnedSchedule(t),
 		Now:                   time.Now,
 		AllowPrivateAddresses: true,
+		TracerProvider:        telemetrytest.NewRecorder(t).Provider,
 	}, slog.New(slog.DiscardHandler))
 
 	if _, err := w.RunOnce(t.Context()); err != nil {

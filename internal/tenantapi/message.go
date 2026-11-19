@@ -11,6 +11,7 @@ import (
 	"github.com/madskrogh/herald/internal/eventtype"
 	tenantv1 "github.com/madskrogh/herald/internal/gen/herald/tenant/v1"
 	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // messageServer implements MessageService.
@@ -41,6 +42,7 @@ func (s *messageServer) CreateMessage(ctx context.Context, req *tenantv1.CreateM
 		EventType:      et,
 		Payload:        []byte(req.GetPayload()),
 		IdempotencyKey: key,
+		TraceParent:    telemetry.TraceParent(ctx),
 	}, time.Now())
 	if err != nil {
 		return nil, err

@@ -2,6 +2,14 @@
 # (written by scripts/worktree-env.sh); the defaults below apply without one.
 # Ports are published on localhost only.
 
+# Where both services send their spans, and what identifies them. The run ID
+# and build version come from the environment `make up` runs in, so a run of
+# the behaviour comparison can set them.
+x-telemetry: &telemetry
+  HERALD_OTLP_URL: http://otelcol:4318
+  HERALD_RUN_ID: ${HERALD_RUN_ID:-}
+  HERALD_BUILD_VERSION: ${HERALD_BUILD_VERSION:-dev}
+
 # herald-api's image and configuration, shared by its migrate step.
 x-herald-api: &herald-api
   build:
@@ -34,6 +42,7 @@ services:
   herald-api:
     <<: *herald-api
     environment:
+      <<: *telemetry
       HERALD_DATABASE_URL: postgres://herald:herald@postgres:5432/herald?sslmode=disable
       # A key for the local stack only. It is public, so nothing it encrypts
       # is secret. herald-dispatcher decrypts with the same keyring.
@@ -48,6 +57,8 @@ services:
     depends_on:
       api-migrate:
         condition: service_completed_successfully
+      otelcol:
+        condition: service_healthy
 
   dispatcher-migrate:
     <<: *herald-dispatcher
@@ -59,6 +70,7 @@ services:
   herald-dispatcher:
     <<: *herald-dispatcher
     environment:
+      <<: *telemetry
       HERALD_DATABASE_URL: postgres://herald:herald@postgres:5432/herald?sslmode=disable
       # herald-api's keyring: the dispatcher decrypts what herald-api
       # encrypts.
@@ -78,6 +90,8 @@ services:
       dispatcher-migrate:
         condition: service_completed_successfully
       nats:
+        condition: service_healthy
+      otelcol:
         condition: service_healthy
 
   postgres:

@@ -11,14 +11,16 @@ import (
 func TestPackFitsWholeMessagesUnderTheCap(t *testing.T) {
 	t.Parallel()
 
-	// Each Message encodes to 1079 bytes: its ID and its Tenant's ID take
-	// 1 + 1 + 36 each, and its payload 1 + 2 + 1000. In a Batch it takes
-	// 1 + 2 + 1079 = 1082.
+	// Each Message encodes to 1174 bytes: its ID, its Tenant's ID and its
+	// Application's ID take 1 + 1 + 36 each, its payload 1 + 2 + 1000, and
+	// its traceparent, set once it is packed, 1 + 1 + 55. In a Batch it
+	// takes 1 + 2 + 1174 = 1177.
 	message := func() ingest.OutboxMessage {
 		return ingest.OutboxMessage{
-			ID:       uuid.MustParse("0190a5e4-0000-7000-8000-0000000000a1"),
-			TenantID: uuid.MustParse("0190a5e4-0000-7000-8000-000000000001"),
-			Payload:  bytes.Repeat([]byte("x"), 1000),
+			ID:            uuid.MustParse("0190a5e4-0000-7000-8000-0000000000a1"),
+			TenantID:      uuid.MustParse("0190a5e4-0000-7000-8000-000000000001"),
+			ApplicationID: uuid.MustParse("0190a5e4-0000-7000-8000-0000000000b1"),
+			Payload:       bytes.Repeat([]byte("x"), 1000),
 		}
 	}
 	three := []ingest.OutboxMessage{message(), message(), message()}
@@ -29,10 +31,10 @@ func TestPackFitsWholeMessagesUnderTheCap(t *testing.T) {
 		maxBytes int
 		want     int
 	}{
-		{name: "all fit", messages: three, maxBytes: 3 * 1082, want: 3},
-		{name: "two fit exactly", messages: three, maxBytes: 2 * 1082, want: 2},
-		{name: "a byte short of two", messages: three, maxBytes: 2*1082 - 1, want: 1},
-		{name: "the first doesn't fit", messages: three, maxBytes: 1081, want: 0},
+		{name: "all fit", messages: three, maxBytes: 3 * 1177, want: 3},
+		{name: "two fit exactly", messages: three, maxBytes: 2 * 1177, want: 2},
+		{name: "a byte short of two", messages: three, maxBytes: 2*1177 - 1, want: 1},
+		{name: "the first doesn't fit", messages: three, maxBytes: 1176, want: 0},
 		{name: "no Messages", maxBytes: 1 << 20, want: 0},
 	}
 	for _, tt := range tests {

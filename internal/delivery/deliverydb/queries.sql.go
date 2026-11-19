@@ -27,11 +27,11 @@ WITH claimed AS (
         LIMIT $4::integer
         FOR UPDATE SKIP LOCKED
     )
-    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count
+    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count, d.traceparent
 )
-SELECT c.id, c.message_id, m.tenant_id, m.event_type, m.payload,
+SELECT c.id, c.message_id, m.tenant_id, m.application_id, m.event_type, m.payload,
        c.endpoint_id, c.endpoint_url, c.signing_secrets, c.state, c.next_attempt_at,
-       c.lease_id::uuid AS lease_id, c.attempt_count
+       c.lease_id::uuid AS lease_id, c.attempt_count, coalesce(c.traceparent, '')::text AS traceparent
 FROM claimed c
 JOIN delivery.messages m ON m.id = c.message_id
 `
@@ -47,6 +47,7 @@ type ClaimEndpointDeliveriesRow struct {
 	ID             uuid.UUID
 	MessageID      uuid.UUID
 	TenantID       uuid.UUID
+	ApplicationID  pgtype.UUID
 	EventType      string
 	Payload        []byte
 	EndpointID     uuid.UUID
@@ -56,6 +57,7 @@ type ClaimEndpointDeliveriesRow struct {
 	NextAttemptAt  time.Time
 	LeaseID        uuid.UUID
 	AttemptCount   int32
+	Traceparent    string
 }
 
 // Leases up to @max_deliveries of the Endpoint's pending Deliveries due at
@@ -79,6 +81,7 @@ func (q *Queries) ClaimEndpointDeliveries(ctx context.Context, arg ClaimEndpoint
 			&i.ID,
 			&i.MessageID,
 			&i.TenantID,
+			&i.ApplicationID,
 			&i.EventType,
 			&i.Payload,
 			&i.EndpointID,
@@ -88,6 +91,7 @@ func (q *Queries) ClaimEndpointDeliveries(ctx context.Context, arg ClaimEndpoint
 			&i.NextAttemptAt,
 			&i.LeaseID,
 			&i.AttemptCount,
+			&i.Traceparent,
 		); err != nil {
 			return nil, err
 		}
@@ -156,8 +160,9 @@ func (q *Queries) FinishAttempt(ctx context.Context, arg FinishAttemptParams) (i
 }
 
 const getDelivery = `-- name: GetDelivery :one
-SELECT d.id, d.message_id, m.tenant_id, m.event_type, m.payload,
-       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at
+SELECT d.id, d.message_id, m.tenant_id, m.application_id, m.event_type, m.payload,
+       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at,
+       coalesce(d.traceparent, '')::text AS traceparent
 FROM delivery.deliveries d
 JOIN delivery.messages m ON m.id = d.message_id
 WHERE d.id = $1
@@ -167,6 +172,7 @@ type GetDeliveryRow struct {
 	ID             uuid.UUID
 	MessageID      uuid.UUID
 	TenantID       uuid.UUID
+	ApplicationID  pgtype.UUID
 	EventType      string
 	Payload        []byte
 	EndpointID     uuid.UUID
@@ -174,6 +180,7 @@ type GetDeliveryRow struct {
 	SigningSecrets [][]byte
 	State          string
 	NextAttemptAt  time.Time
+	Traceparent    string
 }
 
 func (q *Queries) GetDelivery(ctx context.Context, id uuid.UUID) (GetDeliveryRow, error) {
@@ -183,6 +190,7 @@ func (q *Queries) GetDelivery(ctx context.Context, id uuid.UUID) (GetDeliveryRow
 		&i.ID,
 		&i.MessageID,
 		&i.TenantID,
+		&i.ApplicationID,
 		&i.EventType,
 		&i.Payload,
 		&i.EndpointID,
@@ -190,6 +198,7 @@ func (q *Queries) GetDelivery(ctx context.Context, id uuid.UUID) (GetDeliveryRow
 		&i.SigningSecrets,
 		&i.State,
 		&i.NextAttemptAt,
+		&i.Traceparent,
 	)
 	return i, err
 }
@@ -312,8 +321,9 @@ func (q *Queries) ListDueEndpoints(ctx context.Context, arg ListDueEndpointsPara
 }
 
 const listMessageDeliveries = `-- name: ListMessageDeliveries :many
-SELECT d.id, d.message_id, m.tenant_id, m.event_type, m.payload,
-       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at
+SELECT d.id, d.message_id, m.tenant_id, m.application_id, m.event_type, m.payload,
+       d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at,
+       coalesce(d.traceparent, '')::text AS traceparent
 FROM delivery.deliveries d
 JOIN delivery.messages m ON m.id = d.message_id
 WHERE d.message_id = $1
@@ -324,6 +334,7 @@ type ListMessageDeliveriesRow struct {
 	ID             uuid.UUID
 	MessageID      uuid.UUID
 	TenantID       uuid.UUID
+	ApplicationID  pgtype.UUID
 	EventType      string
 	Payload        []byte
 	EndpointID     uuid.UUID
@@ -331,6 +342,7 @@ type ListMessageDeliveriesRow struct {
 	SigningSecrets [][]byte
 	State          string
 	NextAttemptAt  time.Time
+	Traceparent    string
 }
 
 func (q *Queries) ListMessageDeliveries(ctx context.Context, messageID uuid.UUID) ([]ListMessageDeliveriesRow, error) {
@@ -346,6 +358,7 @@ func (q *Queries) ListMessageDeliveries(ctx context.Context, messageID uuid.UUID
 			&i.ID,
 			&i.MessageID,
 			&i.TenantID,
+			&i.ApplicationID,
 			&i.EventType,
 			&i.Payload,
 			&i.EndpointID,
@@ -353,6 +366,7 @@ func (q *Queries) ListMessageDeliveries(ctx context.Context, messageID uuid.UUID
 			&i.SigningSecrets,
 			&i.State,
 			&i.NextAttemptAt,
+			&i.Traceparent,
 		); err != nil {
 			return nil, err
 		}

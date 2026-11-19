@@ -15,12 +15,16 @@ import (
 // OutboxMessage is a Message waiting in the outbox, with everything the
 // dispatchers need to make its Deliveries' Attempts.
 type OutboxMessage struct {
-	ID        uuid.UUID
-	TenantID  uuid.UUID
-	EventType string
+	ID            uuid.UUID
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+	EventType     string
 	// The JSON payload exactly as the Tenant submitted it.
 	Payload    []byte
 	Deliveries []OutboxDelivery
+	// TraceParent is the trace context the Message was accepted under, as a
+	// W3C traceparent, or empty if it was stored without one.
+	TraceParent string
 }
 
 // OutboxDelivery is a Delivery waiting in the outbox, with a copy of its
@@ -116,10 +120,13 @@ func claimOutbox(ctx context.Context, q *ingestdb.Queries, limit int32) ([]Outbo
 	ids := make([]uuid.UUID, len(rows))
 	for i, row := range rows {
 		messages[i] = OutboxMessage{
-			ID:        row.ID,
-			TenantID:  row.TenantID,
-			EventType: row.EventType,
-			Payload:   row.Payload,
+			ID:            row.ID,
+			TenantID:      row.TenantID,
+			ApplicationID: row.ApplicationID,
+			EventType:     row.EventType,
+			Payload:       row.Payload,
+
+			TraceParent: row.Traceparent,
 		}
 		byID[row.ID] = &messages[i]
 		ids[i] = row.ID

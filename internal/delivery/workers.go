@@ -11,11 +11,15 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"uuid"
+
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/madskrogh/herald/internal/egress"
 	"github.com/madskrogh/herald/internal/keyring"
 	"github.com/madskrogh/herald/internal/retry"
 	"github.com/madskrogh/herald/internal/signing"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 const (
@@ -69,6 +73,8 @@ type WorkersConfig struct {
 	// addresses. herald-dispatcher sets it from
 	// HERALD_ALLOW_INSECURE_ENDPOINTS.
 	AllowPrivateAddresses bool
+	// TracerProvider makes the span of each Attempt.
+	TracerProvider trace.TracerProvider
 }
 
 // leaseStore is where Workers claim Deliveries and record their Attempts. It
@@ -85,6 +91,7 @@ type leaseStore interface {
 type Workers struct {
 	store  leaseStore
 	cfg    WorkersConfig
+	tracer trace.Tracer
 	logger *slog.Logger
 
 	// claiming makes rounds take turns, so they don't claim more than
@@ -129,7 +136,7 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 	// failed, not a pointer to follow.
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	cfg.Client = &client
-	return &Workers{store: store, cfg: cfg, logger: logger}
+	return &Workers{store: store, cfg: cfg, tracer: cfg.TracerProvider.Tracer(tracerName), logger: logger}
 }
 
 // Run makes Attempts until ctx is cancelled, claiming due Deliveries whenever
@@ -249,10 +256,32 @@ func (w *Workers) Wait() {
 // attempt makes one Attempt for the leased Delivery and records it. An
 // Attempt that Run cancels at the shutdown deadline isn't counted: its lease
 // is released, so the Delivery is due again at once.
+//
+// The Attempt's span is a child of the span that stored the Delivery, so
+// every Attempt joins the Message's trace, whenever and wherever it runs.
 func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	d := lease.Delivery
-	a := w.send(ctx, d)
 	number := lease.PriorAttempts + 1
+	ctx, span := telemetry.Start(ctx, w.tracer, d.TraceParent, telemetry.SpanAttempt,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			telemetry.TenantID.String(d.TenantID.String()),
+			telemetry.ApplicationID.String(applicationIDAttr(d.ApplicationID)),
+			telemetry.EndpointID.String(d.Endpoint.ID.String()),
+			telemetry.MessageID.String(d.MessageID.String()),
+			telemetry.DeliveryID.String(d.ID.String()),
+			telemetry.AttemptNumber.Int(number),
+		),
+	)
+	a := w.send(ctx, d)
+	span.SetAttributes(
+		telemetry.StatusCode.Int(a.StatusCode),
+		telemetry.LatencyMs.Int64(a.Latency.Milliseconds()),
+	)
+	var attemptErr error
+	if a.Error != "" {
+		attemptErr = errors.New(a.Error)
+	}
 	logger := w.logger.With(
 		"delivery_id", d.ID,
 		"message_id", d.MessageID,
@@ -266,6 +295,7 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	// Cut off without a response. One that came, even with its body cut
 	// short, is the Endpoint's answer and is recorded.
 	if a.StatusCode == 0 && ctx.Err() != nil {
+		telemetry.End(span, "cut_off", attemptErr)
 		if err := w.store.Release(storeCtx, lease, w.cfg.Now()); err != nil {
 			// The lease runs out and the Delivery is claimed again.
 			logger.ErrorContext(ctx, "lease not released at shutdown", "error", err)
@@ -284,6 +314,8 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 		logger = logger.With("attempt_error", a.Error)
 	}
 	if err := w.store.Record(storeCtx, lease, a, o); err != nil {
+		// The Delivery stays where it was, so its state is no outcome.
+		telemetry.End(span, "not_recorded", err)
 		if errors.Is(err, ErrLeaseLost) {
 			// Another worker claimed the Delivery after this lease ran out,
 			// and its Attempt counts instead.
@@ -294,7 +326,17 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 		logger.ErrorContext(ctx, "attempt not recorded", "error", err)
 		return
 	}
+	telemetry.End(span, string(o.State), attemptErr)
 	logger.InfoContext(ctx, "attempt")
+}
+
+// applicationIDAttr returns id as a span attribute: empty when it is zero,
+// for a Message handed off before Batches carried its Application.
+func applicationIDAttr(id uuid.UUID) string {
+	if id == (uuid.UUID{}) {
+		return ""
+	}
+	return id.String()
 }
 
 // send makes the HTTP request for one Attempt, signed with the Endpoint's

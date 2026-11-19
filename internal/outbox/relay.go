@@ -4,6 +4,7 @@ package outbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -11,11 +12,13 @@ import (
 	"uuid"
 
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	handoffv1 "github.com/madskrogh/herald/internal/gen/herald/handoff/v1"
 	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // Defaults for the Config fields left zero.
@@ -43,13 +46,19 @@ type Config struct {
 	// RequestTimeout is how long a round waits for a dispatcher's reply to
 	// each Batch it sends. The round's transaction stays open for as long.
 	RequestTimeout time.Duration
+	// TracerProvider makes the spans of each Batch and of each Message in it.
+	TracerProvider trace.TracerProvider
 }
+
+// tracerName names the tracer of the relay's spans.
+const tracerName = "github.com/madskrogh/herald/internal/outbox"
 
 // Relay hands off the Messages waiting in the outbox.
 type Relay struct {
 	store  *ingest.Store
 	nc     *nats.Conn
 	cfg    Config
+	tracer trace.Tracer
 	logger *slog.Logger
 
 	// mu makes the Relay's rounds take turns, and guards claimLimit.
@@ -75,7 +84,7 @@ func NewRelay(store *ingest.Store, nc *nats.Conn, cfg Config, logger *slog.Logge
 	if cfg.RequestTimeout == 0 {
 		cfg.RequestTimeout = defaultRequestTimeout
 	}
-	return &Relay{store: store, nc: nc, cfg: cfg, logger: logger, claimLimit: cfg.MaxMessages}
+	return &Relay{store: store, nc: nc, cfg: cfg, tracer: cfg.TracerProvider.Tracer(tracerName), logger: logger, claimLimit: cfg.MaxMessages}
 }
 
 // Run hands off Messages until ctx is cancelled, one round at a time. A round
@@ -114,7 +123,15 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 	if !r.nc.IsConnected() {
 		return 0, false, fmt.Errorf("not connected to NATS (%s)", r.nc.Status())
 	}
-	h, err := r.store.HandOff(ctx, r.claimLimit, now, r.send)
+	var spans roundSpans
+	h, err := r.store.HandOff(ctx, r.claimLimit, now, func(ctx context.Context, messages []ingest.OutboxMessage) (ingest.SendResult, error) {
+		sent, err := r.send(ctx, messages, &spans)
+		spans.sent = sent
+		return sent, err
+	})
+	// The outcome of each Message is known only once the round's
+	// transaction has ended.
+	spans.end(err)
 	// One record per parked Message, so that they can be found and counted.
 	for _, p := range h.Parked {
 		r.logger.WarnContext(ctx, "message parked", "message_id", p.ID, "error", p.Reason)
@@ -135,7 +152,8 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 }
 
 // send sends as many of messages as fit, from the start, to the dispatchers
-// as one Batch. The rest stay in the outbox for a later round.
+// as one Batch. The rest stay in the outbox for a later round. It starts the
+// spans of the Batch and of each Message in it in spans.
 //
 // If the dispatcher doesn't commit the Batch, send looks for the Message that
 // makes it fail: it sends each half of the Batch on its own, and each half
@@ -144,7 +162,7 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 // A dispatcher that commits none may be failing as a whole (its database is
 // down, say), and then no Message is to blame: the round fails and the
 // Messages wait in the outbox.
-func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (ingest.SendResult, error) {
+func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage, spans *roundSpans) (ingest.SendResult, error) {
 	// The server's maximum payload, which it told the connection.
 	batch := pack(messages, int(r.nc.MaxPayload()))
 	n := len(batch.GetMessages())
@@ -154,8 +172,10 @@ func (r *Relay) send(ctx context.Context, messages []ingest.OutboxMessage) (inge
 		// No dispatcher could take it, whatever state it is in, so it is
 		// parked without sending. The rest wait for the next round.
 		reason := fmt.Sprintf("message is too large for a batch of at most %d bytes", r.nc.MaxPayload())
+		spans.startHandoff(ctx, r.tracer, messages[0], 0)
 		return ingest.SendResult{Parked: []ingest.ParkedMessage{{ID: messages[0].ID, Reason: reason}}}, nil
 	}
+	spans.start(ctx, r.tracer, messages[:n], batch.GetMessages())
 	committed, reason, err := r.request(ctx, batch.GetMessages())
 	if err != nil {
 		return ingest.SendResult{}, err
@@ -271,8 +291,15 @@ func poll(ctx context.Context, round func(context.Context) (more bool, err error
 	}
 }
 
+// traceParentSize is how many bytes a Message's traceparent adds to its
+// encoding: the field's tag and length, one byte each, and a W3C
+// traceparent, which is 55 bytes in its version 00.
+const traceParentSize = 1 + 1 + 55
+
 // pack returns a Batch of as many of messages, from the start, as fit in at
 // most maxBytes. It encodes a Message only if every one before it fitted.
+// Each Message's traceparent is set only once it is packed, when its span
+// starts, so room is left for it.
 func pack(messages []ingest.OutboxMessage, maxBytes int) *handoffv1.Batch {
 	batch := &handoffv1.Batch{}
 	size := 0
@@ -280,7 +307,7 @@ func pack(messages []ingest.OutboxMessage, maxBytes int) *handoffv1.Batch {
 		msg := toProto(m)
 		// A Message in a Batch is its encoding, preceded by the tag of
 		// Batch.messages (field 1, one byte) and its length.
-		n := proto.Size(msg)
+		n := proto.Size(msg) + traceParentSize
 		size += 1 + protowire.SizeVarint(uint64(n)) + n
 		if size > maxBytes {
 			break
@@ -293,10 +320,11 @@ func pack(messages []ingest.OutboxMessage, maxBytes int) *handoffv1.Batch {
 // toProto returns m as it travels in a Batch.
 func toProto(m ingest.OutboxMessage) *handoffv1.Message {
 	msg := &handoffv1.Message{
-		Id:        m.ID.String(),
-		TenantId:  m.TenantID.String(),
-		EventType: m.EventType,
-		Payload:   m.Payload,
+		Id:            m.ID.String(),
+		TenantId:      m.TenantID.String(),
+		ApplicationId: m.ApplicationID.String(),
+		EventType:     m.EventType,
+		Payload:       m.Payload,
 	}
 	for _, d := range m.Deliveries {
 		secrets := make([]*handoffv1.SigningSecret, len(d.SigningSecrets))
@@ -313,4 +341,77 @@ func toProto(m ingest.OutboxMessage) *handoffv1.Message {
 		})
 	}
 	return msg
+}
+
+// roundSpans holds the spans of one round's Batch, and of each Message in
+// it, which end once the round's transaction has.
+type roundSpans struct {
+	// batch is the Batch's span, or nil if the round sent none.
+	batch trace.Span
+	// handoffs holds the span of each Message the round sent or parked.
+	handoffs map[uuid.UUID]trace.Span
+	// sent is what the round's send did with its Messages.
+	sent ingest.SendResult
+}
+
+// start starts the span of the Batch holding messages, a trace of its own,
+// and the span of each Message in it, in the Message's trace. encoded holds
+// the same Messages as they are sent: each gets its span's context, so the
+// dispatcher continues the Message's trace.
+func (rs *roundSpans) start(ctx context.Context, tracer trace.Tracer, messages []ingest.OutboxMessage, encoded []*handoffv1.Message) {
+	_, rs.batch = tracer.Start(ctx, telemetry.SpanHandoffBatch,
+		trace.WithNewRoot(),
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(telemetry.BatchSize.Int(len(messages))),
+	)
+	for i, m := range messages {
+		spanCtx, span := rs.startHandoff(ctx, tracer, m, len(messages))
+		encoded[i].Traceparent = telemetry.TraceParent(spanCtx)
+		rs.batch.AddLink(trace.Link{SpanContext: span.SpanContext()})
+	}
+}
+
+// startHandoff starts the span of handing off m in a Batch of batchSize
+// Messages, as a child of the span m was accepted under. A Message stored
+// without trace context starts a trace of its own.
+func (rs *roundSpans) startHandoff(ctx context.Context, tracer trace.Tracer, m ingest.OutboxMessage, batchSize int) (context.Context, trace.Span) {
+	ctx, span := telemetry.Start(ctx, tracer, m.TraceParent, telemetry.SpanHandoff,
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			telemetry.TenantID.String(m.TenantID.String()),
+			telemetry.ApplicationID.String(m.ApplicationID.String()),
+			telemetry.MessageID.String(m.ID.String()),
+			telemetry.BatchSize.Int(batchSize),
+			telemetry.DeliveryCount.Int(len(m.Deliveries)),
+		),
+	)
+	if rs.handoffs == nil {
+		rs.handoffs = map[uuid.UUID]trace.Span{}
+	}
+	rs.handoffs[m.ID] = span
+	return ctx, span
+}
+
+// end ends the spans, with the outcome of a round that ended with err. When
+// the round fails, none of its Messages is handed off or parked.
+func (rs *roundSpans) end(err error) {
+	if err != nil {
+		for _, span := range rs.handoffs {
+			telemetry.End(span, "failed", err)
+		}
+	} else {
+		for _, id := range rs.sent.HandedOff {
+			telemetry.End(rs.handoffs[id], "handed_off", nil)
+		}
+		for _, p := range rs.sent.Parked {
+			telemetry.End(rs.handoffs[p.ID], "parked", errors.New(p.Reason))
+		}
+	}
+	if rs.batch != nil {
+		outcome := "handed_off"
+		if err != nil {
+			outcome = "failed"
+		}
+		telemetry.End(rs.batch, outcome, err)
+	}
 }

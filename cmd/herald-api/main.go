@@ -20,6 +20,13 @@
 //	                      "true" accepts Endpoint URLs with the http scheme,
 //	                      not only https; for the local stack and tests only
 //	                      (default false)
+//	HERALD_OTLP_URL       the OpenTelemetry Collector's OTLP/HTTP base URL,
+//	                      such as http://otelcol:4318; without it, spans are
+//	                      not exported
+//	HERALD_RUN_ID         identifies the run the spans belong to, as a
+//	                      resource attribute (default none)
+//	HERALD_BUILD_VERSION  identifies the build, as a resource attribute
+//	                      (default dev)
 package main
 
 import (
@@ -37,6 +44,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -44,6 +52,7 @@ import (
 	"github.com/madskrogh/herald/internal/handoff"
 	"github.com/madskrogh/herald/internal/ingest"
 	"github.com/madskrogh/herald/internal/outbox"
+	"github.com/madskrogh/herald/internal/telemetry"
 	"github.com/madskrogh/herald/internal/tenantapi"
 )
 
@@ -51,6 +60,11 @@ import (
 // starts. It stays under the 10 seconds Docker and Kubernetes wait before
 // killing a container.
 const shutdownTimeout = 8 * time.Second
+
+// flushTimeout is how long the spans still waiting get to be exported at
+// shutdown. With shutdownTimeout it stays under the 10 seconds Docker and
+// Kubernetes wait before killing a container.
+const flushTimeout = time.Second
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
@@ -69,7 +83,7 @@ func main() {
 // it starts the service and blocks until ctx is cancelled. Configuration is
 // read through getenv.
 func run(ctx context.Context, args []string, getenv func(string) string, stdout io.Writer) error {
-	logger := slog.New(slog.NewJSONHandler(stdout, nil)).With("service", "herald-api")
+	logger := slog.New(telemetry.NewLogHandler(slog.NewJSONHandler(stdout, nil))).With("service", "herald-api")
 
 	if len(args) == 0 {
 		cfg, err := loadSettings(getenv)
@@ -127,6 +141,24 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	if cfg.shared.AllowInsecureEndpoints {
 		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
 	}
+	tp, err := telemetry.NewTracerProvider(ctx, "herald-api", cfg.shared.Telemetry)
+	if err != nil {
+		return fmt.Errorf("HERALD_OTLP_URL: %w", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout)
+		defer cancel()
+		if err := tp.Shutdown(ctx); err != nil {
+			logger.WarnContext(ctx, "spans not exported at shutdown", "error", err)
+		}
+	}()
+	// Spans that can't be exported are dropped; the service goes on.
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		logger.WarnContext(ctx, "export spans", "error", err)
+	}))
+	if cfg.shared.Telemetry.OTLPURL == "" {
+		logger.WarnContext(ctx, "HERALD_OTLP_URL is not set: spans are not exported")
+	}
 	pool, err := pgxpool.New(ctx, cfg.shared.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
@@ -160,6 +192,7 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 
 	grpcServer := tenantapi.NewGRPCServer(store, cfg.shared.Keyring, tenantapi.Config{
 		AllowHTTPEndpoints: cfg.shared.AllowInsecureEndpoints,
+		TracerProvider:     tp,
 	}, logger)
 	// The gateway calls the gRPC server like any other client, so REST calls
 	// pass through the same interceptors.
@@ -192,7 +225,7 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 
 	// One relay per process (ADR 0002): replicas each run one, and claim
 	// different Messages.
-	relay := outbox.NewRelay(store, nc, outbox.Config{Subject: handoff.Subject}, logger)
+	relay := outbox.NewRelay(store, nc, outbox.Config{Subject: handoff.Subject, TracerProvider: tp}, logger)
 	relayCtx, stopRelay := context.WithCancel(ctx)
 	relayDone := make(chan struct{})
 	go func() {

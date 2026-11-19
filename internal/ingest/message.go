@@ -29,6 +29,10 @@ type NewMessage struct {
 	// IdempotencyKey is the Tenant's Idempotency-Key for the Message, or
 	// empty for none.
 	IdempotencyKey string
+	// TraceParent is the trace context the Message is accepted under, as a
+	// W3C traceparent, or empty for none. The relay continues the trace from
+	// it.
+	TraceParent string
 }
 
 // Message is a single notification a Tenant submitted for one Application,
@@ -95,6 +99,7 @@ func (s *Store) CreateMessage(ctx context.Context, m NewMessage, now time.Time) 
 			IdempotencyKey: m.IdempotencyKey,
 			Now:            now,
 			HasDeliveries:  len(endpointIDs) > 0,
+			Traceparent:    m.TraceParent,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			// No row: the Application isn't the Tenant's, or another Message

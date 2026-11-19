@@ -35,6 +35,15 @@ message Message {
   // byte, so it is carried as bytes rather than parsed.
   bytes payload = 4;
   repeated Delivery deliveries = 5;
+  // The Application the Message was sent to, for the dispatcher's spans.
+  // Empty from a relay that predates it.
+  string application_id = 6;
+  // The context of the relay's handoff span for this Message, as a W3C
+  // traceparent, so the dispatcher continues the Message's trace. A Batch
+  // holds Messages from many traces, so each carries its own rather than
+  // the Batch carrying one in a NATS header. Empty from a relay that
+  // predates it, and then the dispatcher starts a trace of its own.
+  string traceparent = 7;
 }
 
 // Delivery is the Message on its way to one Endpoint.

@@ -21,6 +21,13 @@
 //	HERALD_RETRY_SCALE    a factor in (0, 1] that shrinks every delay in the
 //	                      retry schedule, so the local stack and end-to-end
 //	                      tests run it in seconds (default 1)
+//	HERALD_OTLP_URL       the OpenTelemetry Collector's OTLP/HTTP base URL,
+//	                      such as http://otelcol:4318; without it, spans are
+//	                      not exported
+//	HERALD_RUN_ID         identifies the run the spans belong to, as a
+//	                      resource attribute (default none)
+//	HERALD_BUILD_VERSION  identifies the build, as a resource attribute
+//	                      (default dev)
 package main
 
 import (
@@ -37,11 +44,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel"
 
 	"github.com/madskrogh/herald/internal/config"
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/handoff"
 	"github.com/madskrogh/herald/internal/retry"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // shutdownTimeout is how long the Batches already received get to finish once
@@ -54,6 +63,11 @@ const shutdownTimeout = 8 * time.Second
 // released, which takes up to 2 seconds more, so the workers too stop within
 // shutdownTimeout.
 const attemptDrainTimeout = 5 * time.Second
+
+// flushTimeout is how long the spans still waiting get to be exported at
+// shutdown. With shutdownTimeout it stays under the 10 seconds Docker and
+// Kubernetes wait before killing a container.
+const flushTimeout = time.Second
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
@@ -72,7 +86,7 @@ func main() {
 // it starts the service and blocks until ctx is cancelled. Configuration is
 // read through getenv.
 func run(ctx context.Context, args []string, getenv func(string) string, stdout io.Writer) error {
-	logger := slog.New(slog.NewJSONHandler(stdout, nil)).With("service", "herald-dispatcher")
+	logger := slog.New(telemetry.NewLogHandler(slog.NewJSONHandler(stdout, nil))).With("service", "herald-dispatcher")
 
 	if len(args) == 0 {
 		cfg, err := loadSettings(getenv)
@@ -142,6 +156,24 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	if cfg.shrunkSchedule {
 		logger.WarnContext(ctx, "retry schedule shrunk: for local development only")
 	}
+	tp, err := telemetry.NewTracerProvider(ctx, "herald-dispatcher", cfg.shared.Telemetry)
+	if err != nil {
+		return fmt.Errorf("HERALD_OTLP_URL: %w", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout)
+		defer cancel()
+		if err := tp.Shutdown(ctx); err != nil {
+			logger.WarnContext(ctx, "spans not exported at shutdown", "error", err)
+		}
+	}()
+	// Spans that can't be exported are dropped; the service goes on.
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		logger.WarnContext(ctx, "export spans", "error", err)
+	}))
+	if cfg.shared.Telemetry.OTLPURL == "" {
+		logger.WarnContext(ctx, "HERALD_OTLP_URL is not set: spans are not exported")
+	}
 	pool, err := pgxpool.New(ctx, cfg.shared.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
@@ -168,8 +200,9 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 		DrainTimeout: attemptDrainTimeout,
 
 		AllowPrivateAddresses: cfg.shared.AllowInsecureEndpoints,
+		TracerProvider:        tp,
 	}, logger)
-	intake := delivery.NewIntake(store, time.Now, logger)
+	intake := delivery.NewIntake(store, time.Now, tp, logger)
 	if _, err := intake.Subscribe(ctx, nc, handoff.Subject, handoff.QueueGroup); err != nil {
 		nc.Close()
 		return err
