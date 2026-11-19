@@ -190,6 +190,12 @@ func (s *Stack) WaitDeliveries(ctx context.Context, messageID string) ([]deliver
 	return deliveries, nil
 }
 
+// Attempts returns the Attempts herald-dispatcher recorded for the Delivery,
+// oldest first.
+func (s *Stack) Attempts(ctx context.Context, deliveryID uuid.UUID) ([]delivery.Attempt, error) {
+	return s.deliveries.Attempts(ctx, deliveryID)
+}
+
 func anyPending(deliveries []delivery.Delivery) bool {
 	for _, d := range deliveries {
 		if d.State == delivery.StatePending {

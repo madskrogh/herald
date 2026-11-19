@@ -27,6 +27,9 @@ type Observations struct {
 	// Deliveries are the Deliveries of the Messages sent, once each has
 	// succeeded or failed.
 	Deliveries []delivery.Delivery
+	// Recorded is how many Attempts Herald recorded for each Delivery, by
+	// the Delivery's ID.
+	Recorded map[uuid.UUID]int
 	// Attempts are every Attempt the Endpoints received.
 	Attempts []endpointtest.Attempt
 }
@@ -158,6 +161,13 @@ func NewRecording(obs Observations) (Recording, error) {
 	// byEndpoint lists each Endpoint's Deliveries, to place its TLS
 	// handshakes, which carry no webhook-id.
 	byEndpoint := map[string][]key{}
+	// repeats counts, for each Delivery, the Attempts its Endpoint received
+	// beyond those Herald recorded. A dispatcher that can't record an
+	// Attempt it made, as when Postgres is slowed, makes it again:
+	// at-least-once delivery. Whether it does depends on timing, so a repeat
+	// of the Attempt before it is left out, as many times as there are
+	// repeats.
+	repeats := map[key]int{}
 	for _, d := range obs.Deliveries {
 		message, ok := names[d.MessageID.String()]
 		if !ok {
@@ -176,12 +186,13 @@ func NewRecording(obs Observations) (Recording, error) {
 			State:     d.State,
 		}
 		byEndpoint[endpoint] = append(byEndpoint[endpoint], k)
+		repeats[k] = -obs.Recorded[d.ID]
 	}
 
 	attempts := slices.Clone(obs.Attempts)
 	slices.SortStableFunc(attempts, func(a, b endpointtest.Attempt) int { return a.ReceivedAt.Compare(b.ReceivedAt) })
-	firsts := map[key]time.Time{}
-	for _, a := range attempts {
+	keys := make([]key, len(attempts))
+	for i, a := range attempts {
 		endpoint, ok := obs.EndpointURLs[a.EndpointURL]
 		if !ok {
 			return Recording{}, fmt.Errorf("attempt to %s, which the scenario didn't create", a.EndpointURL)
@@ -200,11 +211,17 @@ func NewRecording(obs Observations) (Recording, error) {
 			}
 			k = key{message, endpoint}
 		}
-		r, ok := records[k]
-		if !ok {
+		if _, ok := records[k]; !ok {
 			return Recording{}, fmt.Errorf("attempt for %s to %s, which has no Delivery", k.message, k.endpoint)
 		}
+		keys[i] = k
+		repeats[k]++
+	}
 
+	firsts := map[key]time.Time{}
+	for i, a := range attempts {
+		k := keys[i]
+		r := records[k]
 		ar := AttemptRecord{Handshake: a.Handshake, Answer: a.Answer.String()}
 		first, ok := firsts[k]
 		if !ok {
@@ -230,10 +247,8 @@ func NewRecording(obs Observations) (Recording, error) {
 				ar.Signature = a.SignatureErr.Error()
 			}
 		}
-		// A fault can keep a dispatcher from recording an Attempt it made,
-		// which it then makes again: at-least-once delivery. Whether it does
-		// depends on timing, so under a fault a repeat is recorded once.
-		if n := len(r.Attempts); r.Fault != "" && n > 0 && sameAttempt(r.Attempts[n-1], ar) {
+		if n := len(r.Attempts); repeats[k] > 0 && n > 0 && sameAttempt(r.Attempts[n-1], ar) {
+			repeats[k]--
 			continue
 		}
 		r.Attempts = append(r.Attempts, ar)

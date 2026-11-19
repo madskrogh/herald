@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 	"uuid"
 
@@ -42,6 +43,7 @@ func Run(ctx context.Context, stack *e2e.Stack, compose Compose, s Scenario, log
 		Sent:         map[string]Sent{},
 		EndpointURLs: map[string]string{},
 		EndpointIDs:  map[uuid.UUID]string{},
+		Recorded:     map[uuid.UUID]int{},
 	}
 	tenant, err := stack.NewTenant(ctx, fmt.Sprintf("scenario %d", s.Seed))
 	if err != nil {
@@ -118,6 +120,8 @@ func (r *runner) create(ctx context.Context) error {
 // Deliveries to finish.
 func (r *runner) runPhase(ctx context.Context, phase Phase) (err error) {
 	// Faults are undone even when ctx has ended, or the stack stays broken.
+	// Each undo is deferred before its fault is injected: a command that
+	// fails, or is cancelled, may have injected it all the same.
 	undo := func(f func(context.Context) error) {
 		uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		defer cancel()
@@ -125,30 +129,30 @@ func (r *runner) runPhase(ctx context.Context, phase Phase) (err error) {
 	}
 	switch phase.Fault {
 	case NATSPaused:
-		if err := r.compose.Pause(ctx, "nats"); err != nil {
-			return err
-		}
 		paused := true
 		defer func() {
 			if paused {
 				undo(func(ctx context.Context) error { return r.compose.Unpause(ctx, "nats") })
 			}
 		}()
+		if err := r.compose.Pause(ctx, "nats"); err != nil {
+			return err
+		}
 		if err := r.send(ctx, phase.Messages); err != nil {
 			return err
 		}
 		if err := sleep(ctx, natsPause); err != nil {
 			return err
 		}
-		paused = false
 		if err := r.compose.Unpause(ctx, "nats"); err != nil {
 			return err
 		}
+		paused = false
 	case PostgresSlowed:
+		defer undo(func(ctx context.Context) error { return r.compose.UnlimitCPU(ctx, "postgres") })
 		if err := r.compose.LimitCPU(ctx, "postgres", postgresCPU); err != nil {
 			return err
 		}
-		defer undo(func(ctx context.Context) error { return r.compose.UnlimitCPU(ctx, "postgres") })
 		if err := sleep(ctx, postgresSettle); err != nil {
 			return err
 		}
@@ -188,9 +192,11 @@ func (r *runner) send(ctx context.Context, messages []Message) error {
 		}
 		at := time.Now()
 		id, err := r.tenant.SendMessage(ctx, r.appIDs[m.Application], m.EventType, m.Payload, m.IdempotencyKey)
+		// A 4xx is Herald refusing the Message, an outcome to compare. A 5xx
+		// is the stack failing, which fails the run instead.
 		var refused *e2e.StatusError
 		switch {
-		case errors.As(err, &refused):
+		case errors.As(err, &refused) && refused.Code < http.StatusInternalServerError:
 			r.obs.Sent[m.Name] = Sent{At: at, Status: refused.Code}
 			continue
 		case err != nil:
@@ -206,7 +212,7 @@ func (r *runner) send(ctx context.Context, messages []Message) error {
 }
 
 // wait waits until the Deliveries of messages have all succeeded or failed,
-// and keeps them.
+// and keeps them, with how many Attempts Herald recorded for each.
 func (r *runner) wait(ctx context.Context, messages []Message) error {
 	waited := map[uuid.UUID]bool{}
 	for _, m := range messages {
@@ -218,6 +224,13 @@ func (r *runner) wait(ctx context.Context, messages []Message) error {
 		deliveries, err := r.stack.WaitDeliveries(ctx, sent.ID.String())
 		if err != nil {
 			return fmt.Errorf("message %s: %w", m.Name, err)
+		}
+		for _, d := range deliveries {
+			attempts, err := r.stack.Attempts(ctx, d.ID)
+			if err != nil {
+				return fmt.Errorf("message %s: %w", m.Name, err)
+			}
+			r.obs.Recorded[d.ID] = len(attempts)
 		}
 		r.obs.Deliveries = append(r.obs.Deliveries, deliveries...)
 	}

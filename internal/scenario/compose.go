@@ -68,26 +68,25 @@ func (c Compose) update(ctx context.Context, service string, args ...string) err
 	if id == "" {
 		return fmt.Errorf("service %s has no container", service)
 	}
-	return runDocker(ctx, append(append([]string{"update"}, args...), id)...)
+	_, err = docker(ctx, append(append([]string{"update"}, args...), id)...)
+	return err
 }
 
 // compose runs docker compose with args on the stack, and returns its
 // output, trimmed.
 func (c Compose) compose(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", append([]string{"compose", "--file", c.File}, args...)...)
+	return docker(ctx, append([]string{"compose", "--file", c.File}, args...)...)
+}
+
+// docker runs docker with args, and returns its output, trimmed. An error
+// carries what docker wrote to stderr.
+func docker(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("docker compose %s: %w: %s", strings.Join(args, " "), err, stderr.Bytes())
+		return "", fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, stderr.Bytes())
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-func runDocker(ctx context.Context, args ...string) error {
-	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, out)
-	}
-	return nil
 }
