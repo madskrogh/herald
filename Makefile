@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e scenario-compare scenario-record profile admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e scenario-compare scenario-record endpoint profile admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -91,22 +91,23 @@ wait-ci:
 
 # Per-checkout compose project name and ports. Generated on first use, and
 # regenerated, in the same slot, when the script changes, so a checkout's
-# .env gains the ports of services added since.
+# .env gains the ports of services added since. Its message goes to stderr,
+# so that a target's output, such as make admin's, can still be captured.
 .env: scripts/worktree-env.sh
-	./scripts/worktree-env.sh
+	@./scripts/worktree-env.sh >&2
 
 # --build so the stack always runs this checkout's code and migrations.
 up: .env
 	docker compose up -d --wait --build
 
-# The host address the end-to-end tests serve their Endpoints on: the one
-# host.docker.internal reaches from a container. Docker Desktop reaches the
-# host's loopback; on Linux it is the default bridge's gateway, which
-# compose.yaml maps the name to.
+# The host address that Endpoints served from the host listen on, for the
+# end-to-end tests and make endpoint: the one host.docker.internal reaches
+# from a container. Docker Desktop reaches the host's loopback; on Linux it is
+# the default bridge's gateway, which compose.yaml maps the name to.
 ifeq ($(shell uname -s),Linux)
-E2E_ENDPOINT_IP = $(shell docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+HOST_ENDPOINT_IP = $(shell docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
 else
-E2E_ENDPOINT_IP = 127.0.0.1
+HOST_ENDPOINT_IP = 127.0.0.1
 endif
 
 # Where the end-to-end tests and the scenario find this checkout's stack, as
@@ -115,7 +116,7 @@ endif
 STACK_ENV = \
 	HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
 	HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
-	HERALD_E2E_ENDPOINT_IP="$(E2E_ENDPOINT_IP)" \
+	HERALD_E2E_ENDPOINT_IP="$(HOST_ENDPOINT_IP)" \
 	HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
 	HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT"
 
@@ -144,6 +145,17 @@ scenario-compare: .env
 # Usage: make scenario-record [SEED=<n>]
 scenario-record: .env
 	@$(SCENARIO) -args -update $(if $(SEED),-seed '$(SEED)')
+
+# Serves an Endpoint for this checkout's stack that prints each Attempt it
+# receives. Given the Endpoint's signing secret, it also says whether each
+# signature verifies. The README walks through it.
+# Usage: make endpoint [SECRET=whsec_...]
+endpoint: .env
+	@test -n '$(HOST_ENDPOINT_IP)' || { echo "endpoint: no host address to listen on: is Docker running?"; exit 1; }
+	@. ./.env && go run ./cmd/demo-endpoint \
+		-listen "$(HOST_ENDPOINT_IP):$$HERALD_DEMO_ENDPOINT_PORT" \
+		-url "http://host.docker.internal:$$HERALD_DEMO_ENDPOINT_PORT/" \
+		-secret '$(SECRET)'
 
 # The checkout whose stack is the base build for profile: by default the main
 # checkout, the first entry of `git worktree list`.
