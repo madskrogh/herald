@@ -94,6 +94,7 @@ func TestSpanIsStoredInClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WaitSpans: %v", err)
 	}
+	span.ResourceAttributes = map[string]string{"service.name": "herald-e2e"}
 	if diff := cmp.Diff([]e2e.Span{span}, got); diff != "" {
 		t.Errorf("spans in trace %s (-want +got):\n%s", span.TraceID, diff)
 	}

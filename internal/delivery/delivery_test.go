@@ -33,7 +33,7 @@ func TestMessageDeliveries(t *testing.T) {
 			if err != nil {
 				t.Fatalf("MessageDeliveries: %v", err)
 			}
-			if diff := cmp.Diff(tt.want, got); diff != "" {
+			if diff := cmp.Diff(tt.want, got, ignoreTraceParent); diff != "" {
 				t.Errorf("MessageDeliveries (-want +got):\n%s", diff)
 			}
 		})

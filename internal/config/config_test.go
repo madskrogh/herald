@@ -9,6 +9,7 @@ import (
 
 	"github.com/madskrogh/herald/internal/config"
 	"github.com/madskrogh/herald/internal/keyring"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // testKeyring is a keyring with one key of 32 zero bytes, under the ID "test".
@@ -28,6 +29,7 @@ func TestLoad(t *testing.T) {
 	want := config.Shared{
 		DatabaseURL: "postgres://localhost/herald",
 		NATSURL:     "nats://localhost:4222",
+		Telemetry:   telemetry.Config{BuildVersion: "dev"},
 	}
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(config.Shared{}, "Keyring")); diff != "" {
 		t.Errorf("Load (-want +got):\n%s", diff)
@@ -126,6 +128,51 @@ func TestLoadAllowInsecureEndpoints(t *testing.T) {
 	}
 }
 
+// TestLoadTelemetry checks the settings for exporting spans, all of them
+// optional.
+func TestLoadTelemetry(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		env  map[string]string
+		want telemetry.Config
+	}{
+		{
+			name: "unset",
+			want: telemetry.Config{BuildVersion: "dev"},
+		},
+		{
+			name: "set",
+			env: map[string]string{
+				"HERALD_OTLP_URL":      "http://otelcol:4318",
+				"HERALD_RUN_ID":        "run-42",
+				"HERALD_BUILD_VERSION": "86b342f",
+			},
+			want: telemetry.Config{OTLPURL: "http://otelcol:4318", RunID: "run-42", BuildVersion: "86b342f"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			env := map[string]string{
+				"HERALD_DATABASE_URL": "postgres://localhost/herald",
+				"HERALD_KEYRING":      testKeyring,
+				"HERALD_NATS_URL":     "nats://localhost:4222",
+			}
+			for k, v := range tt.env {
+				env[k] = v
+			}
+			cfg, err := config.Load(mapEnv(env))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if diff := cmp.Diff(tt.want, cfg.Telemetry); diff != "" {
+				t.Errorf("Telemetry (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestLoadErrors checks that each required setting is reported by name, in a
 // fixed order: the database URL, the keyring, then the NATS URL.
 func TestLoadErrors(t *testing.T) {
@@ -154,6 +201,12 @@ func TestLoadErrors(t *testing.T) {
 			name:    "with an invalid keyring",
 			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_NATS_URL": "nats://unused", "HERALD_KEYRING": "test:c2VjcmV0"},
 			wantErr: `HERALD_KEYRING: keyring entry 0: key "test" has 6 bytes, want 32`,
+		},
+		{
+			// Without a scheme, the OTLP exporter would send to localhost.
+			name:    "with an OTLP URL without a scheme",
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": testKeyring, "HERALD_NATS_URL": "nats://unused", "HERALD_OTLP_URL": "otelcol:4318"},
+			wantErr: `HERALD_OTLP_URL: "otelcol:4318" is not an http or https URL with a host`,
 		},
 		{
 			name:    "without a NATS URL",

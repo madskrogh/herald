@@ -21,6 +21,13 @@
 //	HERALD_RETRY_SCALE    a factor in (0, 1] that shrinks every delay in the
 //	                      retry schedule, so the local stack and end-to-end
 //	                      tests run it in seconds (default 1)
+//	HERALD_OTLP_URL       the OpenTelemetry Collector's OTLP/HTTP base URL,
+//	                      such as http://otelcol:4318; without it, spans are
+//	                      not exported
+//	HERALD_RUN_ID         identifies the run the spans belong to, as a
+//	                      resource attribute (default none)
+//	HERALD_BUILD_VERSION  identifies the build, as a resource attribute
+//	                      (default dev)
 package main
 
 import (
@@ -42,6 +49,7 @@ import (
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/handoff"
 	"github.com/madskrogh/herald/internal/retry"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // shutdownTimeout is how long the Batches already received get to finish once
@@ -72,7 +80,7 @@ func main() {
 // it starts the service and blocks until ctx is cancelled. Configuration is
 // read through getenv.
 func run(ctx context.Context, args []string, getenv func(string) string, stdout io.Writer) error {
-	logger := slog.New(slog.NewJSONHandler(stdout, nil)).With("service", "herald-dispatcher")
+	logger := slog.New(telemetry.NewLogHandler(slog.NewJSONHandler(stdout, nil))).With("service", "herald-dispatcher")
 
 	if len(args) == 0 {
 		cfg, err := loadSettings(getenv)
@@ -142,6 +150,12 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	if cfg.shrunkSchedule {
 		logger.WarnContext(ctx, "retry schedule shrunk: for local development only")
 	}
+	tp, flush, err := telemetry.Setup(ctx, "herald-dispatcher", cfg.shared.Telemetry, logger)
+	if err != nil {
+		return err
+	}
+	// Last, once nothing makes spans any more.
+	defer flush(ctx)
 	pool, err := pgxpool.New(ctx, cfg.shared.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
@@ -168,8 +182,9 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 		DrainTimeout: attemptDrainTimeout,
 
 		AllowPrivateAddresses: cfg.shared.AllowInsecureEndpoints,
+		TracerProvider:        tp,
 	}, logger)
-	intake := delivery.NewIntake(store, time.Now, logger)
+	intake := delivery.NewIntake(store, time.Now, tp, logger)
 	if _, err := intake.Subscribe(ctx, nc, handoff.Subject, handoff.QueueGroup); err != nil {
 		nc.Close()
 		return err

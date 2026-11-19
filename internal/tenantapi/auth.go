@@ -6,12 +6,14 @@ import (
 	"strings"
 	"uuid"
 
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/madskrogh/herald/internal/ingest"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // tenantIDKey is the context key for the ID of the Tenant making a call.
@@ -34,6 +36,7 @@ func authenticate(store *ingest.Store) grpc.UnaryServerInterceptor {
 		if err != nil {
 			return nil, err
 		}
+		trace.SpanFromContext(ctx).SetAttributes(telemetry.TenantID.String(tenant.ID.String()))
 		return handler(context.WithValue(ctx, tenantIDKey{}, tenant.ID), req)
 	}
 }

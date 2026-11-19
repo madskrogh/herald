@@ -8,8 +8,10 @@ import (
 	"uuid"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/goleak"
 	"google.golang.org/protobuf/proto"
 
@@ -17,6 +19,7 @@ import (
 	handoffv1 "github.com/madskrogh/herald/internal/gen/herald/handoff/v1"
 	"github.com/madskrogh/herald/internal/natstest"
 	"github.com/madskrogh/herald/internal/pgtest"
+	"github.com/madskrogh/herald/internal/telemetry/telemetrytest"
 	"github.com/madskrogh/herald/internal/testmain"
 )
 
@@ -154,7 +157,7 @@ func TestIntakeStoresABatch(t *testing.T) {
 			t.Errorf("Delivery(%s): %v", want.ID, err)
 			continue
 		}
-		if diff := cmp.Diff(want, got); diff != "" {
+		if diff := cmp.Diff(want, got, ignoreTraceParent); diff != "" {
 			t.Errorf("Delivery(%s) (-want +got):\n%s", want.ID, diff)
 		}
 	}
@@ -281,8 +284,12 @@ func TestIntakeStoresBatchesWhileShuttingDown(t *testing.T) {
 type testIntake struct {
 	nc      *nats.Conn
 	subject string
+	dbURL   string
 	pool    *pgxpool.Pool
 	store   *delivery.Store
+	// spans records the spans made with its Provider, by the intake and by
+	// Workers on the same database, and checks them against the schema.
+	spans *telemetrytest.Recorder
 }
 
 func newTestIntake(ctx context.Context, t *testing.T) *testIntake {
@@ -291,19 +298,29 @@ func newTestIntake(ctx context.Context, t *testing.T) *testIntake {
 	if err := delivery.Migrate(t.Context(), dbURL, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
+	spans := telemetrytest.NewRecorder(t)
+	in := newTestIntakeOn(ctx, t, dbURL, spans.Provider)
+	in.spans = spans
+	return in
+}
+
+// newTestIntakeOn returns an intake on the migrated database at dbURL, with
+// a NATS subject of its own, whose spans tp makes. Its spans field is nil.
+func newTestIntakeOn(ctx context.Context, t *testing.T, dbURL string, tp trace.TracerProvider) *testIntake {
+	t.Helper()
 	// The intake and the test have pools of their own, so the test reads
 	// what the intake stored on another connection, as a worker would.
 	intakePool, pool := newPool(t, dbURL), newPool(t, dbURL)
 
 	nc := natstest.Connect(t)
 	subject := natstest.Subject(t)
-	intake := delivery.NewIntake(delivery.NewStore(intakePool), func() time.Time { return now }, slog.New(slog.DiscardHandler))
+	intake := delivery.NewIntake(delivery.NewStore(intakePool), func() time.Time { return now }, tp, slog.New(slog.DiscardHandler))
 	sub, err := intake.Subscribe(ctx, nc, subject, "herald-dispatcher")
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
 	t.Cleanup(func() { _ = sub.Unsubscribe() })
-	return &testIntake{nc: nc, subject: subject, pool: pool, store: delivery.NewStore(pool)}
+	return &testIntake{nc: nc, subject: subject, dbURL: dbURL, pool: pool, store: delivery.NewStore(pool)}
 }
 
 // newPool returns a pool on the database at dbURL, closed when t finishes.
@@ -361,6 +378,11 @@ func (in *testIntake) countRows(t *testing.T) rowCounts {
 	}
 	return c
 }
+
+// ignoreTraceParent leaves out a Delivery's trace context, which holds the
+// random IDs of the span that stored it, and which
+// TestIntakeContinuesEachMessagesTrace checks.
+var ignoreTraceParent = cmpopts.IgnoreFields(delivery.Delivery{}, "TraceParent")
 
 // cmpProto compares protobuf messages by content.
 var cmpProto = cmp.Comparer(proto.Equal)

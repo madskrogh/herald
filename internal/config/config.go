@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/madskrogh/herald/internal/keyring"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // Shared is the configuration both services read.
@@ -27,12 +28,17 @@ type Shared struct {
 	// herald-api accepts http Endpoint URLs, and herald-dispatcher lets
 	// Attempts connect to non-public addresses.
 	AllowInsecureEndpoints bool
+	// Telemetry says where spans go and what identifies them.
+	Telemetry telemetry.Config
 }
 
-// Load reads the shared settings through getenv. All but
-// HERALD_ALLOW_INSECURE_ENDPOINTS are required. The first setting missing or
-// invalid is reported, checked in this order: the database URL, the keyring,
-// the NATS URL, then HERALD_ALLOW_INSECURE_ENDPOINTS.
+// Load reads the shared settings through getenv. The database URL, the
+// keyring and the NATS URL are required; HERALD_ALLOW_INSECURE_ENDPOINTS and
+// the telemetry settings (HERALD_OTLP_URL, HERALD_RUN_ID and
+// HERALD_BUILD_VERSION, default "dev") are optional. The first setting
+// missing or invalid is reported, checked in this order: the database URL,
+// the keyring, the NATS URL, HERALD_ALLOW_INSECURE_ENDPOINTS, then
+// HERALD_OTLP_URL.
 func Load(getenv func(string) string) (Shared, error) {
 	dbURL, err := DatabaseURL(getenv)
 	if err != nil {
@@ -58,6 +64,19 @@ func Load(getenv func(string) string) (Shared, error) {
 			return Shared{}, fmt.Errorf("HERALD_ALLOW_INSECURE_ENDPOINTS: %w", err)
 		}
 		cfg.AllowInsecureEndpoints = allow
+	}
+	cfg.Telemetry = telemetry.Config{
+		OTLPURL:      getenv("HERALD_OTLP_URL"),
+		RunID:        getenv("HERALD_RUN_ID"),
+		BuildVersion: getenv("HERALD_BUILD_VERSION"),
+	}
+	if cfg.Telemetry.OTLPURL != "" {
+		if err := telemetry.CheckOTLPURL(cfg.Telemetry.OTLPURL); err != nil {
+			return Shared{}, fmt.Errorf("HERALD_OTLP_URL: %w", err)
+		}
+	}
+	if cfg.Telemetry.BuildVersion == "" {
+		cfg.Telemetry.BuildVersion = "dev"
 	}
 	return cfg, nil
 }

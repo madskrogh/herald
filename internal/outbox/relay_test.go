@@ -29,6 +29,7 @@ import (
 	"github.com/madskrogh/herald/internal/natstest"
 	"github.com/madskrogh/herald/internal/outbox"
 	"github.com/madskrogh/herald/internal/pgtest"
+	"github.com/madskrogh/herald/internal/telemetry/telemetrytest"
 	"github.com/madskrogh/herald/internal/testmain"
 )
 
@@ -82,10 +83,11 @@ func TestRelayHandsOffAMessageWithItsDeliveries(t *testing.T) {
 
 	want := []delivery.Delivery{
 		{
-			MessageID: msg.ID,
-			TenantID:  app.tenantID,
-			EventType: "invoice.paid",
-			Payload:   []byte(`{"invoice": 42}`),
+			MessageID:     msg.ID,
+			TenantID:      app.tenantID,
+			ApplicationID: app.id,
+			EventType:     "invoice.paid",
+			Payload:       []byte(`{"invoice": 42}`),
 			Endpoint: delivery.Endpoint{
 				ID:             endpoint1,
 				URL:            "https://example.com/webhooks",
@@ -95,10 +97,11 @@ func TestRelayHandsOffAMessageWithItsDeliveries(t *testing.T) {
 			NextAttemptAt: stored,
 		},
 		{
-			MessageID: msg.ID,
-			TenantID:  app.tenantID,
-			EventType: "invoice.paid",
-			Payload:   []byte(`{"invoice": 42}`),
+			MessageID:     msg.ID,
+			TenantID:      app.tenantID,
+			ApplicationID: app.id,
+			EventType:     "invoice.paid",
+			Payload:       []byte(`{"invoice": 42}`),
 			Endpoint: delivery.Endpoint{
 				ID:             endpoint2,
 				URL:            "https://example.org/hooks?app=7",
@@ -108,7 +111,9 @@ func TestRelayHandsOffAMessageWithItsDeliveries(t *testing.T) {
 			NextAttemptAt: stored,
 		},
 	}
-	if diff := cmp.Diff(want, env.storedDeliveries(t, msg), byEndpointURL); diff != "" {
+	// TestABatchContinuesEachMessagesTrace checks the trace context.
+	ignoreTrace := cmpopts.IgnoreFields(delivery.Delivery{}, "TraceParent")
+	if diff := cmp.Diff(want, env.storedDeliveries(t, msg), byEndpointURL, ignoreTrace); diff != "" {
 		t.Errorf("stored Deliveries (-want +got):\n%s", diff)
 	}
 
@@ -251,7 +256,7 @@ func TestRelayLogsAParkedMessageWithTheDispatchersError(t *testing.T) {
 	poison := app.message(t, "invoice.paid", []byte(`{"invoice": 2}`))
 	env.rejecting(t, "payload violates a constraint", poison.ID)
 	var logs bytes.Buffer
-	relay := outbox.NewRelay(env.ingest, env.nc, outbox.Config{Subject: env.subject}, slog.New(slog.NewJSONHandler(&logs, nil)))
+	relay := outbox.NewRelay(env.ingest, env.nc, outbox.Config{Subject: env.subject, TracerProvider: env.spans.Provider}, slog.New(slog.NewJSONHandler(&logs, nil)))
 
 	if _, _, err := relay.RunOnce(t.Context(), handedOff); err != nil {
 		t.Fatalf("RunOnce: %v", err)
@@ -404,7 +409,7 @@ func TestRelayReportsANATSConnectionNotYetMade(t *testing.T) {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(nc.Close)
-	relay := outbox.NewRelay(env.ingest, nc, outbox.Config{Subject: env.subject}, slog.New(slog.DiscardHandler))
+	relay := outbox.NewRelay(env.ingest, nc, outbox.Config{Subject: env.subject, TracerProvider: env.spans.Provider}, slog.New(slog.DiscardHandler))
 
 	n, _, err := relay.RunOnce(t.Context(), handedOff)
 	if err == nil || !strings.Contains(err.Error(), "not connected to NATS") {
@@ -869,6 +874,9 @@ type env struct {
 	pool     *pgxpool.Pool
 	nc       *nats.Conn
 	subject  string
+	// spans records the relay's and the dispatchers' spans, and checks them
+	// against the schema.
+	spans *telemetrytest.Recorder
 }
 
 func newEnv(t *testing.T) *env {
@@ -892,6 +900,7 @@ func newEnv(t *testing.T) *env {
 		pool:     pool,
 		nc:       natstest.Connect(t),
 		subject:  natstest.Subject(t),
+		spans:    telemetrytest.NewRecorder(t),
 	}
 }
 
@@ -900,7 +909,7 @@ func newEnv(t *testing.T) *env {
 func (e *env) dispatcher(t *testing.T, subject string) {
 	t.Helper()
 	nc := natstest.Connect(t)
-	in := delivery.NewIntake(e.delivery, func() time.Time { return stored }, slog.New(slog.DiscardHandler))
+	in := delivery.NewIntake(e.delivery, func() time.Time { return stored }, e.spans.Provider, slog.New(slog.DiscardHandler))
 	sub, err := in.Subscribe(context.WithoutCancel(t.Context()), nc, subject, "dispatchers")
 	if err != nil {
 		t.Fatalf("subscribe intake: %v", err)
@@ -1084,6 +1093,7 @@ func (e *env) storedDeliveryCount(t *testing.T) int {
 func (e *env) relay(t *testing.T, cfg outbox.Config) *outbox.Relay {
 	t.Helper()
 	cfg.Subject = e.subject
+	cfg.TracerProvider = e.spans.Provider
 	return outbox.NewRelay(e.ingest, e.nc, cfg, slog.New(slog.DiscardHandler))
 }
 
@@ -1156,6 +1166,18 @@ func (a app) endpoint(t *testing.T, url string, filter []string) uuid.UUID {
 // message accepts a Message for the Application.
 func (a app) message(t *testing.T, eventType string, payload []byte) ingest.Message {
 	t.Helper()
+	return a.newMessage(t, eventType, payload, "")
+}
+
+// messageInTrace accepts a Message for the Application under the trace
+// context traceparent, or none if it is empty.
+func (a app) messageInTrace(t *testing.T, traceparent string) ingest.Message {
+	t.Helper()
+	return a.newMessage(t, "invoice.paid", []byte(`{"invoice": 1}`), traceparent)
+}
+
+func (a app) newMessage(t *testing.T, eventType string, payload []byte, traceparent string) ingest.Message {
+	t.Helper()
 	et, err := eventtype.ParseEventType(eventType)
 	if err != nil {
 		t.Fatalf("parse event type: %v", err)
@@ -1165,6 +1187,7 @@ func (a app) message(t *testing.T, eventType string, payload []byte) ingest.Mess
 		ApplicationID: a.id,
 		EventType:     et,
 		Payload:       payload,
+		TraceParent:   traceparent,
 	}, accepted)
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)

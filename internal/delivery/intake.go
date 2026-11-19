@@ -7,11 +7,15 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/madskrogh/herald/internal/delivery/deliverydb"
 	handoffv1 "github.com/madskrogh/herald/internal/gen/herald/handoff/v1"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // storeTimeout bounds how long storing one Batch may take. Batches are
@@ -25,13 +29,18 @@ const storeTimeout = 5 * time.Second
 type Intake struct {
 	store  *Store
 	now    func() time.Time
+	tracer trace.Tracer
 	logger *slog.Logger
 }
 
 // NewIntake returns an Intake that stores Batches in store. now tells the
-// current time, at which new Deliveries are due.
-func NewIntake(store *Store, now func() time.Time, logger *slog.Logger) *Intake {
-	return &Intake{store: store, now: now, logger: logger}
+// current time, at which new Deliveries are due, and tp makes the span of
+// each Message stored.
+func NewIntake(store *Store, now func() time.Time, tp trace.TracerProvider, logger *slog.Logger) *Intake {
+	if tp == nil {
+		tp = noop.NewTracerProvider()
+	}
+	return &Intake{store: store, now: now, tracer: tp.Tracer(tracerName), logger: logger}
 }
 
 // Subscribe subscribes the intake to Batches sent to subject, in queue group
@@ -77,42 +86,87 @@ func (in *Intake) handle(ctx context.Context, m *nats.Msg) {
 
 // storeBatch stores the Batch encoded in data in one transaction, within
 // storeTimeout.
+//
+// Each Message gets a span, in the Message's trace when the relay sent its
+// context, and its Deliveries keep the span's context. Every Attempt for a
+// Delivery is then a child of that span, whenever and wherever it runs.
 func (in *Intake) storeBatch(ctx context.Context, data []byte) error {
-	messages, deliveries, err := decodeBatch(data, in.now())
+	batch, err := decodeBatch(data, in.now())
 	if err != nil {
 		return err
-	}
-	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
-	defer cancel()
-	return in.store.insert(ctx, messages, deliveries)
-}
-
-// decodeBatch decodes the Batch in data into the rows that store it. Its
-// Deliveries are pending and due at now.
-func decodeBatch(data []byte, now time.Time) ([]deliverydb.InsertMessageParams, []deliverydb.InsertDeliveryParams, error) {
-	var batch handoffv1.Batch
-	if err := proto.Unmarshal(data, &batch); err != nil {
-		return nil, nil, fmt.Errorf("decode batch: %w", err)
 	}
 	var (
 		messages   []deliverydb.InsertMessageParams
 		deliveries []deliverydb.InsertDeliveryParams
+		spans      []trace.Span
 	)
+	for _, m := range batch {
+		spanCtx, span := telemetry.Start(ctx, in.tracer, m.traceParent, telemetry.SpanStoreDeliveries,
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				telemetry.TenantID.String(m.message.TenantID.String()),
+				// Zero when NULL.
+				telemetry.ApplicationID.String(applicationIDAttr(uuid.UUID(m.message.ApplicationID.Bytes))),
+				telemetry.MessageID.String(m.message.ID.String()),
+				telemetry.BatchSize.Int(len(batch)),
+				telemetry.DeliveryCount.Int(len(m.deliveries)),
+			),
+		)
+		spans = append(spans, span)
+		traceParent := telemetry.TraceParent(spanCtx)
+		for _, d := range m.deliveries {
+			d.Traceparent = traceParent
+			deliveries = append(deliveries, d)
+		}
+		messages = append(messages, m.message)
+	}
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
+	defer cancel()
+	err = in.store.insert(ctx, messages, deliveries)
+	outcome := telemetry.OutcomeStored
+	if err != nil {
+		outcome = telemetry.OutcomeFailed
+	}
+	for _, span := range spans {
+		telemetry.End(span, outcome, err)
+	}
+	return err
+}
+
+// batchMessage is one Message of a Batch, decoded into the rows that store
+// it.
+type batchMessage struct {
+	message    deliverydb.InsertMessageParams
+	deliveries []deliverydb.InsertDeliveryParams
+	// traceParent is the context of the relay's span for the Message, or
+	// empty from a relay that doesn't send it.
+	traceParent string
+}
+
+// decodeBatch decodes the Batch in data into the rows that store it. Its
+// Deliveries are pending and due at now.
+func decodeBatch(data []byte, now time.Time) ([]batchMessage, error) {
+	var batch handoffv1.Batch
+	if err := proto.Unmarshal(data, &batch); err != nil {
+		return nil, fmt.Errorf("decode batch: %w", err)
+	}
+	var messages []batchMessage
 	for _, m := range batch.GetMessages() {
 		message, err := parseMessage(m)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		messages = append(messages, message)
+		bm := batchMessage{message: message, traceParent: m.GetTraceparent()}
 		for _, d := range m.GetDeliveries() {
 			delivery, err := parseDelivery(d, message.ID, now)
 			if err != nil {
-				return nil, nil, fmt.Errorf("message %s: %w", message.ID, err)
+				return nil, fmt.Errorf("message %s: %w", message.ID, err)
 			}
-			deliveries = append(deliveries, delivery)
+			bm.deliveries = append(bm.deliveries, delivery)
 		}
+		messages = append(messages, bm)
 	}
-	return messages, deliveries, nil
+	return messages, nil
 }
 
 func parseMessage(m *handoffv1.Message) (deliverydb.InsertMessageParams, error) {
@@ -124,11 +178,21 @@ func parseMessage(m *handoffv1.Message) (deliverydb.InsertMessageParams, error) 
 	if err != nil {
 		return deliverydb.InsertMessageParams{}, fmt.Errorf("message %s: tenant ID %q: %w", id, m.GetTenantId(), err)
 	}
+	// A relay that predates application_id sends none.
+	var applicationID pgtype.UUID
+	if s := m.GetApplicationId(); s != "" {
+		parsed, err := uuid.Parse(s)
+		if err != nil {
+			return deliverydb.InsertMessageParams{}, fmt.Errorf("message %s: application ID %q: %w", id, s, err)
+		}
+		applicationID = pgtype.UUID{Bytes: parsed, Valid: true}
+	}
 	return deliverydb.InsertMessageParams{
-		ID:        id,
-		TenantID:  tenantID,
-		EventType: m.GetEventType(),
-		Payload:   m.GetPayload(),
+		ID:            id,
+		TenantID:      tenantID,
+		ApplicationID: applicationID,
+		EventType:     m.GetEventType(),
+		Payload:       m.GetPayload(),
 	}, nil
 }
 

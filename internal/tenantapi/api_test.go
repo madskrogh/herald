@@ -29,6 +29,7 @@ import (
 	"github.com/madskrogh/herald/internal/ingest/ingesttest"
 	"github.com/madskrogh/herald/internal/keyring"
 	"github.com/madskrogh/herald/internal/pgtest"
+	"github.com/madskrogh/herald/internal/telemetry/telemetrytest"
 	"github.com/madskrogh/herald/internal/tenantapi"
 )
 
@@ -47,6 +48,8 @@ type api struct {
 	keyring *keyring.Keyring
 	conn    *grpc.ClientConn
 	restURL string
+	// spans records the API's spans, and checks them against the schema.
+	spans *telemetrytest.Recorder
 }
 
 // newAPI starts a Tenant API for t. Everything it starts stops when t
@@ -59,7 +62,8 @@ func newAPI(t *testing.T) *api {
 		t.Fatalf("parse keyring: %v", err)
 	}
 
-	srv := tenantapi.NewGRPCServer(store, kr, tenantapi.Config{}, slog.New(slog.DiscardHandler))
+	spans := telemetrytest.NewRecorder(t)
+	srv := tenantapi.NewGRPCServer(store, kr, tenantapi.Config{TracerProvider: spans.Provider}, slog.New(slog.DiscardHandler))
 	var lc net.ListenConfig
 	lis, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -81,7 +85,7 @@ func newAPI(t *testing.T) *api {
 	rest := httptest.NewServer(gateway)
 	t.Cleanup(rest.Close)
 
-	return &api{store: store, pool: pool, keyring: kr, conn: conn, restURL: rest.URL}
+	return &api{store: store, pool: pool, keyring: kr, conn: conn, restURL: rest.URL, spans: spans}
 }
 
 // newTenant creates a Tenant and returns an API key for it.

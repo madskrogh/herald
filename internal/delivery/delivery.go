@@ -35,6 +35,9 @@ func Migrate(ctx context.Context, databaseURL string, logger *slog.Logger) error
 	return migrate.Run(ctx, databaseURL, schema, fsys, logger)
 }
 
+// tracerName names the tracer of the dispatcher's spans.
+const tracerName = "github.com/madskrogh/herald/internal/delivery"
+
 // ErrNotFound is returned when a Delivery doesn't exist.
 var ErrNotFound = errors.New("not found")
 
@@ -58,7 +61,10 @@ type Delivery struct {
 	ID        uuid.UUID
 	MessageID uuid.UUID
 	TenantID  uuid.UUID
-	EventType string
+	// ApplicationID is zero for a Message handed off before Batches carried
+	// it.
+	ApplicationID uuid.UUID
+	EventType     string
 	// The JSON payload exactly as the Tenant submitted it.
 	Payload  []byte
 	Endpoint Endpoint
@@ -67,6 +73,11 @@ type Delivery struct {
 	// Delivery it is when the lease runs out, and once the Delivery has
 	// succeeded or failed it is left as it was at the last claim.
 	NextAttemptAt time.Time
+	// TraceParent is the context of the span that stored the Delivery, as a
+	// W3C traceparent, so that every Attempt for it, whenever and wherever it
+	// runs, joins the Message's trace. Empty for a Delivery stored before
+	// Deliveries kept their trace context.
+	TraceParent string
 }
 
 // Endpoint is a Delivery's copy of its Endpoint's details, taken when the
@@ -139,6 +150,15 @@ func (s *Store) Delivery(ctx context.Context, id uuid.UUID) (Delivery, error) {
 	return deliveryFromRow(row), nil
 }
 
+// applicationIDAttr returns id as a span attribute: empty when it is zero,
+// for a Message handed off before Batches carried its Application.
+func applicationIDAttr(id uuid.UUID) string {
+	if id == (uuid.UUID{}) {
+		return ""
+	}
+	return id.String()
+}
+
 // deliveryFromRow returns the Delivery a query read. Every query that reads a
 // whole Delivery returns the same columns, so its rows convert to this type.
 func deliveryFromRow(row deliverydb.GetDeliveryRow) Delivery {
@@ -146,8 +166,10 @@ func deliveryFromRow(row deliverydb.GetDeliveryRow) Delivery {
 		ID:        row.ID,
 		MessageID: row.MessageID,
 		TenantID:  row.TenantID,
-		EventType: row.EventType,
-		Payload:   row.Payload,
+		// Zero when NULL.
+		ApplicationID: uuid.UUID(row.ApplicationID.Bytes),
+		EventType:     row.EventType,
+		Payload:       row.Payload,
 		Endpoint: Endpoint{
 			ID:             row.EndpointID,
 			URL:            row.EndpointURL,
@@ -155,5 +177,6 @@ func deliveryFromRow(row deliverydb.GetDeliveryRow) Delivery {
 		},
 		State:         State(row.State),
 		NextAttemptAt: row.NextAttemptAt,
+		TraceParent:   row.Traceparent,
 	}
 }

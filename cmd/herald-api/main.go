@@ -20,6 +20,13 @@
 //	                      "true" accepts Endpoint URLs with the http scheme,
 //	                      not only https; for the local stack and tests only
 //	                      (default false)
+//	HERALD_OTLP_URL       the OpenTelemetry Collector's OTLP/HTTP base URL,
+//	                      such as http://otelcol:4318; without it, spans are
+//	                      not exported
+//	HERALD_RUN_ID         identifies the run the spans belong to, as a
+//	                      resource attribute (default none)
+//	HERALD_BUILD_VERSION  identifies the build, as a resource attribute
+//	                      (default dev)
 package main
 
 import (
@@ -44,6 +51,7 @@ import (
 	"github.com/madskrogh/herald/internal/handoff"
 	"github.com/madskrogh/herald/internal/ingest"
 	"github.com/madskrogh/herald/internal/outbox"
+	"github.com/madskrogh/herald/internal/telemetry"
 	"github.com/madskrogh/herald/internal/tenantapi"
 )
 
@@ -69,7 +77,7 @@ func main() {
 // it starts the service and blocks until ctx is cancelled. Configuration is
 // read through getenv.
 func run(ctx context.Context, args []string, getenv func(string) string, stdout io.Writer) error {
-	logger := slog.New(slog.NewJSONHandler(stdout, nil)).With("service", "herald-api")
+	logger := slog.New(telemetry.NewLogHandler(slog.NewJSONHandler(stdout, nil))).With("service", "herald-api")
 
 	if len(args) == 0 {
 		cfg, err := loadSettings(getenv)
@@ -127,6 +135,12 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	if cfg.shared.AllowInsecureEndpoints {
 		logger.WarnContext(ctx, "insecure Endpoints allowed: for local development only")
 	}
+	tp, flush, err := telemetry.Setup(ctx, "herald-api", cfg.shared.Telemetry, logger)
+	if err != nil {
+		return err
+	}
+	// Last, once nothing makes spans any more.
+	defer flush(ctx)
 	pool, err := pgxpool.New(ctx, cfg.shared.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
@@ -160,6 +174,7 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 
 	grpcServer := tenantapi.NewGRPCServer(store, cfg.shared.Keyring, tenantapi.Config{
 		AllowHTTPEndpoints: cfg.shared.AllowInsecureEndpoints,
+		TracerProvider:     tp,
 	}, logger)
 	// The gateway calls the gRPC server like any other client, so REST calls
 	// pass through the same interceptors.
@@ -192,7 +207,7 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 
 	// One relay per process (ADR 0002): replicas each run one, and claim
 	// different Messages.
-	relay := outbox.NewRelay(store, nc, outbox.Config{Subject: handoff.Subject}, logger)
+	relay := outbox.NewRelay(store, nc, outbox.Config{Subject: handoff.Subject, TracerProvider: tp}, logger)
 	relayCtx, stopRelay := context.WithCancel(ctx)
 	relayDone := make(chan struct{})
 	go func() {

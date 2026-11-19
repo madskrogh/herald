@@ -14,7 +14,7 @@ import (
 )
 
 const claimOutbox = `-- name: ClaimOutbox :many
-SELECT id, tenant_id, event_type, payload
+SELECT id, tenant_id, application_id, event_type, payload, coalesce(traceparent, '')::text AS traceparent
 FROM ingest.messages
 WHERE handed_off_at IS NULL AND parked_at IS NULL
 ORDER BY id
@@ -23,10 +23,12 @@ FOR UPDATE SKIP LOCKED
 `
 
 type ClaimOutboxRow struct {
-	ID        uuid.UUID
-	TenantID  uuid.UUID
-	EventType string
-	Payload   []byte
+	ID            uuid.UUID
+	TenantID      uuid.UUID
+	ApplicationID uuid.UUID
+	EventType     string
+	Payload       []byte
+	Traceparent   string
 }
 
 // Claims up to @max_messages of the Messages waiting in the outbox, oldest
@@ -45,8 +47,10 @@ func (q *Queries) ClaimOutbox(ctx context.Context, maxMessages int32) ([]ClaimOu
 		if err := rows.Scan(
 			&i.ID,
 			&i.TenantID,
+			&i.ApplicationID,
 			&i.EventType,
 			&i.Payload,
+			&i.Traceparent,
 		); err != nil {
 			return nil, err
 		}
@@ -185,14 +189,15 @@ func (q *Queries) CreateEndpoint(ctx context.Context, arg CreateEndpointParams) 
 }
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO ingest.messages (tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at)
+INSERT INTO ingest.messages (tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at, traceparent)
 SELECT
     a.tenant_id, a.id, $1, $2, NULLIF($3::text, ''), $4::timestamptz,
-    CASE WHEN $5::boolean THEN NULL ELSE $4::timestamptz END
+    CASE WHEN $5::boolean THEN NULL ELSE $4::timestamptz END,
+    NULLIF($6::text, '')
 FROM ingest.applications a
-WHERE a.tenant_id = $6 AND a.id = $7
+WHERE a.tenant_id = $7 AND a.id = $8
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-RETURNING id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at, parked_at, park_error
+RETURNING id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at, parked_at, park_error, traceparent
 `
 
 type CreateMessageParams struct {
@@ -201,6 +206,7 @@ type CreateMessageParams struct {
 	IdempotencyKey string
 	Now            time.Time
 	HasDeliveries  bool
+	Traceparent    string
 	TenantID       uuid.UUID
 	ApplicationID  uuid.UUID
 }
@@ -217,6 +223,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (I
 		arg.IdempotencyKey,
 		arg.Now,
 		arg.HasDeliveries,
+		arg.Traceparent,
 		arg.TenantID,
 		arg.ApplicationID,
 	)
@@ -232,6 +239,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (I
 		&i.HandedOffAt,
 		&i.ParkedAt,
 		&i.ParkError,
+		&i.Traceparent,
 	)
 	return i, err
 }
@@ -314,7 +322,7 @@ func (q *Queries) GetEndpoint(ctx context.Context, arg GetEndpointParams) (Inges
 }
 
 const getMessageByIdempotencyKey = `-- name: GetMessageByIdempotencyKey :one
-SELECT id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at, parked_at, park_error
+SELECT id, tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at, parked_at, park_error, traceparent
 FROM ingest.messages
 WHERE tenant_id = $1 AND idempotency_key = $2::text
 `
@@ -338,6 +346,7 @@ func (q *Queries) GetMessageByIdempotencyKey(ctx context.Context, arg GetMessage
 		&i.HandedOffAt,
 		&i.ParkedAt,
 		&i.ParkError,
+		&i.Traceparent,
 	)
 	return i, err
 }

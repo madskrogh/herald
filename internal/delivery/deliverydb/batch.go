@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"uuid"
 )
 
@@ -19,8 +20,8 @@ var (
 )
 
 const insertDelivery = `-- name: InsertDelivery :batchexec
-INSERT INTO delivery.deliveries (id, message_id, endpoint_id, endpoint_url, signing_secrets, state, next_attempt_at)
-VALUES ($1, $2, $3, $4, $5::bytea[], 'pending', $6)
+INSERT INTO delivery.deliveries (id, message_id, endpoint_id, endpoint_url, signing_secrets, state, next_attempt_at, traceparent)
+VALUES ($1, $2, $3, $4, $5::bytea[], 'pending', $6, NULLIF($7::text, ''))
 ON CONFLICT (id) DO NOTHING
 `
 
@@ -37,10 +38,12 @@ type InsertDeliveryParams struct {
 	EndpointURL    string
 	SigningSecrets [][]byte
 	Now            time.Time
+	Traceparent    string
 }
 
 // A new Delivery is pending and due at @now. One sent again, after a lost
-// reply, is already stored and left as it is.
+// reply, is already stored and left as it is, with the trace context it was
+// first stored under.
 func (q *Queries) InsertDelivery(ctx context.Context, arg []InsertDeliveryParams) *InsertDeliveryBatchResults {
 	batch := &pgx.Batch{}
 	for _, a := range arg {
@@ -51,6 +54,7 @@ func (q *Queries) InsertDelivery(ctx context.Context, arg []InsertDeliveryParams
 			a.EndpointURL,
 			a.SigningSecrets,
 			a.Now,
+			a.Traceparent,
 		}
 		batch.Queue(insertDelivery, vals...)
 	}
@@ -80,8 +84,8 @@ func (b *InsertDeliveryBatchResults) Close() error {
 }
 
 const insertMessage = `-- name: InsertMessage :batchexec
-INSERT INTO delivery.messages (id, tenant_id, event_type, payload)
-VALUES ($1, $2, $3, $4)
+INSERT INTO delivery.messages (id, tenant_id, application_id, event_type, payload)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (id) DO NOTHING
 `
 
@@ -92,10 +96,11 @@ type InsertMessageBatchResults struct {
 }
 
 type InsertMessageParams struct {
-	ID        uuid.UUID
-	TenantID  uuid.UUID
-	EventType string
-	Payload   []byte
+	ID            uuid.UUID
+	TenantID      uuid.UUID
+	ApplicationID pgtype.UUID
+	EventType     string
+	Payload       []byte
 }
 
 // A Message sent again, after a lost reply, is already stored and left as it
@@ -106,6 +111,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg []InsertMessageParams) 
 		vals := []interface{}{
 			a.ID,
 			a.TenantID,
+			a.ApplicationID,
 			a.EventType,
 			a.Payload,
 		}
