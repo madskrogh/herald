@@ -81,6 +81,7 @@ func Compare(want, got Recording) []Difference {
 		}
 		add(name, "behaviour", string(w.Behaviour), string(g.Behaviour))
 		add(name, "fault", string(w.Fault), string(g.Fault))
+		add(name, "late", strconv.FormatBool(w.Late), strconv.FormatBool(g.Late))
 		add(name, "state", w.State, g.State)
 		add(name, "attempts", strconv.Itoa(len(w.Attempts)), strconv.Itoa(len(g.Attempts)))
 		for i := range min(len(w.Attempts), len(g.Attempts)) {

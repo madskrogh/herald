@@ -219,6 +219,13 @@ func (t *Tenant) CreateApplication(ctx context.Context, name string) (string, er
 // CreateEndpoint registers ep under an Application, accepting every Event
 // type, and tells ep its signing secret. It returns the Endpoint's ID.
 func (t *Tenant) CreateEndpoint(ctx context.Context, applicationID string, ep *endpointtest.Endpoint) (string, error) {
+	return t.CreateFilteredEndpoint(ctx, applicationID, ep, nil)
+}
+
+// CreateFilteredEndpoint registers ep under an Application, accepting the
+// Event types filter matches, and tells ep its signing secret. It returns
+// the Endpoint's ID.
+func (t *Tenant) CreateFilteredEndpoint(ctx context.Context, applicationID string, ep *endpointtest.Endpoint, filter []string) (string, error) {
 	var resp struct {
 		Endpoint struct {
 			ID string `json:"id"`
@@ -226,7 +233,7 @@ func (t *Tenant) CreateEndpoint(ctx context.Context, applicationID string, ep *e
 		SigningSecret string `json:"signing_secret"`
 	}
 	path := "/v1/applications/" + applicationID + "/endpoints"
-	if err := t.call(ctx, path, map[string]any{"url": ep.URL}, nil, &resp); err != nil {
+	if err := t.call(ctx, path, map[string]any{"url": ep.URL, "filter": filter}, nil, &resp); err != nil {
 		return "", err
 	}
 	ep.SetSecret(resp.SigningSecret)
@@ -272,8 +279,18 @@ func (t *Tenant) call(ctx context.Context, path string, body any, header http.He
 	return nil
 }
 
+// StatusError is the error for a response with any status but 200 OK.
+type StatusError struct {
+	Code int
+	Body []byte
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("%d %s: %s", e.Code, http.StatusText(e.Code), e.Body)
+}
+
 // post POSTs body to target with the given header, and returns the response
-// body, or an error for any status but 200 OK.
+// body, or a *StatusError for any status but 200 OK.
 func (s *Stack) post(ctx context.Context, target string, header http.Header, body []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
@@ -290,7 +307,7 @@ func (s *Stack) post(ctx context.Context, target string, header http.Header, bod
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", res.Status, data)
+		return nil, &StatusError{Code: res.StatusCode, Body: data}
 	}
 	return data, nil
 }

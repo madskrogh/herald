@@ -79,6 +79,13 @@ func TestCompare(t *testing.T) {
 			},
 		},
 		{
+			name:   "late",
+			change: func(r *scenario.Recording) { r.Deliveries[1].Late = true },
+			want: []scenario.Difference{
+				{Delivery: "m002 to app-1/ep-1", Field: "late", Want: "false", Got: "true"},
+			},
+		},
+		{
 			name:   "fewer Attempts",
 			change: func(r *scenario.Recording) { r.Deliveries[0].Attempts = r.Deliveries[0].Attempts[:2] },
 			want: []scenario.Difference{

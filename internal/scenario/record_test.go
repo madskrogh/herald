@@ -37,7 +37,7 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	m3 := scenario.Message{Name: "m003", Application: "app-1", EventType: "invoice.paid", Payload: `{"message":"m003"}`, IdempotencyKey: "key-m001"}
 	m4 := scenario.Message{Name: "m004", Application: "app-2", EventType: "payout.sent", Payload: `{"message":"m004"}`}
 	m5 := scenario.Message{Name: "m005", Application: "app-1", EventType: "invoice.paid", Payload: `{"message":"m005"}`}
-	run := scenario.Run{
+	run := scenario.Observations{
 		Scenario: scenario.Scenario{
 			Seed: 42,
 			Applications: []scenario.Application{
@@ -54,7 +54,7 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 			"m002": {ID: id1},
 			"m003": {Status: http.StatusUnprocessableEntity},
 			"m004": {ID: id4},
-			"m005": {ID: id5},
+			"m005": {ID: id5, At: t0.Add(16 * time.Second)},
 		},
 		EndpointURLs: map[string]string{failURL: "app-1/ep-1", tlsURL: "app-2/ep-1"},
 		EndpointIDs:  map[uuid.UUID]string{failID: "app-1/ep-1", tlsID: "app-2/ep-1"},
@@ -72,10 +72,13 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 			{EndpointURL: tlsURL, ReceivedAt: t0.Add(3500 * time.Millisecond), Handshake: true},
 			signed(failURL, id5, t0.Add(20*time.Second), `{"message":"changed"}`, endpointtest.Answer{Reset: true}),
 			signed(failURL, id5, t0.Add(25*time.Second), m5.Payload, endpointtest.Answer{Unanswered: true}),
+			// The same Attempt again: under a fault, it is recorded once.
+			signed(failURL, id5, t0.Add(30*time.Second), m5.Payload, endpointtest.Answer{Unanswered: true}),
 		},
 	}
-	// The second Attempt to m005 failed to verify.
+	// The second and third Attempts to m005 failed to verify.
 	run.Attempts[5].SignatureErr = errors.New("no matching signature")
+	run.Attempts[6].SignatureErr = errors.New("no matching signature")
 
 	got, err := scenario.NewRecording(run)
 	if err != nil {
@@ -117,7 +120,7 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 				},
 			},
 			{
-				Message: "m005", Endpoint: "app-1/ep-1", Behaviour: scenario.Fail, Fault: scenario.NATSPaused, State: "succeeded",
+				Message: "m005", Endpoint: "app-1/ep-1", Behaviour: scenario.Fail, Fault: scenario.NATSPaused, State: "succeeded", Late: true,
 				Attempts: []scenario.AttemptRecord{
 					{
 						Header: header("m005"), Signature: "verified", Answer: "reset",

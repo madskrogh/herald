@@ -32,10 +32,14 @@ func TestGenerateCoversEverything(t *testing.T) {
 		scenario.Redirect, scenario.TLSError, scenario.Flap,
 	}
 	wantFaults := []scenario.Fault{scenario.DispatcherRestarted, scenario.NATSPaused, scenario.PostgresSlowed}
-	// Endpoints whose Attempts take seconds. With more Deliveries than the 4
+	// Endpoints whose Deliveries take more than one Attempt, or whose
+	// Attempts take seconds. With more Deliveries in a phase than the 4
 	// Attempts an Endpoint may have in flight, one Delivery's Attempts would
 	// wait for another's, and their timing would vary from run to run.
-	slow := map[scenario.Behaviour]bool{scenario.Slow: true, scenario.TimeOut: true, scenario.Redirect: true, scenario.TLSError: true}
+	bounded := map[scenario.Behaviour]bool{
+		scenario.Fail: true, scenario.Reset: true, scenario.Malformed: true, scenario.Flap: true,
+		scenario.Slow: true, scenario.TimeOut: true, scenario.Redirect: true, scenario.TLSError: true,
+	}
 
 	for seed := range uint64(20) {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
@@ -58,8 +62,9 @@ func TestGenerateCoversEverything(t *testing.T) {
 			keys := map[string]scenario.Message{}
 			var sent []scenario.Message
 			var repeats, conflicts int
-			for _, phase := range s.Phases {
+			for i, phase := range s.Phases {
 				faults[phase.Fault] = true
+				inPhase := map[string]int{}
 				for _, m := range phase.Messages {
 					if prev, ok := keys[m.IdempotencyKey]; ok && m.IdempotencyKey != "" {
 						if prev.Application == m.Application && prev.EventType == m.EventType && prev.Payload == m.Payload {
@@ -75,11 +80,17 @@ func TestGenerateCoversEverything(t *testing.T) {
 					for _, ep := range application(t, s, m.Application).Endpoints {
 						if matches(t, ep.Filter, m.EventType) {
 							deliveries[ep.Name]++
+							inPhase[ep.Name]++
 							reached++
 						}
 					}
 					if reached == 0 {
 						t.Errorf("Message %s (%s) reaches no Endpoint", m.Name, m.EventType)
+					}
+				}
+				for name, n := range inPhase {
+					if ep := endpoints[name]; bounded[ep.Behaviour] && n > 4 {
+						t.Errorf("Endpoint %s (%s) gets %d Deliveries in phase %d, more than it may have in flight", name, ep.Behaviour, n, i+1)
 					}
 				}
 			}
@@ -116,8 +127,6 @@ func TestGenerateCoversEverything(t *testing.T) {
 					t.Errorf("Endpoint %s (%s) gets no Delivery", name, ep.Behaviour)
 				case ep.Behaviour == scenario.TLSError && n != 1:
 					t.Errorf("Endpoint %s gets %d Deliveries; a TLS handshake carries no webhook-id, so it must get one", name, n)
-				case slow[ep.Behaviour] && n > 4:
-					t.Errorf("Endpoint %s (%s) gets %d Deliveries, more than it may have in flight", name, ep.Behaviour, n)
 				}
 			}
 		})

@@ -16,8 +16,9 @@ import (
 	"github.com/madskrogh/herald/internal/endpointtest"
 )
 
-// Run is what a run of a Scenario observed, before it is normalised.
-type Run struct {
+// Observations are what a run of a Scenario observed, before they are
+// normalised.
+type Observations struct {
 	Scenario Scenario
 	// Sent is what the Tenant API answered to each Message, by name.
 	Sent map[string]Sent
@@ -33,14 +34,16 @@ type Run struct {
 
 // Sent is what the Tenant API answered to a Message.
 type Sent struct {
+	// At is when the Message was sent.
+	At time.Time
 	// ID is the Message's ID, if the Message was accepted.
 	ID uuid.UUID
 	// Status is the HTTP status code of a refusal, or 0.
 	Status int
 }
 
-// Recording is a Run normalised: what doesn't vary between runs of the same
-// build. It is what the baseline holds.
+// Recording is a run's Observations normalised: what doesn't vary between
+// runs of the same build. It is what the baseline holds.
 type Recording struct {
 	Seed       uint64           `json:"seed"`
 	Messages   []MessageRecord  `json:"messages"`
@@ -62,7 +65,10 @@ type DeliveryRecord struct {
 	Endpoint  string    `json:"endpoint"`
 	Behaviour Behaviour `json:"behaviour"`
 	// Fault is the fault in effect while the Message was sent.
-	Fault    Fault           `json:"fault,omitempty"`
+	Fault Fault `json:"fault,omitempty"`
+	// Late says, under a fault, that the first Attempt came lateAfter or
+	// more after the Message was sent: the fault held the Message back.
+	Late     bool            `json:"late,omitempty"`
 	State    string          `json:"state"`
 	Attempts []AttemptRecord `json:"attempts"`
 }
@@ -88,21 +94,28 @@ type AttemptRecord struct {
 	Answer string `json:"answer"`
 }
 
-// NewRecording normalises run. It fails on an Attempt it can't place: one
+// lateAfter is how long after its Message was sent a Delivery's first
+// Attempt comes, at least, when a fault held it back: more than without a
+// fault, and less than any fault holds a Message back.
+const lateAfter = 3 * time.Second
+
+// NewRecording normalises obs. It fails on an Attempt it can't place: one
 // whose webhook-id is no Message's ID, or that has no Delivery.
-func NewRecording(run Run) (Recording, error) {
-	rec := Recording{Seed: run.Scenario.Seed}
+func NewRecording(obs Observations) (Recording, error) {
+	rec := Recording{Seed: obs.Scenario.Seed}
 	messages := map[string]Message{}
 	faults := map[string]Fault{}
+	sentAt := map[string]time.Time{}
 	// names maps each Message ID to the name of the Message that created it.
 	names := map[string]string{}
-	for _, phase := range run.Scenario.Phases {
+	for _, phase := range obs.Scenario.Phases {
 		for _, m := range phase.Messages {
 			messages[m.Name], faults[m.Name] = m, phase.Fault
-			sent, ok := run.Sent[m.Name]
+			sent, ok := obs.Sent[m.Name]
 			if !ok {
 				return Recording{}, fmt.Errorf("message %s was not sent", m.Name)
 			}
+			sentAt[m.Name] = sent.At
 			id := sent.ID.String()
 			outcome := "accepted"
 			switch {
@@ -117,7 +130,7 @@ func NewRecording(run Run) (Recording, error) {
 		}
 	}
 	behaviours := map[string]Behaviour{}
-	for _, app := range run.Scenario.Applications {
+	for _, app := range obs.Scenario.Applications {
 		for _, ep := range app.Endpoints {
 			behaviours[ep.Name] = ep.Behaviour
 		}
@@ -128,12 +141,12 @@ func NewRecording(run Run) (Recording, error) {
 	// byEndpoint lists each Endpoint's Deliveries, to place its TLS
 	// handshakes, which carry no webhook-id.
 	byEndpoint := map[string][]key{}
-	for _, d := range run.Deliveries {
+	for _, d := range obs.Deliveries {
 		message, ok := names[d.MessageID.String()]
 		if !ok {
 			return Recording{}, fmt.Errorf("delivery %s: message %s is none the scenario sent", d.ID, d.MessageID)
 		}
-		endpoint, ok := run.EndpointIDs[d.Endpoint.ID]
+		endpoint, ok := obs.EndpointIDs[d.Endpoint.ID]
 		if !ok {
 			return Recording{}, fmt.Errorf("delivery %s: endpoint %s is none the scenario created", d.ID, d.Endpoint.ID)
 		}
@@ -148,11 +161,11 @@ func NewRecording(run Run) (Recording, error) {
 		byEndpoint[endpoint] = append(byEndpoint[endpoint], k)
 	}
 
-	attempts := slices.Clone(run.Attempts)
+	attempts := slices.Clone(obs.Attempts)
 	slices.SortStableFunc(attempts, func(a, b endpointtest.Attempt) int { return a.ReceivedAt.Compare(b.ReceivedAt) })
 	firsts := map[key]time.Time{}
 	for _, a := range attempts {
-		endpoint, ok := run.EndpointURLs[a.EndpointURL]
+		endpoint, ok := obs.EndpointURLs[a.EndpointURL]
 		if !ok {
 			return Recording{}, fmt.Errorf("attempt to %s, which the scenario didn't create", a.EndpointURL)
 		}
@@ -176,13 +189,17 @@ func NewRecording(run Run) (Recording, error) {
 		}
 
 		ar := AttemptRecord{Handshake: a.Handshake, Answer: describe(a.Answer)}
-		if r.Fault == "" {
-			first, ok := firsts[k]
-			if !ok {
-				first, firsts[k] = a.ReceivedAt, a.ReceivedAt
-			}
+		first, ok := firsts[k]
+		if !ok {
+			first, firsts[k] = a.ReceivedAt, a.ReceivedAt
+		}
+		switch {
+		case r.Fault == "":
 			ms := a.ReceivedAt.Sub(first).Milliseconds()
 			ar.AfterMs = &ms
+		case len(r.Attempts) == 0:
+			// The Delivery's own Message is the one that created it.
+			r.Late = a.ReceivedAt.Sub(sentAt[k.message]) >= lateAfter
 		}
 		if a.Handshake {
 			ar.Answer = "untrusted certificate"
@@ -194,6 +211,12 @@ func NewRecording(run Run) (Recording, error) {
 				ar.Signature = a.SignatureErr.Error()
 			}
 		}
+		// A fault can keep a dispatcher from recording an Attempt it made,
+		// which it then makes again: at-least-once delivery. Whether it does
+		// depends on timing, so under a fault a repeat is recorded once.
+		if n := len(r.Attempts); r.Fault != "" && n > 0 && sameAttempt(r.Attempts[n-1], ar) {
+			continue
+		}
 		r.Attempts = append(r.Attempts, ar)
 	}
 
@@ -204,6 +227,13 @@ func NewRecording(run Run) (Recording, error) {
 		return cmp.Or(strings.Compare(a.Message, b.Message), strings.Compare(a.Endpoint, b.Endpoint))
 	})
 	return rec, nil
+}
+
+// sameAttempt reports whether a and b record the same Attempt, timing
+// aside.
+func sameAttempt(a, b AttemptRecord) bool {
+	return a.Handshake == b.Handshake && maps.Equal(a.Header, b.Header) &&
+		a.Body == b.Body && a.Signature == b.Signature && a.Answer == b.Answer
 }
 
 // normaliseHeader returns h with each header's values joined, the

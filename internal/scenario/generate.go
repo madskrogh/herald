@@ -3,25 +3,44 @@ package scenario
 import (
 	"fmt"
 	"math/rand/v2"
-	"strings"
+	"slices"
 )
 
-// eventTypes are the Event types Messages are sent with.
+// eventTypes are the Event types most Messages are sent with, which only the
+// Endpoints that accept every Event type receive.
 var eventTypes = []string{
 	"invoice.created", "invoice.paid", "invoice.voided",
 	"customer.created", "customer.updated", "customer.deleted",
 	"payout.sent", "payout.failed",
 }
 
-// fastBehaviours answer within milliseconds, so an Endpoint with any of them
-// can take many Deliveries without one waiting for another.
-var fastBehaviours = []Behaviour{Succeed, Fail, Reset, Malformed, Oversized, Flap}
+// Every Endpoint with a filter gets Event types of its own: one of these
+// prefixes, which no other Endpoint has, with one of the suffixes. That
+// keeps its Deliveries few, and counted.
+var (
+	filterPrefixes = []string{"refund", "dispute", "subscription", "transfer", "charge", "order", "shipment", "coupon"}
+	filterSuffixes = []string{"created", "updated", "completed", "failed"}
+)
+
+// maxDeliveries is the most Deliveries an Endpoint whose Deliveries take
+// more than one Attempt, or whose Attempts take seconds, gets in a phase:
+// the 4 Attempts an Endpoint may have in flight. With more, one Delivery's
+// Attempts would wait for another's, and their timing would vary from run to
+// run.
+const maxDeliveries = 4
+
+// Fast Endpoints answer within milliseconds. Those that accept every Event
+// type answer every Attempt at once, so they can take many Deliveries; the
+// others get Event types of their own, so they get few.
+var (
+	acceptAll = []Behaviour{Succeed, Succeed, Oversized}
+	filtered  = []Behaviour{Fail, Reset, Malformed, Flap}
+)
 
 // slowEndpoints are the behaviours whose Attempts take seconds, each given an
 // Application of its own with one Endpoint, and how many Messages it gets at
-// most: no more than the 4 Attempts an Endpoint may have in flight, so no
-// Delivery waits for another, and one for TLSError, whose handshakes carry no
-// webhook-id to tell Deliveries apart.
+// most: one for TLSError, whose handshakes carry no webhook-id to tell
+// Deliveries apart.
 var slowEndpoints = []struct {
 	behaviour Behaviour
 	messages  int
@@ -46,29 +65,38 @@ func Generate(seed uint64) Scenario {
 	g := &generator{r: rand.New(rand.NewPCG(seed, 0))}
 	s := Scenario{Seed: seed}
 
-	// Applications whose Endpoints answer fast. Each has every fast behaviour
-	// between them, and the first Endpoint of each accepts every Event type,
-	// so every Message has a Delivery.
-	behaviours := append([]Behaviour(nil), fastBehaviours...)
-	for range 2 + g.r.IntN(4) {
-		behaviours = append(behaviours, pick(g.r, []Behaviour{Succeed, Succeed, Fail, Flap}))
-	}
-	g.r.Shuffle(len(behaviours), func(i, j int) { behaviours[i], behaviours[j] = behaviours[j], behaviours[i] })
+	// Applications whose Endpoints answer fast. The first Endpoint of each
+	// accepts every Event type, so every Message has a Delivery.
 	regular := make([]Application, 3+g.r.IntN(3))
 	for i := range regular {
-		regular[i].Name = fmt.Sprintf("app-%d", i+1)
+		name := fmt.Sprintf("app-%d", i+1)
+		regular[i] = Application{Name: name, Endpoints: []Endpoint{{Name: name + "/ep-1", Behaviour: pick(g.r, acceptAll)}}}
 	}
+	// At least one of each, whatever the draws.
+	i := g.r.IntN(len(regular))
+	regular[i].Endpoints[0].Behaviour = Oversized
+	regular[(i+1)%len(regular)].Endpoints[0].Behaviour = Succeed
+
+	// The other fast Endpoints have every filtered behaviour between them,
+	// each with Event types of its own and a few Messages of those types.
+	behaviours := slices.Clone(filtered)
+	for range 1 + g.r.IntN(3) {
+		behaviours = append(behaviours, pick(g.r, filtered))
+	}
+	prefixes := slices.Clone(filterPrefixes)
+	g.r.Shuffle(len(prefixes), func(i, j int) { prefixes[i], prefixes[j] = prefixes[j], prefixes[i] })
 	var steady []*draft
+	var targets []target
 	for i, b := range behaviours {
-		app := &regular[i%len(regular)]
+		app := &regular[g.r.IntN(len(regular))]
 		ep := Endpoint{Name: fmt.Sprintf("%s/ep-%d", app.Name, len(app.Endpoints)+1), Behaviour: b}
-		if len(app.Endpoints) > 0 {
-			// A Message the filter accepts, so the Endpoint gets a Delivery.
-			var anchor string
-			ep.Filter, anchor = g.filter()
-			steady = append(steady, g.draft(app.Name, anchor, g.size()))
-		}
+		tgt := target{application: app.Name}
+		ep.Filter, tgt.eventTypes = g.filter(prefixes[i])
 		app.Endpoints = append(app.Endpoints, ep)
+		targets = append(targets, tgt)
+		for range 1 + g.r.IntN(maxDeliveries) {
+			steady = append(steady, g.target(tgt, g.size()))
+		}
 	}
 	s.Applications = append(s.Applications, regular...)
 
@@ -103,9 +131,9 @@ func Generate(seed uint64) Scenario {
 
 	phases := [][]*draft{
 		steady,
-		g.drafts(regular, 3+g.r.IntN(3)),
-		g.drafts(regular, 3+g.r.IntN(3)),
-		append(g.drafts(regular, 2+g.r.IntN(2)), g.draft(held.Name, pick(g.r, eventTypes), smallPayload)),
+		g.faultDrafts(regular, targets),
+		g.faultDrafts(regular, targets),
+		append(g.faultDrafts(regular, targets), g.draft(held.Name, pick(g.r, eventTypes), smallPayload)),
 	}
 	faults := []Fault{"", NATSPaused, PostgresSlowed, DispatcherRestarted}
 	n := 0
@@ -145,13 +173,27 @@ func (g *generator) draft(application, eventType string, size int) *draft {
 	return &draft{Message: Message{Application: application, EventType: eventType}, size: size}
 }
 
-// drafts returns n Messages to the given Applications, with small payloads.
-func (g *generator) drafts(apps []Application, n int) []*draft {
+// target is an Endpoint with a filter: its Application and the Event types
+// it accepts.
+type target struct {
+	application string
+	eventTypes  []string
+}
+
+// target returns a Message that reaches t, with a payload of about size
+// bytes.
+func (g *generator) target(t target, size int) *draft {
+	return g.draft(t.application, pick(g.r, t.eventTypes), size)
+}
+
+// faultDrafts returns the Messages of a phase with a fault, with small
+// payloads: a few to the given Applications, and one to one of the targets.
+func (g *generator) faultDrafts(apps []Application, targets []target) []*draft {
 	var drafts []*draft
-	for range n {
+	for range 3 + g.r.IntN(2) {
 		drafts = append(drafts, g.draft(pick(g.r, apps).Name, pick(g.r, eventTypes), smallPayload))
 	}
-	return drafts
+	return append(drafts, g.target(pick(g.r, targets), smallPayload))
 }
 
 // finish names d and returns its Message, with its payload and key.
@@ -182,19 +224,25 @@ func (g *generator) application(s *Scenario, b Behaviour) Application {
 	return app
 }
 
-// filter returns an Endpoint filter, and an Event type it accepts.
-func (g *generator) filter() ([]string, string) {
-	anchor := pick(g.r, eventTypes)
-	prefix, _, _ := strings.Cut(anchor, ".")
+// filter returns an Endpoint filter on Event types with the given prefix,
+// and the Event types it accepts.
+func (g *generator) filter(prefix string) ([]string, []string) {
+	all := make([]string, len(filterSuffixes))
+	for i, s := range filterSuffixes {
+		all[i] = prefix + "." + s
+	}
 	switch g.r.IntN(4) {
 	case 0:
-		return []string{anchor}, anchor
+		one := pick(g.r, all)
+		return []string{one}, []string{one}
 	case 1:
-		return []string{prefix + ".*"}, anchor
+		return []string{prefix + ".*"}, all
 	case 2:
-		return []string{prefix + ".>"}, anchor
+		return []string{prefix + ".>"}, all
 	default:
-		return []string{pick(g.r, eventTypes), anchor}, anchor
+		perm := g.r.Perm(len(all))
+		two := []string{all[perm[0]], all[perm[1]]}
+		return two, two
 	}
 }
 
