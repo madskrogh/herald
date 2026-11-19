@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e endpoint profile admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e scenario-compare scenario-record endpoint profile admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -110,18 +110,41 @@ else
 HOST_ENDPOINT_IP = 127.0.0.1
 endif
 
+# Where the end-to-end tests and the scenario find this checkout's stack, as
+# variable assignments to prefix a command with after `. ./.env`. Without
+# them, both skip, as in `make test`.
+STACK_ENV = \
+	HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
+	HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
+	HERALD_E2E_ENDPOINT_IP="$(HOST_ENDPOINT_IP)" \
+	HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
+	HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT"
+
 # Runs the end-to-end tests against this checkout's stack, started with
-# `make up`. Without these variables the tests skip, as in `make test`.
-# RUN selects tests as go test's -run does; without it, all of them run.
+# `make up`. RUN selects tests as go test's -run does; without it, all of
+# them run.
 # Usage: make e2e RUN=TestSpanIsStoredInClickHouse
 e2e: .env
-	@. ./.env && \
-		HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
-		HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
-		HERALD_E2E_ENDPOINT_IP="$(HOST_ENDPOINT_IP)" \
-		HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
-		HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
-		go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
+	@. ./.env && $(STACK_ENV) go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
+
+# The scenario restarts herald-dispatcher, pauses NATS and slows Postgres
+# through this checkout's compose file, so nothing else may use the stack
+# while it runs.
+# It takes about five minutes.
+SCENARIO = . ./.env && $(STACK_ENV) HERALD_SCENARIO_COMPOSE_FILE="$(CURDIR)/compose.yaml" \
+	go test -race -count=1 -v -timeout 15m -run '^TestScenario$$' ./internal/scenario/
+
+# Runs the scenario against this checkout's stack, started with `make up`,
+# and compares what its Endpoints received with the committed baseline,
+# reporting each difference by Delivery and field.
+scenario-compare: .env
+	@$(SCENARIO)
+
+# Runs the scenario as scenario-compare does and records what its Endpoints
+# received as the new baseline, from the baseline's seed, or SEED if given.
+# Usage: make scenario-record [SEED=<n>]
+scenario-record: .env
+	@$(SCENARIO) -args -update $(if $(SEED),-seed '$(SEED)')
 
 # Serves an Endpoint for this checkout's stack that prints each Attempt it
 # receives. Given the Endpoint's signing secret, it also says whether each

@@ -3,9 +3,13 @@ package endpointtest_test
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -38,7 +42,7 @@ func TestEndpointRecordsEachAttempt(t *testing.T) {
 		{EndpointURL: ep.URL, Number: 1, WebhookID: "msg_1", Body: []byte(`{"invoice": 42}`)},
 		{EndpointURL: ep.URL, Number: 2, WebhookID: "msg_2", Body: []byte(`{"invoice": 43}`)},
 	}
-	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "Header", "ReceivedAt", "SignatureErr")); diff != "" {
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "Header", "ReceivedAt", "SignatureErr", "DeliveryNumber", "Answer")); diff != "" {
 		t.Errorf("Attempts (-want +got):\n%s", diff)
 	}
 	for _, a := range got {
@@ -77,6 +81,151 @@ func TestEndpointAnswersAsScripted(t *testing.T) {
 				t.Errorf("status codes (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestEndpointAnswersLikeARealOne checks the answers a real Endpoint gives
+// besides a bare status code, as an HTTP client sees them.
+func TestEndpointAnswersLikeARealOne(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		answer endpointtest.Answer
+		// check checks what the client got.
+		check func(t *testing.T, resp *http.Response, body []byte, err error)
+	}{
+		{
+			name:   "redirect",
+			answer: endpointtest.Answer{Status: http.StatusFound, Header: http.Header{"Location": {"http://example.com/elsewhere"}}},
+			check: func(t *testing.T, resp *http.Response, _ []byte, err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("POST: %v", err)
+				}
+				if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "http://example.com/elsewhere" {
+					t.Errorf("response = %d, Location %q; want 302 to http://example.com/elsewhere", resp.StatusCode, resp.Header.Get("Location"))
+				}
+			},
+		},
+		{
+			name:   "oversized body",
+			answer: endpointtest.Answer{Status: http.StatusOK, Body: bytes.Repeat([]byte("x"), 1<<20)},
+			check: func(t *testing.T, resp *http.Response, body []byte, err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("POST: %v", err)
+				}
+				if resp.StatusCode != http.StatusOK || len(body) != 1<<20 {
+					t.Errorf("response = %d with %d bytes, want 200 with 1 MiB", resp.StatusCode, len(body))
+				}
+			},
+		},
+		{
+			name:   "reset",
+			answer: endpointtest.Answer{Kind: endpointtest.AnswerReset},
+			check: func(t *testing.T, _ *http.Response, _ []byte, err error) {
+				t.Helper()
+				if !errors.Is(err, syscall.ECONNRESET) {
+					t.Errorf("POST: %v, want the connection reset", err)
+				}
+			},
+		},
+		{
+			name:   "malformed",
+			answer: endpointtest.Answer{Kind: endpointtest.AnswerMalformed},
+			check: func(t *testing.T, _ *http.Response, _ []byte, err error) {
+				t.Helper()
+				if err == nil || !strings.Contains(err.Error(), "malformed HTTP") {
+					t.Errorf("POST: %v, want a malformed response", err)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := startServer(t)
+			ep := srv.NewEndpoint(func(context.Context, endpointtest.Attempt) endpointtest.Answer { return tt.answer })
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ep.URL, strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatalf("new request: %v", err)
+			}
+			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			resp, err := client.Do(req)
+			var body []byte
+			if err == nil {
+				body, err = io.ReadAll(resp.Body)
+				resp.Body.Close()
+			}
+			tt.check(t, resp, body, err)
+
+			got, err := ep.WaitAttempts(t.Context(), 1)
+			if err != nil {
+				t.Fatalf("WaitAttempts: %v", err)
+			}
+			if diff := cmp.Diff(tt.answer, got[0].Answer); diff != "" {
+				t.Errorf("recorded Answer (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestTLSEndpointFailsTheHandshake checks that a TLS Endpoint's certificate
+// fails verification, and that the Endpoint records each handshake.
+func TestTLSEndpointFailsTheHandshake(t *testing.T) {
+	t.Parallel()
+	srv := startServer(t)
+	ep, err := srv.NewTLSEndpoint(t.Context())
+	if err != nil {
+		t.Fatalf("NewTLSEndpoint: %v", err)
+	}
+	if !strings.HasPrefix(ep.URL, "https://") {
+		t.Errorf("URL = %q, want https", ep.URL)
+	}
+
+	for range 2 {
+		_, err := postStatus(t.Context(), ep.URL, "msg_1", `{}`)
+		var unknown x509.UnknownAuthorityError
+		if !errors.As(err, &unknown) {
+			t.Errorf("POST: %v, want a certificate signed by an unknown authority", err)
+		}
+	}
+
+	got, err := ep.WaitAttempts(t.Context(), 2)
+	if err != nil {
+		t.Fatalf("WaitAttempts: %v", err)
+	}
+	want := []endpointtest.Attempt{
+		{EndpointURL: ep.URL, Number: 1, DeliveryNumber: 1, Handshake: true},
+		{EndpointURL: ep.URL, Number: 2, DeliveryNumber: 2, Handshake: true},
+	}
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "ReceivedAt")); diff != "" {
+		t.Errorf("Attempts (-want +got):\n%s", diff)
+	}
+}
+
+// TestEndpointNumbersAttemptsPerDelivery checks that an Attempt's
+// DeliveryNumber counts only the Attempts with its webhook-id: an Endpoint
+// gets one Delivery per Message.
+func TestEndpointNumbersAttemptsPerDelivery(t *testing.T) {
+	t.Parallel()
+	srv := startServer(t)
+	ep := srv.NewEndpoint(endpointtest.Succeed())
+
+	for _, id := range []string{"msg_1", "msg_2", "msg_1", "msg_1", "msg_2"} {
+		post(t, ep.URL, id, `{}`)
+	}
+
+	attempts, err := ep.WaitAttempts(t.Context(), 5)
+	if err != nil {
+		t.Fatalf("WaitAttempts: %v", err)
+	}
+	var got []int
+	for _, a := range attempts {
+		got = append(got, a.DeliveryNumber)
+	}
+	if diff := cmp.Diff([]int{1, 1, 2, 3, 2}, got); diff != "" {
+		t.Errorf("DeliveryNumbers (-want +got):\n%s", diff)
 	}
 }
 
