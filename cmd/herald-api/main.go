@@ -27,6 +27,8 @@
 //	                      resource attribute (default none)
 //	HERALD_BUILD_VERSION  identifies the build, as a resource attribute
 //	                      (default dev)
+//	HERALD_PPROF_ADDR     internal address net/http/pprof is served on; never
+//	                      a Tenant-facing one (default: pprof not served)
 package main
 
 import (
@@ -51,6 +53,7 @@ import (
 	"github.com/madskrogh/herald/internal/handoff"
 	"github.com/madskrogh/herald/internal/ingest"
 	"github.com/madskrogh/herald/internal/outbox"
+	"github.com/madskrogh/herald/internal/profiling"
 	"github.com/madskrogh/herald/internal/telemetry"
 	"github.com/madskrogh/herald/internal/tenantapi"
 )
@@ -162,6 +165,15 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	defer nc.Close()
 
 	var lc net.ListenConfig
+	var started []any // The "started" log line's attributes.
+	if cfg.shared.PprofAddr != "" {
+		pprofAddr, stopPprof, err := profiling.Start(ctx, cfg.shared.PprofAddr, logger)
+		if err != nil {
+			return err
+		}
+		defer stopPprof()
+		started = append(started, "pprof_addr", pprofAddr)
+	}
 	grpcLis, err := lc.Listen(ctx, "tcp", cfg.grpcAddr)
 	if err != nil {
 		return fmt.Errorf("listen for gRPC: %w", err)
@@ -203,7 +215,8 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	errc := make(chan error, 2)
 	go func() { errc <- grpcServer.Serve(grpcLis) }()
 	go func() { errc <- httpServer.Serve(httpLis) }()
-	logger.InfoContext(ctx, "started", "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
+	started = append(started, "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
+	logger.InfoContext(ctx, "started", started...)
 
 	// One relay per process (ADR 0002): replicas each run one, and claim
 	// different Messages.

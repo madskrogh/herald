@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e profile admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -121,6 +121,36 @@ e2e: .env
 		HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
 		HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
 		go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
+
+# The checkout whose stack is the base build for profile: by default the main
+# checkout, the first entry of `git worktree list`.
+BASE ?= $(shell git worktree list --porcelain | sed -n '1s/^worktree //p')
+
+# Profiles this checkout's stack (the candidate) and BASE's at the same time,
+# and prints how the candidate's profiles differ from the base's. Both stacks
+# must be up, and get the same traffic while it runs. scripts/profile.sh says
+# what it captures; DURATION and OUT pass through to it. Each build is labelled
+# with its checkout's commit, which is the stack's only if the stack was
+# started (make up) at that commit.
+# Usage: make profile [BASE=<checkout>] [DURATION=<seconds>]
+profile: .env
+	@test -d '$(BASE)' || { echo "profile: the base checkout $(BASE) doesn't exist"; exit 1; }
+	@test "$$(cd '$(BASE)' && pwd -P)" != "$$(pwd -P)" || { \
+		echo "profile: the base is this checkout; set BASE to another checkout"; exit 1; }
+	@label() { \
+		echo "$$1 at $$(git -C "$$1" rev-parse --short HEAD 2>/dev/null || echo 'an unknown commit')$$( \
+			test -z "$$(git -C "$$1" status --porcelain 2>/dev/null)" || echo ', with uncommitted changes')"; }; \
+	BASE_LABEL=$$(label '$(BASE)') CANDIDATE_LABEL=$$(label '$(CURDIR)'); \
+	port() { \
+		p=$$(sed -n "s/^$$2=//p" "$$1/.env" 2>/dev/null); \
+		test -n "$$p" || { echo "profile: $$1/.env has no $$2: run 'make up' there" >&2; exit 1; }; \
+		echo "localhost:$$p"; }; \
+	CANDIDATE_API=$$(port . HERALD_API_PPROF_PORT) && \
+	CANDIDATE_DISPATCHER=$$(port . HERALD_DISPATCHER_PPROF_PORT) && \
+	BASE_API=$$(port '$(BASE)' HERALD_API_PPROF_PORT) && \
+	BASE_DISPATCHER=$$(port '$(BASE)' HERALD_DISPATCHER_PPROF_PORT) && \
+	export CANDIDATE_API CANDIDATE_DISPATCHER BASE_API BASE_DISPATCHER BASE_LABEL CANDIDATE_LABEL && \
+		./scripts/profile.sh
 
 # Runs herald-admin against this checkout's stack.
 # Usage: make admin ARGS='tenant create --name Acme'

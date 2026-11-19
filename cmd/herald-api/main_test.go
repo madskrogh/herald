@@ -23,12 +23,13 @@ import (
 
 // logRecord holds the fields of a JSON log line that the tests check.
 type logRecord struct {
-	Level    string `json:"level"`
-	Msg      string `json:"msg"`
-	Service  string `json:"service"`
-	Version  int64  `json:"version"`
-	GRPCAddr string `json:"grpc_addr"`
-	HTTPAddr string `json:"http_addr"`
+	Level     string `json:"level"`
+	Msg       string `json:"msg"`
+	Service   string `json:"service"`
+	Version   int64  `json:"version"`
+	GRPCAddr  string `json:"grpc_addr"`
+	HTTPAddr  string `json:"http_addr"`
+	PprofAddr string `json:"pprof_addr"`
 }
 
 // testKeyring is a keyring with one key of 32 zero bytes, under the ID "test".
@@ -91,8 +92,9 @@ func testRunServes(t *testing.T, natsURL string) []logRecord {
 		"HERALD_KEYRING":      testKeyring,
 		"HERALD_NATS_URL":     natsURL,
 		// Port 0 picks a free port; the "started" log line says which.
-		"HERALD_GRPC_ADDR": "127.0.0.1:0",
-		"HERALD_HTTP_ADDR": "127.0.0.1:0",
+		"HERALD_GRPC_ADDR":  "127.0.0.1:0",
+		"HERALD_HTTP_ADDR":  "127.0.0.1:0",
+		"HERALD_PPROF_ADDR": "127.0.0.1:0",
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	logr, logw := io.Pipe()
@@ -174,10 +176,38 @@ func testRunServes(t *testing.T, natsURL string) []logRecord {
 		}
 	})
 
+	t.Run("pprof", func(t *testing.T) {
+		if got := getStatus(t, "http://"+started.PprofAddr+"/debug/pprof/goroutine?debug=1"); got != http.StatusOK {
+			t.Errorf("GET /debug/pprof/goroutine on the pprof address: status %d, want 200", got)
+		}
+	})
+
+	t.Run("no pprof on the Tenant API", func(t *testing.T) {
+		if got := getStatus(t, "http://"+started.HTTPAddr+"/debug/pprof/goroutine?debug=1"); got != http.StatusNotFound {
+			t.Errorf("GET /debug/pprof/goroutine on the Tenant API: status %d, want 404", got)
+		}
+	})
+
 	if err := stop(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	return rest
+}
+
+// getStatus sends an unauthenticated GET to url and returns the response's
+// status code.
+func getStatus(t *testing.T, url string) int {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	res.Body.Close()
+	return res.StatusCode
 }
 
 // decodeLog parses r as a stream of JSON log lines and fails the test if any

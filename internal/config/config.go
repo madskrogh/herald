@@ -30,15 +30,19 @@ type Shared struct {
 	AllowInsecureEndpoints bool
 	// Telemetry says where spans go and what identifies them.
 	Telemetry telemetry.Config
+	// PprofAddr is the internal address net/http/pprof is served on
+	// (HERALD_PPROF_ADDR), separate from the Tenant-facing ones. Empty, the
+	// default, serves no pprof.
+	PprofAddr string
 }
 
 // Load reads the shared settings through getenv. The database URL, the
-// keyring and the NATS URL are required; HERALD_ALLOW_INSECURE_ENDPOINTS and
+// keyring and the NATS URL are required; HERALD_ALLOW_INSECURE_ENDPOINTS,
 // the telemetry settings (HERALD_OTLP_URL, HERALD_RUN_ID and
-// HERALD_BUILD_VERSION, default "dev") are optional. The first setting
-// missing or invalid is reported, checked in this order: the database URL,
-// the keyring, the NATS URL, HERALD_ALLOW_INSECURE_ENDPOINTS, then
-// HERALD_OTLP_URL.
+// HERALD_BUILD_VERSION, default "dev") and HERALD_PPROF_ADDR are optional.
+// The first setting missing or invalid is reported, checked in this order:
+// the database URL, the keyring, the NATS URL,
+// HERALD_ALLOW_INSECURE_ENDPOINTS, then HERALD_OTLP_URL.
 func Load(getenv func(string) string) (Shared, error) {
 	dbURL, err := DatabaseURL(getenv)
 	if err != nil {
@@ -78,6 +82,7 @@ func Load(getenv func(string) string) (Shared, error) {
 	if cfg.Telemetry.BuildVersion == "" {
 		cfg.Telemetry.BuildVersion = "dev"
 	}
+	cfg.PprofAddr = getenv("HERALD_PPROF_ADDR")
 	return cfg, nil
 }
 

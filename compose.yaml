@@ -51,9 +51,12 @@ services:
       # Local Endpoints are on private addresses without TLS. Never set
       # outside local development.
       HERALD_ALLOW_INSECURE_ENDPOINTS: "true"
+      # pprof, for make profile. Internal: never a Tenant-facing port.
+      HERALD_PPROF_ADDR: &pprof-addr ":6060"
     ports:
       - "127.0.0.1:${HERALD_API_HTTP_PORT:-8080}:8080"
       - "127.0.0.1:${HERALD_API_GRPC_PORT:-9090}:9090"
+      - "127.0.0.1:${HERALD_API_PPROF_PORT:-6060}:6060"
     depends_on:
       api-migrate:
         condition: service_completed_successfully
@@ -82,6 +85,10 @@ services:
       # failing Endpoint is retried, and given up on, while you watch, and
       # the end-to-end tests finish in under two minutes.
       HERALD_RETRY_SCALE: "0.001"
+      # As for herald-api.
+      HERALD_PPROF_ADDR: *pprof-addr
+    ports:
+      - "127.0.0.1:${HERALD_DISPATCHER_PPROF_PORT:-6061}:6060"
     # The end-to-end tests serve their Endpoints from the host. Docker
     # Desktop defines this name already; on Linux it needs mapping.
     extra_hosts:
