@@ -17,6 +17,7 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 | `make ci` | Everything CI runs on a PR: lint, tests with `-race`, buf checks, generated-code check |
 | `make wait-ci` | Wait for the CI run on `HEAD`'s pushed commit and exit with its result |
 | `make admin ARGS='…'` | Run herald-admin against this checkout's stack, e.g. `ARGS='tenant create --name Acme'` |
+| `make e2e` | Run the end-to-end tests against this checkout's stack (start it with `make up`). `RUN=<regexp>` selects tests, e.g. `make e2e RUN=TestSpanIsStoredInClickHouse` |
 | `make worktree-rm NAME=x` | Stop a worktree's stack, remove the worktree and its branch (after its session has exited) |
 
 Run `make ci` before every push. It is exactly what CI runs.
