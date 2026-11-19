@@ -94,8 +94,17 @@ type Message struct {
 	EventType string `protobuf:"bytes,3,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
 	// The JSON payload exactly as the Tenant submitted it. It is signed byte for
 	// byte, so it is carried as bytes rather than parsed.
-	Payload       []byte      `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
-	Deliveries    []*Delivery `protobuf:"bytes,5,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
+	Payload    []byte      `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
+	Deliveries []*Delivery `protobuf:"bytes,5,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
+	// The Application the Message was sent to, for the dispatcher's spans.
+	// Empty from a relay that predates it.
+	ApplicationId string `protobuf:"bytes,6,opt,name=application_id,json=applicationId,proto3" json:"application_id,omitempty"`
+	// The context of the relay's handoff span for this Message, as a W3C
+	// traceparent, so the dispatcher continues the Message's trace. A Batch
+	// holds Messages from many traces, so each carries its own rather than
+	// the Batch carrying one in a NATS header. Empty from a relay that
+	// predates it, and then the dispatcher starts a trace of its own.
+	Traceparent   string `protobuf:"bytes,7,opt,name=traceparent,proto3" json:"traceparent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -163,6 +172,20 @@ func (x *Message) GetDeliveries() []*Delivery {
 		return x.Deliveries
 	}
 	return nil
+}
+
+func (x *Message) GetApplicationId() string {
+	if x != nil {
+		return x.ApplicationId
+	}
+	return ""
+}
+
+func (x *Message) GetTraceparent() string {
+	if x != nil {
+		return x.Traceparent
+	}
+	return ""
 }
 
 // Delivery is the Message on its way to one Endpoint.
@@ -402,7 +425,7 @@ const file_herald_handoff_v1_handoff_proto_rawDesc = "" +
 	"\n" +
 	"\x1fherald/handoff/v1/handoff.proto\x12\x11herald.handoff.v1\"?\n" +
 	"\x05Batch\x126\n" +
-	"\bmessages\x18\x01 \x03(\v2\x1a.herald.handoff.v1.MessageR\bmessages\"\xac\x01\n" +
+	"\bmessages\x18\x01 \x03(\v2\x1a.herald.handoff.v1.MessageR\bmessages\"\xf5\x01\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x1d\n" +
@@ -411,7 +434,9 @@ const file_herald_handoff_v1_handoff_proto_rawDesc = "" +
 	"\apayload\x18\x04 \x01(\fR\apayload\x12;\n" +
 	"\n" +
 	"deliveries\x18\x05 \x03(\v2\x1b.herald.handoff.v1.DeliveryR\n" +
-	"deliveries\"S\n" +
+	"deliveries\x12%\n" +
+	"\x0eapplication_id\x18\x06 \x01(\tR\rapplicationId\x12 \n" +
+	"\vtraceparent\x18\a \x01(\tR\vtraceparent\"S\n" +
 	"\bDelivery\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x127\n" +
 	"\bendpoint\x18\x02 \x01(\v2\x1b.herald.handoff.v1.EndpointR\bendpoint\"w\n" +

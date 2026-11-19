@@ -9,13 +9,18 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/madskrogh/herald/internal/egress"
 	"github.com/madskrogh/herald/internal/keyring"
 	"github.com/madskrogh/herald/internal/retry"
 	"github.com/madskrogh/herald/internal/signing"
+	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 const (
@@ -69,6 +74,8 @@ type WorkersConfig struct {
 	// addresses. herald-dispatcher sets it from
 	// HERALD_ALLOW_INSECURE_ENDPOINTS.
 	AllowPrivateAddresses bool
+	// TracerProvider makes the span of each Attempt, or nil for none.
+	TracerProvider trace.TracerProvider
 }
 
 // leaseStore is where Workers claim Deliveries and record their Attempts. It
@@ -85,6 +92,7 @@ type leaseStore interface {
 type Workers struct {
 	store  leaseStore
 	cfg    WorkersConfig
+	tracer trace.Tracer
 	logger *slog.Logger
 
 	// claiming makes rounds take turns, so they don't claim more than
@@ -103,6 +111,9 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 	}
 	if cfg.DrainTimeout <= 0 {
 		cfg.DrainTimeout = defaultDrainTimeout
+	}
+	if cfg.TracerProvider == nil {
+		cfg.TracerProvider = noop.NewTracerProvider()
 	}
 	var client http.Client
 	if cfg.Client != nil {
@@ -129,7 +140,7 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 	// failed, not a pointer to follow.
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	cfg.Client = &client
-	return &Workers{store: store, cfg: cfg, logger: logger}
+	return &Workers{store: store, cfg: cfg, tracer: cfg.TracerProvider.Tracer(tracerName), logger: logger}
 }
 
 // Run makes Attempts until ctx is cancelled, claiming due Deliveries whenever
@@ -249,10 +260,28 @@ func (w *Workers) Wait() {
 // attempt makes one Attempt for the leased Delivery and records it. An
 // Attempt that Run cancels at the shutdown deadline isn't counted: its lease
 // is released, so the Delivery is due again at once.
+//
+// The Attempt's span is a child of the span that stored the Delivery, so
+// every Attempt joins the Message's trace, whenever and wherever it runs.
 func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	d := lease.Delivery
-	a := w.send(ctx, d)
 	number := lease.PriorAttempts + 1
+	ctx, span := telemetry.Start(ctx, w.tracer, d.TraceParent, telemetry.SpanAttempt,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			telemetry.TenantID.String(d.TenantID.String()),
+			telemetry.ApplicationID.String(applicationIDAttr(d.ApplicationID)),
+			telemetry.EndpointID.String(d.Endpoint.ID.String()),
+			telemetry.MessageID.String(d.MessageID.String()),
+			telemetry.DeliveryID.String(d.ID.String()),
+			telemetry.AttemptNumber.Int(number),
+		),
+	)
+	a, attemptErr := w.send(ctx, d)
+	span.SetAttributes(
+		telemetry.StatusCode.Int(a.StatusCode),
+		telemetry.LatencyMs.Int64(a.Latency.Milliseconds()),
+	)
 	logger := w.logger.With(
 		"delivery_id", d.ID,
 		"message_id", d.MessageID,
@@ -266,6 +295,7 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	// Cut off without a response. One that came, even with its body cut
 	// short, is the Endpoint's answer and is recorded.
 	if a.StatusCode == 0 && ctx.Err() != nil {
+		telemetry.End(span, telemetry.OutcomeCutOff, attemptErr)
 		if err := w.store.Release(storeCtx, lease, w.cfg.Now()); err != nil {
 			// The lease runs out and the Delivery is claimed again.
 			logger.ErrorContext(ctx, "lease not released at shutdown", "error", err)
@@ -284,6 +314,8 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 		logger = logger.With("attempt_error", a.Error)
 	}
 	if err := w.store.Record(storeCtx, lease, a, o); err != nil {
+		// The Delivery stays where it was, so its state is no outcome.
+		telemetry.End(span, telemetry.OutcomeNotRecorded, err)
 		if errors.Is(err, ErrLeaseLost) {
 			// Another worker claimed the Delivery after this lease ran out,
 			// and its Attempt counts instead.
@@ -294,18 +326,22 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 		logger.ErrorContext(ctx, "attempt not recorded", "error", err)
 		return
 	}
+	telemetry.End(span, string(o.State), attemptErr)
 	logger.InfoContext(ctx, "attempt")
 }
 
 // send makes the HTTP request for one Attempt, signed with the Endpoint's
 // signing secrets. A request that can't be made or gets no response is an
-// Attempt with an error and no status code.
-func (w *Workers) send(ctx context.Context, d Delivery) Attempt {
+// Attempt with an error and no status code. The error returned is for the
+// Attempt's span: why it isn't a success, without the Endpoint's URL. The
+// Tenant sees the Attempt's error, but spans leave Herald, and a URL often
+// holds a token.
+func (w *Workers) send(ctx context.Context, d Delivery) (Attempt, error) {
 	a := Attempt{StartedAt: w.cfg.Now()}
 	req, err := w.newRequest(ctx, d, a.StartedAt)
 	if err != nil {
 		a.Error = err.Error()
-		return a
+		return a, withoutURL(err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	defer cancel()
@@ -320,15 +356,35 @@ func (w *Workers) send(ctx context.Context, d Delivery) Attempt {
 		var refused *egress.RefusedError
 		if errors.As(err, &refused) {
 			a.Error = fmt.Sprintf("not connected: the Endpoint's host resolved to a %s address, and Herald connects only to public addresses", refused.Class)
+			return a, errors.New(a.Error)
 		}
-		return a
+		return a, withoutURL(err)
 	}
 	defer resp.Body.Close()
 	a.Latency = time.Since(begin)
 	a.StatusCode = resp.StatusCode
 	// A body cut short by the timeout is kept as far as it got.
 	a.ResponseBody, _ = io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
-	return a
+	if !succeeded(a.StatusCode) {
+		return a, fmt.Errorf("the Endpoint answered %d %s", a.StatusCode, http.StatusText(a.StatusCode))
+	}
+	return a, nil
+}
+
+// succeeded reports whether an Attempt's status code makes it a success:
+// only a 2xx response is.
+func succeeded(statusCode int) bool {
+	return statusCode >= 200 && statusCode < 300
+}
+
+// withoutURL returns err without the URL that net/url and net/http errors
+// name, keeping the operation and why it failed.
+func withoutURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Errorf("%s: %w", urlErr.Op, urlErr.Err)
+	}
+	return err
 }
 
 // newRequest returns the signed request for an Attempt at ts. The signing
@@ -362,7 +418,7 @@ func (w *Workers) newRequest(ctx context.Context, d Delivery, ts time.Time) (*ht
 // outcome returns where an Attempt leaves its Delivery. number is the
 // Attempt's number.
 func (w *Workers) outcome(a Attempt, number int) Outcome {
-	if a.StatusCode >= 200 && a.StatusCode < 300 {
+	if succeeded(a.StatusCode) {
 		return Succeeded()
 	}
 	delay, ok := w.cfg.Schedule.Next(number)

@@ -417,11 +417,12 @@ func newTestWorkers(t *testing.T) *testWorkers {
 func (tw *testWorkers) newWorkers(t *testing.T, concurrency int) *delivery.Workers {
 	t.Helper()
 	return delivery.NewWorkers(tw.in.store, delivery.WorkersConfig{
-		Keyring:     tw.keys,
-		Client:      &http.Client{},
-		Schedule:    pinnedSchedule(t),
-		Now:         tw.clock.now,
-		Concurrency: concurrency,
+		Keyring:        tw.keys,
+		Client:         &http.Client{},
+		Schedule:       pinnedSchedule(t),
+		Now:            tw.clock.now,
+		Concurrency:    concurrency,
+		TracerProvider: tw.in.spans.Provider,
 	}, slog.New(slog.DiscardHandler))
 }
 
@@ -436,10 +437,11 @@ func TestWorkersLogEachAttempt(t *testing.T) {
 	tw := newTestWorkers(t)
 	var logs bytes.Buffer
 	tw.workers = delivery.NewWorkers(tw.in.store, delivery.WorkersConfig{
-		Keyring:  tw.keys,
-		Client:   &http.Client{},
-		Schedule: pinnedSchedule(t),
-		Now:      tw.clock.now,
+		Keyring:        tw.keys,
+		Client:         &http.Client{},
+		Schedule:       pinnedSchedule(t),
+		Now:            tw.clock.now,
+		TracerProvider: tw.in.spans.Provider,
 	}, slog.New(slog.NewJSONHandler(&logs, nil)))
 	tw.in.send(t, tw.workerBatch(t, rcv.URL()))
 

@@ -15,12 +15,19 @@ import (
 // Span is one span, as sent to the Collector and as read back from
 // ClickHouse.
 type Span struct {
-	// TraceID and SpanID are in hex, as OTLP/JSON and ClickHouse write them.
-	TraceID     string
-	SpanID      string
-	Name        string
-	ServiceName string
-	Attributes  map[string]string
+	// TraceID, SpanID and ParentSpanID are in hex, as OTLP/JSON and
+	// ClickHouse write them.
+	TraceID string
+	SpanID  string
+	// ParentSpanID is empty for a root span. SendSpan sends only roots.
+	ParentSpanID string
+	Name         string
+	ServiceName  string
+	Attributes   map[string]string
+	// ResourceAttributes are those of the service that sent the span,
+	// service.name among them. SendSpan sends only service.name, from
+	// ServiceName.
+	ResourceAttributes map[string]string
 }
 
 // SendSpan sends one span to the stack's Collector over OTLP/HTTP, encoded
@@ -72,11 +79,25 @@ func (s *Stack) SendSpan(ctx context.Context, span Span) error {
 	return nil
 }
 
-// spansQuery selects one trace's spans. It takes the query parameter
-// trace_id.
-//
-//go:embed spans.sql
-var spansQuery string
+// Queries for spans in ClickHouse, each selecting the same columns, ordered
+// by span ID.
+var (
+	// spansQuery selects one trace's spans. It takes the query parameter
+	// trace_id.
+	//
+	//go:embed spans.sql
+	spansQuery string
+	// messageTraceQuery selects the spans of the trace a Message was handed
+	// off in. It takes the query parameter message_id.
+	//
+	//go:embed message_trace.sql
+	messageTraceQuery string
+	// linkedSpansQuery selects the spans that link to a span. It takes the
+	// query parameter span_id.
+	//
+	//go:embed linked_spans.sql
+	linkedSpansQuery string
+)
 
 // WaitSpans waits until ClickHouse holds at least one span of the trace with
 // the given ID, and returns the trace's spans stored so far, ordered by span
@@ -84,48 +105,82 @@ var spansQuery string
 // moment after they are sent, and the spans of a larger trace may arrive in
 // more than one batch.
 func (s *Stack) WaitSpans(ctx context.Context, traceID string) ([]Span, error) {
-	var spans []Span
-	err := poll(ctx, func() (bool, error) {
-		var err error
-		spans, err = s.traceSpans(ctx, traceID)
-		return len(spans) > 0, err
-	})
+	spans, err := s.waitSpans(ctx, spansQuery, "trace_id", traceID, 1)
 	if err != nil {
 		return nil, fmt.Errorf("trace %s: waiting for its spans: %w", traceID, err)
 	}
 	return spans, nil
 }
 
-// traceSpans reads the spans of one trace from ClickHouse.
-func (s *Stack) traceSpans(ctx context.Context, traceID string) ([]Span, error) {
+// WaitMessageTrace waits until ClickHouse holds at least n spans of the
+// trace the Message with the given ID was handed off in, and returns them,
+// ordered by span ID. Spans that arrive later aren't returned.
+func (s *Stack) WaitMessageTrace(ctx context.Context, messageID string, n int) ([]Span, error) {
+	spans, err := s.waitSpans(ctx, messageTraceQuery, "message_id", messageID, n)
+	if err != nil {
+		return spans, fmt.Errorf("message %s: waiting for %d spans of its trace, have %d: %w", messageID, n, len(spans), err)
+	}
+	return spans, nil
+}
+
+// WaitBatchesLinkedTo waits until ClickHouse holds at least one span that
+// links to the span with the given ID, and returns those stored so far,
+// ordered by span ID.
+func (s *Stack) WaitBatchesLinkedTo(ctx context.Context, spanID string) ([]Span, error) {
+	spans, err := s.waitSpans(ctx, linkedSpansQuery, "span_id", spanID, 1)
+	if err != nil {
+		return nil, fmt.Errorf("span %s: waiting for spans linked to it: %w", spanID, err)
+	}
+	return spans, nil
+}
+
+// waitSpans runs query, with the query parameter param set to value, until
+// it returns at least n spans, and returns the last spans it returned.
+func (s *Stack) waitSpans(ctx context.Context, query, param, value string, n int) ([]Span, error) {
+	var spans []Span
+	err := poll(ctx, func() (bool, error) {
+		var err error
+		spans, err = s.querySpans(ctx, query, param, value)
+		return len(spans) >= n, err
+	})
+	return spans, err
+}
+
+// querySpans runs query in ClickHouse, with the query parameter param set to
+// value, and returns the spans it selects.
+func (s *Stack) querySpans(ctx context.Context, query, param, value string) ([]Span, error) {
 	// wait_end_of_query makes ClickHouse report an error that happens while
 	// it streams rows as an error status, not as text after the rows.
-	query := url.Values{"param_trace_id": {traceID}, "wait_end_of_query": {"1"}}
-	target := s.clickHouseURL + "/?" + query.Encode()
+	params := url.Values{"param_" + param: {value}, "wait_end_of_query": {"1"}}
+	target := s.clickHouseURL + "/?" + params.Encode()
 	header := http.Header{"Content-Type": {"text/plain"}}
-	data, err := s.post(ctx, target, header, []byte(spansQuery))
+	data, err := s.post(ctx, target, header, []byte(query))
 	if err != nil {
-		return nil, fmt.Errorf("query trace %s: %w", traceID, err)
+		return nil, fmt.Errorf("query spans by %s %s: %w", param, value, err)
 	}
 	var spans []Span
 	dec := json.NewDecoder(bytes.NewReader(data))
 	for dec.More() {
 		var row struct {
-			TraceID        string            `json:"TraceId"`
-			SpanID         string            `json:"SpanId"`
-			SpanName       string            `json:"SpanName"`
-			ServiceName    string            `json:"ServiceName"`
-			SpanAttributes map[string]string `json:"SpanAttributes"`
+			TraceID            string            `json:"TraceId"`
+			SpanID             string            `json:"SpanId"`
+			ParentSpanID       string            `json:"ParentSpanId"`
+			SpanName           string            `json:"SpanName"`
+			ServiceName        string            `json:"ServiceName"`
+			SpanAttributes     map[string]string `json:"SpanAttributes"`
+			ResourceAttributes map[string]string `json:"ResourceAttributes"`
 		}
 		if err := dec.Decode(&row); err != nil {
-			return nil, fmt.Errorf("query trace %s: decode row: %w", traceID, err)
+			return nil, fmt.Errorf("query spans by %s %s: decode row: %w", param, value, err)
 		}
 		spans = append(spans, Span{
-			TraceID:     row.TraceID,
-			SpanID:      row.SpanID,
-			Name:        row.SpanName,
-			ServiceName: row.ServiceName,
-			Attributes:  row.SpanAttributes,
+			TraceID:            row.TraceID,
+			SpanID:             row.SpanID,
+			ParentSpanID:       row.ParentSpanID,
+			Name:               row.SpanName,
+			ServiceName:        row.ServiceName,
+			Attributes:         row.SpanAttributes,
+			ResourceAttributes: row.ResourceAttributes,
 		})
 	}
 	return spans, nil

@@ -50,6 +50,7 @@ type IngestMessage struct {
 	HandedOffAt    pgtype.Timestamptz
 	ParkedAt       pgtype.Timestamptz
 	ParkError      pgtype.Text
+	Traceparent    pgtype.Text
 }
 
 type IngestSigningSecret struct {

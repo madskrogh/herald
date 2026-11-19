@@ -35,10 +35,12 @@ If the PR fixes a problem an earlier PR shipped, replace the template's comment 
 
 ## Verification
 
-Two lists, never left out:
+A collapsed section with two lists, never left out:
 
 - **Verified**: what was run, and the result. `make ci` on the pushed commit, integration tests by seam, a Message sent to the running stack and its Delivery observed. Name what was run, not how confident you are.
 - **Not verified**: what wasn't checked, and why. No end-to-end run, retry timing checked only with a fake clock. If everything was checked, write "nothing".
+
+The summary line counts the Not verified items, `Verification: 2 not verified`, so a gap shows while the section is collapsed. Write 0 for "nothing".
 
 ## The opening and plain explanation
 
@@ -81,6 +83,7 @@ Route rejected findings by the reason given:
 - Is every rejection that rests on intent either settled by a decision recorded on the issue or marked "settled by reading the issue"?
 - Does every reassuring word have a pointer?
 - Does Verification say what wasn't checked, or "nothing"?
+- Does the Verification summary count match the Not verified list?
 - Does every review that ran have a row, including those with no findings?
 - Is anything in the main text that belongs in details?
 
@@ -89,4 +92,4 @@ Route rejected findings by the reason given:
 - After each push that addresses review, run `make wait-ci` to wait for CI.
 - A commit that addresses review says what was wrong, not only what changed: `Release the key when the insert fails` is a change; `Fix key leak when the insert fails` says what was wrong.
 - Every review comment gets a reply: "Fixed in `<sha>`", the answer, or the reason it was rejected.
-- When fixes change what the description says, update it, including Verification and the Review notes.
+- When fixes change what the description says, update it, including Verification (and its summary count) and the Review notes.

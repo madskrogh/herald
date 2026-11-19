@@ -88,10 +88,11 @@ ORDER BY e.id;
 -- Otherwise no row comes back. A Message without Deliveries has nothing to
 -- hand off, so it is written as handed off already and never enters the
 -- outbox.
-INSERT INTO ingest.messages (tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at)
+INSERT INTO ingest.messages (tenant_id, application_id, event_type, payload, idempotency_key, created_at, handed_off_at, traceparent)
 SELECT
     a.tenant_id, a.id, @event_type, @payload, NULLIF(@idempotency_key::text, ''), @now::timestamptz,
-    CASE WHEN @has_deliveries::boolean THEN NULL ELSE @now::timestamptz END
+    CASE WHEN @has_deliveries::boolean THEN NULL ELSE @now::timestamptz END,
+    NULLIF(@traceparent::text, '')
 FROM ingest.applications a
 WHERE a.tenant_id = @tenant_id AND a.id = @application_id
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
@@ -132,7 +133,7 @@ ORDER BY endpoint_id;
 -- first, for the relay's transaction. Rows another relay has claimed are
 -- skipped rather than waited for, so concurrent relays claim different
 -- Messages. Parked Messages are not in the outbox.
-SELECT id, tenant_id, event_type, payload
+SELECT id, tenant_id, application_id, event_type, payload, coalesce(traceparent, '')::text AS traceparent
 FROM ingest.messages
 WHERE handed_off_at IS NULL AND parked_at IS NULL
 ORDER BY id

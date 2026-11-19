@@ -33,12 +33,14 @@ type DeliveryDelivery struct {
 	LeaseID        pgtype.UUID
 	LeasedUntil    pgtype.Timestamptz
 	AttemptCount   int32
+	Traceparent    pgtype.Text
 }
 
 type DeliveryMessage struct {
-	ID        uuid.UUID
-	TenantID  uuid.UUID
-	EventType string
-	Payload   []byte
-	CreatedAt time.Time
+	ID            uuid.UUID
+	TenantID      uuid.UUID
+	EventType     string
+	Payload       []byte
+	CreatedAt     time.Time
+	ApplicationID pgtype.UUID
 }

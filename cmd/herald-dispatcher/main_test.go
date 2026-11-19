@@ -154,9 +154,11 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 
 	// HERALD_ALLOW_INSECURE_ENDPOINTS and HERALD_RETRY_SCALE are set, so a
 	// production deployment that sets either by mistake says so as it starts.
+	// HERALD_OTLP_URL isn't, and a deployment that forgets it says so too.
 	for _, want := range []logRecord{
 		{Level: "WARN", Msg: "insecure Endpoints allowed: for local development only", Service: "herald-dispatcher"},
 		{Level: "WARN", Msg: "retry schedule shrunk: for local development only", Service: "herald-dispatcher"},
+		{Level: "WARN", Msg: "HERALD_OTLP_URL is not set: spans are not exported", Service: "herald-dispatcher"},
 	} {
 		warning, ok := <-logs
 		if !ok {

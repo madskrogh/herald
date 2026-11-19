@@ -19,6 +19,7 @@ import (
 
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/keyring"
+	"github.com/madskrogh/herald/internal/telemetry/telemetrytest"
 )
 
 // drainTimeout is how long the Attempts in flight get to finish once Run's
@@ -221,6 +222,8 @@ func newRawPipeWorkers(t *testing.T, store *fakeStore, serve func(net.Conn), dra
 		Schedule:     pinnedSchedule(t),
 		Now:          time.Now,
 		DrainTimeout: drain,
+
+		TracerProvider: telemetrytest.NewRecorder(t).Provider,
 	}, slog.New(slog.DiscardHandler))
 }
 
