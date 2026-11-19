@@ -173,19 +173,22 @@ func TestRunDeliversHandedOffBatchesUntilCancelled(t *testing.T) {
 	if started.Msg != "started" {
 		t.Fatalf("first log line is %+v, want started", started)
 	}
-	pprofURL := "http://" + started.PprofAddr + "/debug/pprof/goroutine?debug=1"
-	pprofReq, err := http.NewRequestWithContext(t.Context(), http.MethodGet, pprofURL, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := http.DefaultClient.Do(pprofReq)
-	if err != nil {
-		t.Fatalf("GET %s: %v", pprofURL, err)
-	}
-	res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("GET /debug/pprof/goroutine on the pprof address: status %d, want 200", res.StatusCode)
-	}
+	// Not parallel: it must finish before stop shuts the service down.
+	t.Run("pprof", func(t *testing.T) {
+		url := "http://" + started.PprofAddr + "/debug/pprof/goroutine?debug=1"
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", url, err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("GET /debug/pprof/goroutine on the pprof address: status %d, want 200", res.StatusCode)
+		}
+	})
 
 	const (
 		deliveryID    = "0190a5e4-0000-7000-8000-0000000000d1"

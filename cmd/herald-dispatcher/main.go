@@ -21,8 +21,8 @@
 //	HERALD_RETRY_SCALE    a factor in (0, 1] that shrinks every delay in the
 //	                      retry schedule, so the local stack and end-to-end
 //	                      tests run it in seconds (default 1)
-//	HERALD_PPROF_ADDR     internal address net/http/pprof is served on
-//	                      (default: pprof not served)
+//	HERALD_PPROF_ADDR     internal address net/http/pprof is served on; never
+//	                      a Tenant-facing one (default: pprof not served)
 package main
 
 import (
@@ -31,7 +31,6 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
-	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -148,13 +147,12 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	}
 	var started []any // The "started" log line's attributes.
 	if cfg.shared.PprofAddr != "" {
-		var lc net.ListenConfig
-		pprofLis, err := lc.Listen(ctx, "tcp", cfg.shared.PprofAddr)
+		pprofAddr, stopPprof, err := profiling.Start(ctx, cfg.shared.PprofAddr, logger)
 		if err != nil {
-			return fmt.Errorf("listen for pprof: %w", err)
+			return err
 		}
-		defer profiling.Start(ctx, pprofLis, logger)()
-		started = append(started, "pprof_addr", pprofLis.Addr().String())
+		defer stopPprof()
+		started = append(started, "pprof_addr", pprofAddr)
 	}
 	pool, err := pgxpool.New(ctx, cfg.shared.DatabaseURL)
 	if err != nil {

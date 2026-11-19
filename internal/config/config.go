@@ -34,9 +34,10 @@ type Shared struct {
 }
 
 // Load reads the shared settings through getenv. All but
-// HERALD_ALLOW_INSECURE_ENDPOINTS and HERALD_PPROF_ADDR are required. The first setting missing or
-// invalid is reported, checked in this order: the database URL, the keyring,
-// the NATS URL, then HERALD_ALLOW_INSECURE_ENDPOINTS.
+// HERALD_ALLOW_INSECURE_ENDPOINTS and HERALD_PPROF_ADDR are required. The
+// first setting missing or invalid is reported, checked in this order: the
+// database URL, the keyring, the NATS URL, then
+// HERALD_ALLOW_INSECURE_ENDPOINTS.
 func Load(getenv func(string) string) (Shared, error) {
 	dbURL, err := DatabaseURL(getenv)
 	if err != nil {

@@ -45,16 +45,18 @@ addr() {
   esac
 }
 
-# fetch saves http://<address>/debug/pprof/<path> to file.
+# fetch saves http://<address>/debug/pprof/<path> to file, and names the URL
+# when it fails.
 fetch() {
-  curl --fail --silent --show-error --max-time $((duration + 30)) -o "$2" "http://$1/debug/pprof/$3"
+  curl --fail --silent --show-error --max-time $((duration + 30)) -o "$2" "http://$1/debug/pprof/$3" ||
+    { echo "profile: GET http://$1/debug/pprof/$3 failed" >&2; return 1; }
 }
 
 # capture profiles one service of one build into dir: the profiles that span
 # the window at the same time, then the snapshots at its end.
 capture() {
   local address=$1 dir=$2
-  local pids=()
+  local pids=() failed=0
   fetch "$address" "$dir/cpu.pb.gz" "profile?seconds=$duration" &
   pids+=($!)
   fetch "$address" "$dir/trace.out" "trace?seconds=$duration" &
@@ -62,8 +64,9 @@ capture() {
   fetch "$address" "$dir/allocs.pb.gz" "allocs?seconds=$duration" &
   pids+=($!)
   for pid in "${pids[@]}"; do
-    wait "$pid"
+    wait "$pid" || failed=1
   done
+  if ((failed)); then return 1; fi
   fetch "$address" "$dir/heap.pb.gz" "heap?gc=1"
   fetch "$address" "$dir/goroutine.pb.gz" "goroutine"
   for p in "${trace_profiles[@]}"; do
@@ -80,16 +83,25 @@ for b in "${builds[@]}"; do
     pids+=($!)
   done
 done
+# Every capture finishes, or times out, before the first failure stops the
+# run, so none is left running.
+failed=0
 for pid in "${pids[@]}"; do
-  wait "$pid"
+  wait "$pid" || failed=1
 done
+if ((failed)); then
+  echo "profile: a capture failed (above). Do both builds serve pprof at those addresses?" >&2
+  exit 1
+fi
 
-# diff prints the candidate's profile less the base's, top entries first.
+# diff_profile prints the candidate's profile less the base's, top entries
+# first. A diff that fails says so and doesn't stop the others.
 diff_profile() {
   local s=$1 file=$2 title=$3
   shift 3
   echo "=== $s: $title (candidate minus base)"
-  go tool pprof -top -nodecount=20 "$@" -diff_base "$out/base/$s/$file" "$out/candidate/$s/$file" 2>&1
+  go tool pprof -top -nodecount=20 "$@" -diff_base "$out/base/$s/$file" "$out/candidate/$s/$file" 2>&1 ||
+    echo "profile: this diff failed (above)"
   echo
 }
 

@@ -153,12 +153,12 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	var lc net.ListenConfig
 	var started []any // The "started" log line's attributes.
 	if cfg.shared.PprofAddr != "" {
-		pprofLis, err := lc.Listen(ctx, "tcp", cfg.shared.PprofAddr)
+		pprofAddr, stopPprof, err := profiling.Start(ctx, cfg.shared.PprofAddr, logger)
 		if err != nil {
-			return fmt.Errorf("listen for pprof: %w", err)
+			return err
 		}
-		defer profiling.Start(ctx, pprofLis, logger)()
-		started = append(started, "pprof_addr", pprofLis.Addr().String())
+		defer stopPprof()
+		started = append(started, "pprof_addr", pprofAddr)
 	}
 	grpcLis, err := lc.Listen(ctx, "tcp", cfg.grpcAddr)
 	if err != nil {

@@ -134,15 +134,15 @@ BASE ?= $(shell git worktree list --porcelain | sed -n '1s/^worktree //p')
 profile: .env
 	@test "$$(cd '$(BASE)' && pwd -P)" != "$$(pwd -P)" || { \
 		echo "profile: the base is this checkout; set BASE to another checkout"; exit 1; }
-	@port() { sed -n "s/^$$2=//p" "$$1/.env" 2>/dev/null; }; \
-	base_api=$$(port '$(BASE)' HERALD_API_PPROF_PORT); \
-	base_dispatcher=$$(port '$(BASE)' HERALD_DISPATCHER_PPROF_PORT); \
-	test -n "$$base_api" && test -n "$$base_dispatcher" || { \
-		echo "profile: $(BASE)/.env has no pprof ports: run 'make up' there"; exit 1; }; \
-	CANDIDATE_API=localhost:$$(port . HERALD_API_PPROF_PORT) \
-	CANDIDATE_DISPATCHER=localhost:$$(port . HERALD_DISPATCHER_PPROF_PORT) \
-	BASE_API=localhost:$$base_api \
-	BASE_DISPATCHER=localhost:$$base_dispatcher \
+	@port() { \
+		p=$$(sed -n "s/^$$2=//p" "$$1/.env" 2>/dev/null); \
+		test -n "$$p" || { echo "profile: $$1/.env has no $$2: run 'make up' there" >&2; exit 1; }; \
+		echo "localhost:$$p"; }; \
+	CANDIDATE_API=$$(port . HERALD_API_PPROF_PORT) && \
+	CANDIDATE_DISPATCHER=$$(port . HERALD_DISPATCHER_PPROF_PORT) && \
+	BASE_API=$$(port '$(BASE)' HERALD_API_PPROF_PORT) && \
+	BASE_DISPATCHER=$$(port '$(BASE)' HERALD_DISPATCHER_PPROF_PORT) && \
+	export CANDIDATE_API CANDIDATE_DISPATCHER BASE_API BASE_DISPATCHER && \
 		./scripts/profile.sh
 
 # Runs herald-admin against this checkout's stack.
