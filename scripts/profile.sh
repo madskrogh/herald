@@ -10,6 +10,9 @@
 #
 #   CANDIDATE_API, CANDIDATE_DISPATCHER, BASE_API, BASE_DISPATCHER
 #             host:port of each service's pprof endpoints (required)
+#   BASE_LABEL, CANDIDATE_LABEL
+#             what each build is, such as its commit, shown at the top of the
+#             diffs (default: none)
 #   DURATION  seconds to profile for (default 30)
 #   OUT       directory to write to (default profiles/<UTC time>)
 #
@@ -29,6 +32,10 @@ set -euo pipefail
 
 : "${CANDIDATE_API:?}" "${CANDIDATE_DISPATCHER:?}" "${BASE_API:?}" "${BASE_DISPATCHER:?}"
 duration=${DURATION:-30}
+if [[ ! "$duration" =~ ^[1-9][0-9]*$ ]]; then
+  echo "profile: DURATION is $duration; want a whole number of seconds" >&2
+  exit 1
+fi
 out=${OUT:-profiles/$(date -u +%Y%m%dT%H%M%SZ)}
 
 builds=(base candidate)
@@ -111,6 +118,9 @@ total() {
 }
 
 {
+  echo "base:      ${BASE_LABEL:-(unlabelled)}"
+  echo "candidate: ${CANDIDATE_LABEL:-(unlabelled)}"
+  echo
   for s in "${services[@]}"; do
     echo "=== $s: CPU samples (a thin profile is noise)"
     echo "base:      $(total "$out/base/$s/cpu.pb.gz")"
