@@ -35,10 +35,12 @@ If the PR fixes a problem an earlier PR shipped, replace the template's comment 
 
 ## Verification
 
-Two lists, never left out:
+A collapsed section with two lists, never left out:
 
 - **Verified**: what was run, and the result. `make ci` on the pushed commit, integration tests by seam, a Message sent to the running stack and its Delivery observed. Name what was run, not how confident you are.
 - **Not verified**: what wasn't checked, and why. No end-to-end run, retry timing checked only with a fake clock. If everything was checked, write "nothing".
+
+The summary line counts the Not verified items, `Verification: 2 not verified`, so a gap shows while the section is collapsed. Write 0 for "nothing".
 
 ## The opening and plain explanation
 
