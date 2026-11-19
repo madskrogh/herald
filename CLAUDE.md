@@ -33,7 +33,7 @@ Run `make ci` before every push. It is exactly what CI runs.
 
 One GitHub issue = one branch = one worktree = one PR.
 
-1. Start with the `implement-issue` skill (`/implement-issue <n>`): it reads the issue and moves the session into worktree `issue-<n>`.
+1. Start the session with `claude -w issue-<n>`. Read the issue with `gh issue view <n> --comments`: decisions are recorded in its comments.
 2. Build it test-first with the `tdd` skill. Agree the seams before writing tests, and settle the issue's open points with the human first (see "Asking the human").
 3. Tests green: run the `standards-review` skill against `origin/main`, and refactor on its findings.
 4. Run the built-in `/code-review` on the final diff for bugs.
@@ -47,7 +47,7 @@ PRs are squash-merged; it is the only merge method, so a branch's own history ne
 
 Agent setup (`CLAUDE.md`, `.claude/rules/`, `.claude/skills/`, `.claude/hooks/`, `.claude/settings.json`, `.github/pull_request_template.md`, `docs/ai-workflow.md`) changes only in its own PR, never inside a feature PR. When a task suggests a new rule or skill, don't make the change: ask the human (see "Asking the human"), and file it as an `agent-setup` issue if they agree.
 
-Worktrees: `implement-issue` (or `claude -w <name>` from a terminal) creates `.claude/worktrees/<name>/` on branch `worktree-<name>` from `origin/main`. Each worktree gets its own compose project and ports through `.env` (see `scripts/worktree-env.sh`). Integration tests use testcontainers and need nothing from `.env`.
+Worktrees: `claude -w <name>` creates `.claude/worktrees/<name>/` on branch `worktree-<name>` from `origin/main`. Name an issue's worktree `issue-<n>` (`claude -w issue-<n>`), so a later session can find it and resume the work. Each worktree gets its own compose project and ports through `.env` (see `scripts/worktree-env.sh`). Integration tests use testcontainers and need nothing from `.env`.
 
 ## Asking the human
 
