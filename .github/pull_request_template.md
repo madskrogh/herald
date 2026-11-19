@@ -26,11 +26,11 @@ Closes #
 
 -
 
-<details><summary>Verification: U not verified</summary>
+<details><summary>Verification: N not verified</summary>
 
 <!--
 Never left out. Verified: what was run, and the result. Not verified: what wasn't checked, and why;
-"nothing" if everything was checked. U in the summary counts the Not verified items; 0 for "nothing".
+"nothing" if everything was checked. N in the summary counts the Not verified items; 0 for "nothing".
 -->
 
 **Verified**
