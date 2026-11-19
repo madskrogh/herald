@@ -203,6 +203,12 @@ func TestLoadErrors(t *testing.T) {
 			wantErr: `HERALD_KEYRING: keyring entry 0: key "test" has 6 bytes, want 32`,
 		},
 		{
+			// Without a scheme, the OTLP exporter would send to localhost.
+			name:    "with an OTLP URL without a scheme",
+			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": testKeyring, "HERALD_NATS_URL": "nats://unused", "HERALD_OTLP_URL": "otelcol:4318"},
+			wantErr: `HERALD_OTLP_URL: "otelcol:4318" is not an http or https URL with a host`,
+		},
+		{
 			name:    "without a NATS URL",
 			env:     map[string]string{"HERALD_DATABASE_URL": "postgres://unused", "HERALD_KEYRING": testKeyring},
 			wantErr: "HERALD_NATS_URL is not set",

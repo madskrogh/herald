@@ -332,9 +332,10 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 
 // send makes the HTTP request for one Attempt, signed with the Endpoint's
 // signing secrets. A request that can't be made or gets no response is an
-// Attempt with an error and no status code. The error is also returned for
-// the Attempt's span, without the Endpoint's URL: the Tenant sees the
-// Attempt's error, but spans leave Herald, and a URL often holds a token.
+// Attempt with an error and no status code. The error returned is for the
+// Attempt's span: why it isn't a success, without the Endpoint's URL. The
+// Tenant sees the Attempt's error, but spans leave Herald, and a URL often
+// holds a token.
 func (w *Workers) send(ctx context.Context, d Delivery) (Attempt, error) {
 	a := Attempt{StartedAt: w.cfg.Now()}
 	req, err := w.newRequest(ctx, d, a.StartedAt)
@@ -364,7 +365,16 @@ func (w *Workers) send(ctx context.Context, d Delivery) (Attempt, error) {
 	a.StatusCode = resp.StatusCode
 	// A body cut short by the timeout is kept as far as it got.
 	a.ResponseBody, _ = io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	if !succeeded(a.StatusCode) {
+		return a, fmt.Errorf("the Endpoint answered %d %s", a.StatusCode, http.StatusText(a.StatusCode))
+	}
 	return a, nil
+}
+
+// succeeded reports whether an Attempt's status code makes it a success:
+// only a 2xx response is.
+func succeeded(statusCode int) bool {
+	return statusCode >= 200 && statusCode < 300
 }
 
 // withoutURL returns err without the URL that net/url and net/http errors
@@ -408,7 +418,7 @@ func (w *Workers) newRequest(ctx context.Context, d Delivery, ts time.Time) (*ht
 // outcome returns where an Attempt leaves its Delivery. number is the
 // Attempt's number.
 func (w *Workers) outcome(a Attempt, number int) Outcome {
-	if a.StatusCode >= 200 && a.StatusCode < 300 {
+	if succeeded(a.StatusCode) {
 		return Succeeded()
 	}
 	delay, ok := w.cfg.Schedule.Next(number)

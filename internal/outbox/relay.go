@@ -128,15 +128,18 @@ func (r *Relay) RunOnce(ctx context.Context, now time.Time) (handedOff int, more
 	if !r.nc.IsConnected() {
 		return 0, false, fmt.Errorf("not connected to NATS (%s)", r.nc.Status())
 	}
-	var spans roundSpans
+	var (
+		spans  roundSpans
+		result ingest.SendResult
+	)
 	h, err := r.store.HandOff(ctx, r.claimLimit, now, func(ctx context.Context, messages []ingest.OutboxMessage) (ingest.SendResult, error) {
 		sent, err := r.send(ctx, messages, &spans)
-		spans.sent = sent
+		result = sent
 		return sent, err
 	})
 	// The outcome of each Message is known only once the round's
 	// transaction has ended.
-	spans.end(err)
+	spans.end(result, err)
 	// One record per parked Message, so that they can be found and counted.
 	for _, p := range h.Parked {
 		r.logger.WarnContext(ctx, "message parked", "message_id", p.ID, "error", p.Reason)
@@ -355,8 +358,6 @@ type roundSpans struct {
 	batch trace.Span
 	// handoffs holds the span of each Message the round sent or parked.
 	handoffs map[uuid.UUID]trace.Span
-	// sent is what the round's send did with its Messages.
-	sent ingest.SendResult
 }
 
 // start starts the span of the Batch holding messages, a trace of its own,
@@ -397,18 +398,19 @@ func (rs *roundSpans) startHandoff(ctx context.Context, tracer trace.Tracer, m i
 	return ctx, span
 }
 
-// end ends the spans, with the outcome of a round that ended with err. When
-// the round fails, none of its Messages is handed off or parked.
-func (rs *roundSpans) end(err error) {
+// end ends the spans, with the outcome of a round whose send did sent and
+// that ended with err. When the round fails, none of its Messages is handed
+// off or parked.
+func (rs *roundSpans) end(sent ingest.SendResult, err error) {
 	if err != nil {
 		for _, span := range rs.handoffs {
 			telemetry.End(span, telemetry.OutcomeFailed, err)
 		}
 	} else {
-		for _, id := range rs.sent.HandedOff {
+		for _, id := range sent.HandedOff {
 			telemetry.End(rs.handoffs[id], telemetry.OutcomeHandedOff, nil)
 		}
-		for _, p := range rs.sent.Parked {
+		for _, p := range sent.Parked {
 			telemetry.End(rs.handoffs[p.ID], telemetry.OutcomeParked, errors.New(p.Reason))
 		}
 	}

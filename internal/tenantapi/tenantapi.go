@@ -9,7 +9,6 @@ package tenantapi
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -48,7 +46,7 @@ type Config struct {
 func NewGRPCServer(store *ingest.Store, kr *keyring.Keyring, cfg Config, logger *slog.Logger) *grpc.Server {
 	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		// First, so that its span sees the status each call ends with.
-		traceCalls(cmp.Or[trace.TracerProvider](cfg.TracerProvider, noop.NewTracerProvider())),
+		traceCalls(cfg.TracerProvider),
 		recoverPanics(logger),
 		statusErrors(logger),
 		authenticate(store),

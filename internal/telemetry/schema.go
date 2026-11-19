@@ -62,8 +62,9 @@ const (
 
 // The values of Outcome. Schema says which each span uses.
 const (
-	// OutcomeHandedOff: the Message, or every Message of the Batch, was
-	// handed off.
+	// OutcomeHandedOff: the Message was handed off. For a Batch, its round
+	// committed: each of its Messages was handed off or parked, and their
+	// own spans say which.
 	OutcomeHandedOff = "handed_off"
 	// OutcomeParked: the Message was parked.
 	OutcomeParked = "parked"

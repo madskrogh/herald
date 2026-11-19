@@ -37,7 +37,8 @@ type Shared struct {
 // the telemetry settings (HERALD_OTLP_URL, HERALD_RUN_ID and
 // HERALD_BUILD_VERSION, default "dev") are optional. The first setting
 // missing or invalid is reported, checked in this order: the database URL,
-// the keyring, the NATS URL, then HERALD_ALLOW_INSECURE_ENDPOINTS.
+// the keyring, the NATS URL, HERALD_ALLOW_INSECURE_ENDPOINTS, then
+// HERALD_OTLP_URL.
 func Load(getenv func(string) string) (Shared, error) {
 	dbURL, err := DatabaseURL(getenv)
 	if err != nil {
@@ -68,6 +69,11 @@ func Load(getenv func(string) string) (Shared, error) {
 		OTLPURL:      getenv("HERALD_OTLP_URL"),
 		RunID:        getenv("HERALD_RUN_ID"),
 		BuildVersion: getenv("HERALD_BUILD_VERSION"),
+	}
+	if cfg.Telemetry.OTLPURL != "" {
+		if err := telemetry.CheckOTLPURL(cfg.Telemetry.OTLPURL); err != nil {
+			return Shared{}, fmt.Errorf("HERALD_OTLP_URL: %w", err)
+		}
 	}
 	if cfg.Telemetry.BuildVersion == "" {
 		cfg.Telemetry.BuildVersion = "dev"

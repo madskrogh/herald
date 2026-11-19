@@ -5,6 +5,7 @@ import (
 
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 
@@ -22,6 +23,9 @@ const tracerName = "github.com/madskrogh/herald/internal/tenantapi"
 // The span is always a new root. Trace context a Tenant sends is ignored, so
 // a Tenant can't choose Herald's trace IDs or turn its sampling off.
 func traceCalls(tp trace.TracerProvider) grpc.UnaryServerInterceptor {
+	if tp == nil {
+		tp = noop.NewTracerProvider()
+	}
 	tracer := tp.Tracer(tracerName)
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		ctx, span := tracer.Start(ctx, telemetry.SpanTenantAPICall,

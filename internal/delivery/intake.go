@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/madskrogh/herald/internal/delivery/deliverydb"
@@ -36,6 +37,9 @@ type Intake struct {
 // current time, at which new Deliveries are due, and tp makes the span of
 // each Message stored.
 func NewIntake(store *Store, now func() time.Time, tp trace.TracerProvider, logger *slog.Logger) *Intake {
+	if tp == nil {
+		tp = noop.NewTracerProvider()
+	}
 	return &Intake{store: store, now: now, tracer: tp.Tracer(tracerName), logger: logger}
 }
 

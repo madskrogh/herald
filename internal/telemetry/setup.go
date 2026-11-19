@@ -71,6 +71,17 @@ func Setup(ctx context.Context, service string, cfg Config, logger *slog.Logger)
 	return tp, flush, nil
 }
 
+// CheckOTLPURL reports whether s can be a Config's OTLPURL: an http or https
+// URL with a host. The exporter falls back to localhost on a URL it can't
+// use, so a typo would send spans nowhere without a word.
+func CheckOTLPURL(s string) error {
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%q is not an http or https URL with a host", s)
+	}
+	return nil
+}
+
 // newTracerProvider returns the TracerProvider of the service named service,
 // which sends spans to the Collector at cfg.OTLPURL in batches. Shut it down
 // to send the spans still waiting.
@@ -87,12 +98,10 @@ func newTracerProvider(ctx context.Context, service string, cfg Config) (*sdktra
 		)),
 	}
 	if cfg.OTLPURL != "" {
-		// The exporter falls back to localhost on a URL it can't use, so it
-		// is checked here.
-		u, err := url.Parse(cfg.OTLPURL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return nil, fmt.Errorf("OTLP URL %q is not an http or https URL with a host", cfg.OTLPURL)
+		if err := CheckOTLPURL(cfg.OTLPURL); err != nil {
+			return nil, fmt.Errorf("OTLP URL: %w", err)
 		}
+		u, _ := url.Parse(cfg.OTLPURL)
 		exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(u.JoinPath("v1/traces").String()))
 		if err != nil {
 			return nil, fmt.Errorf("start OTLP exporter for %s: %w", cfg.OTLPURL, err)

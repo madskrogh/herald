@@ -67,7 +67,9 @@ func TestEveryAttemptJoinsTheMessagesTrace(t *testing.T) {
 			"herald.attempt":        "1",
 			"herald.outcome":        "pending",
 			"herald.status_code":    "500",
-			"herald.error":          "",
+			// An Attempt that isn't a success says why, whether it got a
+			// response or not.
+			"herald.error": "the Endpoint answered 500 Internal Server Error",
 		},
 		{
 			"herald.tenant_id":      tenantID,
