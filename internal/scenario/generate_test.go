@@ -41,6 +41,11 @@ func TestGenerateCoversEverything(t *testing.T) {
 		scenario.Slow: true, scenario.TimeOut: true, scenario.Redirect: true, scenario.TLSError: true,
 	}
 
+	// sameEveryTime are the behaviours that answer every Attempt the same.
+	// While Postgres is slowed, a dispatcher may make an Attempt again, and
+	// any other behaviour would answer the later Attempts differently.
+	sameEveryTime := map[scenario.Behaviour]bool{scenario.Succeed: true, scenario.Oversized: true}
+
 	for seed := range uint64(20) {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
 			t.Parallel()
@@ -89,8 +94,12 @@ func TestGenerateCoversEverything(t *testing.T) {
 					}
 				}
 				for name, n := range inPhase {
-					if ep := endpoints[name]; bounded[ep.Behaviour] && n > 4 {
+					ep := endpoints[name]
+					if bounded[ep.Behaviour] && n > 4 {
 						t.Errorf("Endpoint %s (%s) gets %d Deliveries in phase %d, more than it may have in flight", name, ep.Behaviour, n, i+1)
+					}
+					if phase.Fault == scenario.PostgresSlowed && !sameEveryTime[ep.Behaviour] {
+						t.Errorf("Endpoint %s (%s) gets a Delivery while Postgres is slowed", name, ep.Behaviour)
 					}
 				}
 			}

@@ -131,7 +131,10 @@ func Generate(seed uint64) Scenario {
 	phases := [][]*draft{
 		steady,
 		g.faultDrafts(regular, filteredEndpoints),
-		g.faultDrafts(regular, filteredEndpoints),
+		// While Postgres is slowed, a dispatcher may make an Attempt again,
+		// when it couldn't record it in time. A filtered Endpoint would
+		// answer the later Attempts differently, as it counts them.
+		g.faultDrafts(regular, nil),
 		append(g.faultDrafts(regular, filteredEndpoints), g.draft(held.Name, pick(g.r, eventTypes), smallPayload)),
 	}
 	faults := []Fault{"", NATSPaused, PostgresSlowed, DispatcherRestarted}
@@ -186,11 +189,15 @@ func (g *generator) draftFor(ep filteredEndpoint, size int) *draft {
 }
 
 // faultDrafts returns the Messages of a phase with a fault, with small
-// payloads: a few to the given Applications, and one to one of the filtered Endpoints.
+// payloads: a few to the given Applications, and one to one of eps, if
+// there are any.
 func (g *generator) faultDrafts(apps []Application, eps []filteredEndpoint) []*draft {
 	var drafts []*draft
 	for range 3 + g.r.IntN(2) {
 		drafts = append(drafts, g.draft(pick(g.r, apps).Name, pick(g.r, eventTypes), smallPayload))
+	}
+	if len(eps) == 0 {
+		return drafts
 	}
 	return append(drafts, g.draftFor(pick(g.r, eps), smallPayload))
 }
