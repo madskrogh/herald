@@ -128,7 +128,7 @@ Each Attempt is a log line. With nothing listening, each fails without a status 
 {"time":"2026-11-19T12:47:28.722643763Z","level":"INFO","msg":"attempt","service":"herald-dispatcher","delivery_id":"01a1f3d9-050d-715e-8e26-0775428d17d7","message_id":"01a1f3d9-050c-740c-a24e-1c403ad913e6","endpoint_id":"01a1f3d8-aaa6-7bd0-9bcf-f4e6ac096503","attempt":1,"status_code":0,"latency_ms":1,"state":"pending","attempt_error":"Post \"http://host.docker.internal:9000/\": dial tcp 192.168.65.254:9000: connect: connection refused","trace_id":"a55de8a61dd86f47e70640abec636640","span_id":"05906d6eaeecc84f"}
 ```
 
-Within a minute, start `make endpoint` again, with the same secret. The next retry arrives with the same `webhook-id`, and the Delivery succeeds:
+Within a minute, start `make endpoint` again, with the same secret. (Miss it, and the eighth Attempt fails too: the Delivery's state becomes `failed`, and Herald gives up on it. Send another Message to try again.) The next retry arrives with the same `webhook-id`, and the Delivery succeeds:
 
 ```
 13:48:07.430 POST / webhook-id 01a1f3d9-050c-740c-a24e-1c403ad913e6: signature valid

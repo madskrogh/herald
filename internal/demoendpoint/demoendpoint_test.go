@@ -57,7 +57,7 @@ func TestHandlerPrintsEachAttempt(t *testing.T) {
 			var out bytes.Buffer
 			h := demoendpoint.Handler(&out, tt.secret, func() time.Time { return vectorTime })
 
-			req := httptest.NewRequest(http.MethodPost, "/hooks", strings.NewReader(vectorPayload))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/hooks", strings.NewReader(vectorPayload))
 			req.Header.Set("webhook-id", vectorWebhookID)
 			req.Header.Set("webhook-timestamp", "1614265330")
 			req.Header.Set("webhook-signature", vectorSignature)

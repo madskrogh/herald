@@ -13,15 +13,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/madskrogh/herald/internal/demoendpoint"
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	err := run(ctx, os.Args[1:], os.Stdout)
+	stop()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "demo-endpoint:", err)
 		os.Exit(1)
 	}
@@ -30,20 +32,20 @@ func main() {
 // run serves the Endpoint until ctx is cancelled.
 func run(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("demo-endpoint", flag.ContinueOnError)
-	addr := fs.String("listen", "127.0.0.1:9000", "address to listen on")
-	url := fs.String("url", "", "the URL Herald reaches this Endpoint at, printed to register it with")
+	listen := fs.String("listen", "127.0.0.1:9000", "address to listen on")
+	endpointURL := fs.String("url", "", "the URL Herald reaches this Endpoint at, printed to register it with")
 	secret := fs.String("secret", "", "the Endpoint's signing secret, to verify signatures with")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	var lc net.ListenConfig
-	lis, err := lc.Listen(ctx, "tcp", *addr)
+	lis, err := lc.Listen(ctx, "tcp", *listen)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", *addr, err)
+		return fmt.Errorf("listen on %s: %w", *listen, err)
 	}
-	if *url != "" {
-		fmt.Fprintf(stdout, "Serving an Endpoint at %s\n", *url)
+	if *endpointURL != "" {
+		fmt.Fprintf(stdout, "Serving an Endpoint at %s\n", *endpointURL)
 	}
 	if *secret == "" {
 		fmt.Fprintln(stdout, "No signing secret given, so signatures are not checked.")
@@ -57,7 +59,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	context.AfterFunc(ctx, func() { srv.Close() })
 	if err := srv.Serve(lis); !errors.Is(err, http.ErrServerClosed) {
-		return err
+		return fmt.Errorf("serve on %s: %w", *listen, err)
 	}
 	return nil
 }
