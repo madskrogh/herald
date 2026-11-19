@@ -70,10 +70,10 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 				Status: http.StatusFound, Header: http.Header{"Location": {"/moved"}}, Body: []byte("moved"),
 			}),
 			{EndpointURL: tlsURL, ReceivedAt: t0.Add(3500 * time.Millisecond), Handshake: true},
-			signed(failURL, id5, t0.Add(20*time.Second), `{"message":"changed"}`, endpointtest.Answer{Reset: true}),
-			signed(failURL, id5, t0.Add(25*time.Second), m5.Payload, endpointtest.Answer{Unanswered: true}),
+			signed(failURL, id5, t0.Add(20*time.Second), `{"message":"changed"}`, endpointtest.Answer{Kind: endpointtest.AnswerReset}),
+			signed(failURL, id5, t0.Add(25*time.Second), m5.Payload, endpointtest.Answer{Kind: endpointtest.AnswerNone}),
 			// The same Attempt again: under a fault, it is recorded once.
-			signed(failURL, id5, t0.Add(30*time.Second), m5.Payload, endpointtest.Answer{Unanswered: true}),
+			signed(failURL, id5, t0.Add(30*time.Second), m5.Payload, endpointtest.Answer{Kind: endpointtest.AnswerNone}),
 		},
 	}
 	// The second and third Attempts to m005 failed to verify.

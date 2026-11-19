@@ -122,7 +122,7 @@ func TestEndpointAnswersLikeARealOne(t *testing.T) {
 		},
 		{
 			name:   "reset",
-			answer: endpointtest.Answer{Reset: true},
+			answer: endpointtest.Answer{Kind: endpointtest.AnswerReset},
 			check: func(t *testing.T, _ *http.Response, _ []byte, err error) {
 				t.Helper()
 				if !errors.Is(err, syscall.ECONNRESET) {
@@ -132,7 +132,7 @@ func TestEndpointAnswersLikeARealOne(t *testing.T) {
 		},
 		{
 			name:   "malformed",
-			answer: endpointtest.Answer{Malformed: true},
+			answer: endpointtest.Answer{Kind: endpointtest.AnswerMalformed},
 			check: func(t *testing.T, _ *http.Response, _ []byte, err error) {
 				t.Helper()
 				if err == nil || !strings.Contains(err.Error(), "malformed HTTP") {

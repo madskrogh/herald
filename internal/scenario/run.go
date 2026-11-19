@@ -45,7 +45,7 @@ func Run(ctx context.Context, stack *e2e.Stack, compose Compose, s Scenario, log
 	}
 	tenant, err := stack.NewTenant(ctx, fmt.Sprintf("scenario %d", s.Seed))
 	if err != nil {
-		return Observations{}, err
+		return Observations{}, fmt.Errorf("create tenant: %w", err)
 	}
 	r := &runner{stack: stack, compose: compose, tenant: tenant, obs: &obs, logger: logger,
 		appIDs: map[string]string{}, endpoints: map[string]*endpointtest.Endpoint{}}
@@ -54,14 +54,14 @@ func Run(ctx context.Context, stack *e2e.Stack, compose Compose, s Scenario, log
 	}
 	for i, phase := range s.Phases {
 		logger.InfoContext(ctx, "phase", "number", i+1, "fault", phase.Fault, "messages", len(phase.Messages))
-		if err := r.phase(ctx, phase); err != nil {
+		if err := r.runPhase(ctx, phase); err != nil {
 			return Observations{}, fmt.Errorf("phase %d (%q): %w", i+1, phase.Fault, err)
 		}
 	}
 	for _, ep := range r.endpoints {
 		attempts, err := ep.WaitAttempts(ctx, 0)
 		if err != nil {
-			return Observations{}, err
+			return Observations{}, fmt.Errorf("collect attempts: %w", err)
 		}
 		obs.Attempts = append(obs.Attempts, attempts...)
 	}
@@ -93,7 +93,7 @@ func (r *runner) create(ctx context.Context) error {
 			var fake *endpointtest.Endpoint
 			if ep.Behaviour == TLSError {
 				if fake, err = r.stack.Endpoints.NewTLSEndpoint(ctx); err != nil {
-					return err
+					return fmt.Errorf("endpoint %s: %w", ep.Name, err)
 				}
 			} else {
 				fake = r.stack.Endpoints.NewEndpoint(respond(ep.Behaviour))
@@ -114,9 +114,9 @@ func (r *runner) create(ctx context.Context) error {
 	return nil
 }
 
-// phase sends a phase's Messages under its fault, and waits for their
+// runPhase sends a phase's Messages under its fault, and waits for their
 // Deliveries to finish.
-func (r *runner) phase(ctx context.Context, phase Phase) (err error) {
+func (r *runner) runPhase(ctx context.Context, phase Phase) (err error) {
 	// Faults are undone even when ctx has ended, or the stack stays broken.
 	undo := func(f func(context.Context) error) {
 		uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
@@ -164,7 +164,7 @@ func (r *runner) phase(ctx context.Context, phase Phase) (err error) {
 			return fmt.Errorf("no endpoint %q to hold an Attempt", phase.HeldEndpoint)
 		}
 		if _, err := held.WaitAttempts(ctx, 1); err != nil {
-			return err
+			return fmt.Errorf("wait for an attempt to %s: %w", phase.HeldEndpoint, err)
 		}
 		if err := r.compose.Restart(ctx, "herald-dispatcher"); err != nil {
 			return err

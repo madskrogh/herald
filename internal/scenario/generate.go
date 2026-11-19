@@ -69,8 +69,7 @@ func Generate(seed uint64) Scenario {
 	// accepts every Event type, so every Message has a Delivery.
 	regular := make([]Application, 3+g.r.IntN(3))
 	for i := range regular {
-		name := fmt.Sprintf("app-%d", i+1)
-		regular[i] = Application{Name: name, Endpoints: []Endpoint{{Name: name + "/ep-1", Behaviour: pick(g.r, acceptAll)}}}
+		regular[i] = newApplication(i+1, pick(g.r, acceptAll))
 	}
 	// At least one of each, whatever the draws.
 	i := g.r.IntN(len(regular))
@@ -86,16 +85,16 @@ func Generate(seed uint64) Scenario {
 	prefixes := slices.Clone(filterPrefixes)
 	g.r.Shuffle(len(prefixes), func(i, j int) { prefixes[i], prefixes[j] = prefixes[j], prefixes[i] })
 	var steady []*draft
-	var targets []target
+	var filteredEndpoints []filteredEndpoint
 	for i, b := range behaviours {
 		app := &regular[g.r.IntN(len(regular))]
 		ep := Endpoint{Name: fmt.Sprintf("%s/ep-%d", app.Name, len(app.Endpoints)+1), Behaviour: b}
-		tgt := target{application: app.Name}
-		ep.Filter, tgt.eventTypes = g.filter(prefixes[i])
+		fe := filteredEndpoint{application: app.Name}
+		ep.Filter, fe.eventTypes = g.filter(prefixes[i])
 		app.Endpoints = append(app.Endpoints, ep)
-		targets = append(targets, tgt)
+		filteredEndpoints = append(filteredEndpoints, fe)
 		for range 1 + g.r.IntN(maxDeliveries) {
-			steady = append(steady, g.target(tgt, g.size()))
+			steady = append(steady, g.draftFor(fe, g.size()))
 		}
 	}
 	s.Applications = append(s.Applications, regular...)
@@ -131,9 +130,9 @@ func Generate(seed uint64) Scenario {
 
 	phases := [][]*draft{
 		steady,
-		g.faultDrafts(regular, targets),
-		g.faultDrafts(regular, targets),
-		append(g.faultDrafts(regular, targets), g.draft(held.Name, pick(g.r, eventTypes), smallPayload)),
+		g.faultDrafts(regular, filteredEndpoints),
+		g.faultDrafts(regular, filteredEndpoints),
+		append(g.faultDrafts(regular, filteredEndpoints), g.draft(held.Name, pick(g.r, eventTypes), smallPayload)),
 	}
 	faults := []Fault{"", NATSPaused, PostgresSlowed, DispatcherRestarted}
 	n := 0
@@ -173,27 +172,27 @@ func (g *generator) draft(application, eventType string, size int) *draft {
 	return &draft{Message: Message{Application: application, EventType: eventType}, size: size}
 }
 
-// target is an Endpoint with a filter: its Application and the Event types
+// filteredEndpoint is an Endpoint with a filter: its Application and the Event types
 // it accepts.
-type target struct {
+type filteredEndpoint struct {
 	application string
 	eventTypes  []string
 }
 
-// target returns a Message that reaches t, with a payload of about size
+// draftFor returns a Message that reaches ep, with a payload of about size
 // bytes.
-func (g *generator) target(t target, size int) *draft {
-	return g.draft(t.application, pick(g.r, t.eventTypes), size)
+func (g *generator) draftFor(ep filteredEndpoint, size int) *draft {
+	return g.draft(ep.application, pick(g.r, ep.eventTypes), size)
 }
 
 // faultDrafts returns the Messages of a phase with a fault, with small
-// payloads: a few to the given Applications, and one to one of the targets.
-func (g *generator) faultDrafts(apps []Application, targets []target) []*draft {
+// payloads: a few to the given Applications, and one to one of the filtered Endpoints.
+func (g *generator) faultDrafts(apps []Application, eps []filteredEndpoint) []*draft {
 	var drafts []*draft
 	for range 3 + g.r.IntN(2) {
 		drafts = append(drafts, g.draft(pick(g.r, apps).Name, pick(g.r, eventTypes), smallPayload))
 	}
-	return append(drafts, g.target(pick(g.r, targets), smallPayload))
+	return append(drafts, g.draftFor(pick(g.r, eps), smallPayload))
 }
 
 // finish names d and returns its Message, with its payload and key.
@@ -218,10 +217,16 @@ func (g *generator) finish(d *draft, name string) Message {
 // application adds an Application with one Endpoint that behaves as b, and
 // returns it.
 func (g *generator) application(s *Scenario, b Behaviour) Application {
-	name := fmt.Sprintf("app-%d", len(s.Applications)+1)
-	app := Application{Name: name, Endpoints: []Endpoint{{Name: name + "/ep-1", Behaviour: b}}}
+	app := newApplication(len(s.Applications)+1, b)
 	s.Applications = append(s.Applications, app)
 	return app
+}
+
+// newApplication returns the nth Application, with one Endpoint that
+// accepts every Event type and behaves as b.
+func newApplication(n int, b Behaviour) Application {
+	name := fmt.Sprintf("app-%d", n)
+	return Application{Name: name, Endpoints: []Endpoint{{Name: name + "/ep-1", Behaviour: b}}}
 }
 
 // filter returns an Endpoint filter on Event types with the given prefix,

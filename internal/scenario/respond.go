@@ -43,7 +43,7 @@ func respond(b Behaviour) endpointtest.Respond {
 			select {
 			case <-time.After(slowAnswer):
 			case <-ctx.Done():
-				return endpointtest.Answer{Unanswered: true}
+				return endpointtest.Unanswered(ctx)
 			}
 		case TimeOut:
 			if first {
@@ -51,11 +51,11 @@ func respond(b Behaviour) endpointtest.Respond {
 			}
 		case Reset:
 			if first {
-				return endpointtest.Answer{Reset: true}
+				return endpointtest.Answer{Kind: endpointtest.AnswerReset}
 			}
 		case Malformed:
 			if first {
-				return endpointtest.Answer{Malformed: true}
+				return endpointtest.Answer{Kind: endpointtest.AnswerMalformed}
 			}
 		case Oversized:
 			return endpointtest.Answer{Status: http.StatusOK, Body: oversizedBody}

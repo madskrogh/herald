@@ -7,7 +7,6 @@ import (
 	"maps"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"uuid"
@@ -78,7 +77,7 @@ type DeliveryRecord struct {
 	Behaviour Behaviour `json:"behaviour"`
 	// Fault is the fault in effect while the Message was sent.
 	Fault    Fault           `json:"fault,omitempty"`
-	State    string          `json:"state"`
+	State    delivery.State  `json:"state"`
 	Attempts []AttemptRecord `json:"attempts"`
 }
 
@@ -174,7 +173,7 @@ func NewRecording(obs Observations) (Recording, error) {
 			Endpoint:  endpoint,
 			Behaviour: behaviours[endpoint],
 			Fault:     faults[message],
-			State:     string(d.State),
+			State:     d.State,
 		}
 		byEndpoint[endpoint] = append(byEndpoint[endpoint], k)
 	}
@@ -206,7 +205,7 @@ func NewRecording(obs Observations) (Recording, error) {
 			return Recording{}, fmt.Errorf("attempt for %s to %s, which has no Delivery", k.message, k.endpoint)
 		}
 
-		ar := AttemptRecord{Handshake: a.Handshake, Answer: describe(a.Answer)}
+		ar := AttemptRecord{Handshake: a.Handshake, Answer: a.Answer.String()}
 		first, ok := firsts[k]
 		if !ok {
 			first, firsts[k] = a.ReceivedAt, a.ReceivedAt
@@ -285,24 +284,4 @@ func describeBody(body []byte, m Message) string {
 		return "the payload of " + m.Name
 	}
 	return fmt.Sprintf("%d bytes, sha256 %x", len(body), sha256.Sum256(body))
-}
-
-// describe returns how an Endpoint answered, in words.
-func describe(a endpointtest.Answer) string {
-	switch {
-	case a.Unanswered:
-		return "unanswered"
-	case a.Reset:
-		return "reset"
-	case a.Malformed:
-		return "malformed"
-	}
-	parts := []string{strconv.Itoa(a.Status)}
-	for _, name := range slices.Sorted(maps.Keys(a.Header)) {
-		parts = append(parts, name+": "+strings.Join(a.Header[name], ", "))
-	}
-	if len(a.Body) > 0 {
-		parts = append(parts, fmt.Sprintf("%d-byte body", len(a.Body)))
-	}
-	return strings.Join(parts, ", ")
 }

@@ -68,7 +68,7 @@ func (c Compose) update(ctx context.Context, service string, args ...string) err
 	if id == "" {
 		return fmt.Errorf("service %s has no container", service)
 	}
-	return run(ctx, "docker", append(append([]string{"update"}, args...), id)...)
+	return runDocker(ctx, append(append([]string{"update"}, args...), id)...)
 }
 
 // compose runs docker compose with args on the stack, and returns its
@@ -84,10 +84,10 @@ func (c Compose) compose(ctx context.Context, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func run(ctx context.Context, name string, args ...string) error {
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+func runDocker(ctx context.Context, args ...string) error {
+	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, out)
+		return fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, out)
 	}
 	return nil
 }

@@ -34,7 +34,7 @@ const runTimeout = 10 * time.Minute
 // TestScenario runs the scenario against the stack and compares what its
 // Endpoints received with the baseline, or records a new baseline with
 // -update. It restarts herald-dispatcher and pauses NATS, so nothing else
-// may use the stack meanwhile. Run it with make scenario-compare or make
+// may use the stack meanwhile. For the same reason it doesn't run in parallel. Run it with make scenario-compare or make
 // scenario-record.
 func TestScenario(t *testing.T) {
 	if testing.Short() {

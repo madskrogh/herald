@@ -15,10 +15,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"math/big"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,13 +50,11 @@ func Start(ctx context.Context, addr, host string) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
-	var lc net.ListenConfig
-	lis, err := lc.Listen(ctx, "tcp", addr)
+	lis, baseURL, err := listen(ctx, addr, "http", host)
 	if err != nil {
-		return nil, fmt.Errorf("listen on %s: %w", addr, err)
+		return nil, err
 	}
-	port := lis.Addr().(*net.TCPAddr).Port
-	s := &Server{baseURL: "http://" + net.JoinHostPort(host, strconv.Itoa(port)), ip: ip, host: host}
+	s := &Server{baseURL: baseURL, ip: ip, host: host}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /endpoints/{n}", s.serveAttempt)
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
@@ -79,16 +80,14 @@ func (s *Server) Close() {
 func (s *Server) NewTLSEndpoint(ctx context.Context) (*Endpoint, error) {
 	cert, err := selfSigned(s.host)
 	if err != nil {
+		return nil, fmt.Errorf("certificate: %w", err)
+	}
+	lis, baseURL, err := listen(ctx, net.JoinHostPort(s.ip, "0"), "https", s.host)
+	if err != nil {
 		return nil, err
 	}
-	var lc net.ListenConfig
-	lis, err := lc.Listen(ctx, "tcp", net.JoinHostPort(s.ip, "0"))
-	if err != nil {
-		return nil, fmt.Errorf("listen on %s: %w", s.ip, err)
-	}
-	port := lis.Addr().(*net.TCPAddr).Port
 	e := &Endpoint{
-		URL:     "https://" + net.JoinHostPort(s.host, strconv.Itoa(port)) + "/",
+		URL:     baseURL + "/",
 		respond: Succeed(),
 		changed: make(chan struct{}),
 	}
@@ -110,6 +109,18 @@ func (s *Server) NewTLSEndpoint(ctx context.Context) (*Endpoint, error) {
 	s.tlsServers = append(s.tlsServers, srv)
 	go srv.Serve(tls.NewListener(lis, cfg)) //nolint:errcheck // Returns ErrServerClosed once Close is called.
 	return e, nil
+}
+
+// listen listens on addr, and returns the listener and the URL that reaches
+// it through host, with the given scheme and no path.
+func listen(ctx context.Context, addr, scheme, host string) (net.Listener, string, error) {
+	var lc net.ListenConfig
+	lis, err := lc.Listen(ctx, "tcp", addr)
+	if err != nil {
+		return nil, "", fmt.Errorf("listen on %s: %w", addr, err)
+	}
+	port := lis.Addr().(*net.TCPAddr).Port
+	return lis, scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port)), nil
 }
 
 // selfSigned returns a certificate for host that signs itself.
@@ -173,17 +184,17 @@ func (s *Server) serveAttempt(w http.ResponseWriter, r *http.Request) {
 	})
 	answer := e.respond(r.Context(), a)
 	e.answered(a.Number, answer)
-	switch {
-	case answer.Unanswered:
+	switch answer.Kind {
+	case AnswerNone:
 		// The client has gone, so there is no one to answer.
-	case answer.Reset:
+	case AnswerReset:
 		hijack(w, func(conn net.Conn) {
 			// A zero linger makes Close send RST rather than FIN.
 			if tcp, ok := conn.(*net.TCPConn); ok {
 				tcp.SetLinger(0) //nolint:errcheck // Close still ends the connection.
 			}
 		})
-	case answer.Malformed:
+	case AnswerMalformed:
 		hijack(w, func(conn net.Conn) {
 			conn.Write([]byte("this is not an HTTP response\r\n\r\n")) //nolint:errcheck // The client may have gone.
 		})
@@ -311,18 +322,50 @@ type Attempt struct {
 // if the client gives up.
 type Respond func(ctx context.Context, a Attempt) Answer
 
-// Answer is how an Endpoint answers an Attempt: a response, unless one of the
-// flags says otherwise.
+// Answer is how an Endpoint answers an Attempt. Status, Header and Body are
+// the response's, when Kind is AnswerResponse.
 type Answer struct {
+	Kind   AnswerKind
 	Status int
 	Header http.Header
 	Body   []byte
-	// Reset resets the connection instead of answering.
-	Reset bool
-	// Malformed answers with bytes that aren't an HTTP response.
-	Malformed bool
-	// Unanswered says the client gave up before the Endpoint answered.
-	Unanswered bool
+}
+
+// AnswerKind is whether an Endpoint answers an Attempt with an HTTP
+// response, or how it fails to.
+type AnswerKind int
+
+const (
+	// AnswerResponse answers with an HTTP response.
+	AnswerResponse AnswerKind = iota
+	// AnswerNone says the client gave up before the Endpoint answered.
+	AnswerNone
+	// AnswerReset resets the connection instead of answering.
+	AnswerReset
+	// AnswerMalformed answers with bytes that aren't an HTTP response.
+	AnswerMalformed
+)
+
+// String describes the Answer in words: "unanswered", "reset", "malformed",
+// or the response's status code, headers and body size, such as
+// "302, Location: /moved".
+func (a Answer) String() string {
+	switch a.Kind {
+	case AnswerNone:
+		return "unanswered"
+	case AnswerReset:
+		return "reset"
+	case AnswerMalformed:
+		return "malformed"
+	}
+	parts := []string{strconv.Itoa(a.Status)}
+	for _, name := range slices.Sorted(maps.Keys(a.Header)) {
+		parts = append(parts, name+": "+strings.Join(a.Header[name], ", "))
+	}
+	if len(a.Body) > 0 {
+		parts = append(parts, fmt.Sprintf("%d-byte body", len(a.Body)))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Status answers with an empty response with the given status code.
@@ -334,7 +377,7 @@ func Status(code int) Answer {
 // Answer that says so.
 func Unanswered(ctx context.Context) Answer {
 	<-ctx.Done()
-	return Answer{Unanswered: true}
+	return Answer{Kind: AnswerNone}
 }
 
 // Succeed answers every Attempt with 200.
@@ -350,7 +393,7 @@ func Hold(release <-chan struct{}) Respond {
 		case <-release:
 			return Status(http.StatusOK)
 		case <-ctx.Done():
-			return Answer{Unanswered: true}
+			return Unanswered(ctx)
 		}
 	}
 }
