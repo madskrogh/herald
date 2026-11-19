@@ -50,7 +50,7 @@ func (r *Recorder) Spans() []Span {
 			Attributes: map[string]string{},
 		}
 		for _, kv := range s.Attributes() {
-			span.Attributes[string(kv.Key)] = kv.Value.Emit()
+			span.Attributes[string(kv.Key)] = kv.Value.String()
 		}
 		for _, l := range s.Links() {
 			span.Links = append(span.Links, l.SpanContext)
