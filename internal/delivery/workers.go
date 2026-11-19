@@ -9,11 +9,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
-	"uuid"
 
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/madskrogh/herald/internal/egress"
 	"github.com/madskrogh/herald/internal/keyring"
@@ -73,7 +74,7 @@ type WorkersConfig struct {
 	// addresses. herald-dispatcher sets it from
 	// HERALD_ALLOW_INSECURE_ENDPOINTS.
 	AllowPrivateAddresses bool
-	// TracerProvider makes the span of each Attempt.
+	// TracerProvider makes the span of each Attempt, or nil for none.
 	TracerProvider trace.TracerProvider
 }
 
@@ -110,6 +111,9 @@ func NewWorkers(store leaseStore, cfg WorkersConfig, logger *slog.Logger) *Worke
 	}
 	if cfg.DrainTimeout <= 0 {
 		cfg.DrainTimeout = defaultDrainTimeout
+	}
+	if cfg.TracerProvider == nil {
+		cfg.TracerProvider = noop.NewTracerProvider()
 	}
 	var client http.Client
 	if cfg.Client != nil {
@@ -273,15 +277,11 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 			telemetry.AttemptNumber.Int(number),
 		),
 	)
-	a := w.send(ctx, d)
+	a, attemptErr := w.send(ctx, d)
 	span.SetAttributes(
 		telemetry.StatusCode.Int(a.StatusCode),
 		telemetry.LatencyMs.Int64(a.Latency.Milliseconds()),
 	)
-	var attemptErr error
-	if a.Error != "" {
-		attemptErr = errors.New(a.Error)
-	}
 	logger := w.logger.With(
 		"delivery_id", d.ID,
 		"message_id", d.MessageID,
@@ -295,7 +295,7 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	// Cut off without a response. One that came, even with its body cut
 	// short, is the Endpoint's answer and is recorded.
 	if a.StatusCode == 0 && ctx.Err() != nil {
-		telemetry.End(span, "cut_off", attemptErr)
+		telemetry.End(span, telemetry.OutcomeCutOff, attemptErr)
 		if err := w.store.Release(storeCtx, lease, w.cfg.Now()); err != nil {
 			// The lease runs out and the Delivery is claimed again.
 			logger.ErrorContext(ctx, "lease not released at shutdown", "error", err)
@@ -315,7 +315,7 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	}
 	if err := w.store.Record(storeCtx, lease, a, o); err != nil {
 		// The Delivery stays where it was, so its state is no outcome.
-		telemetry.End(span, "not_recorded", err)
+		telemetry.End(span, telemetry.OutcomeNotRecorded, err)
 		if errors.Is(err, ErrLeaseLost) {
 			// Another worker claimed the Delivery after this lease ran out,
 			// and its Attempt counts instead.
@@ -330,24 +330,17 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	logger.InfoContext(ctx, "attempt")
 }
 
-// applicationIDAttr returns id as a span attribute: empty when it is zero,
-// for a Message handed off before Batches carried its Application.
-func applicationIDAttr(id uuid.UUID) string {
-	if id == (uuid.UUID{}) {
-		return ""
-	}
-	return id.String()
-}
-
 // send makes the HTTP request for one Attempt, signed with the Endpoint's
 // signing secrets. A request that can't be made or gets no response is an
-// Attempt with an error and no status code.
-func (w *Workers) send(ctx context.Context, d Delivery) Attempt {
+// Attempt with an error and no status code. The error is also returned for
+// the Attempt's span, without the Endpoint's URL: the Tenant sees the
+// Attempt's error, but spans leave Herald, and a URL often holds a token.
+func (w *Workers) send(ctx context.Context, d Delivery) (Attempt, error) {
 	a := Attempt{StartedAt: w.cfg.Now()}
 	req, err := w.newRequest(ctx, d, a.StartedAt)
 	if err != nil {
 		a.Error = err.Error()
-		return a
+		return a, withoutURL(err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	defer cancel()
@@ -362,15 +355,26 @@ func (w *Workers) send(ctx context.Context, d Delivery) Attempt {
 		var refused *egress.RefusedError
 		if errors.As(err, &refused) {
 			a.Error = fmt.Sprintf("not connected: the Endpoint's host resolved to a %s address, and Herald connects only to public addresses", refused.Class)
+			return a, errors.New(a.Error)
 		}
-		return a
+		return a, withoutURL(err)
 	}
 	defer resp.Body.Close()
 	a.Latency = time.Since(begin)
 	a.StatusCode = resp.StatusCode
 	// A body cut short by the timeout is kept as far as it got.
 	a.ResponseBody, _ = io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
-	return a
+	return a, nil
+}
+
+// withoutURL returns err without the URL that net/url and net/http errors
+// name, keeping the operation and why it failed.
+func withoutURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Errorf("%s: %w", urlErr.Op, urlErr.Err)
+	}
+	return err
 }
 
 // newRequest returns the signed request for an Attempt at ts. The signing

@@ -13,6 +13,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
@@ -46,7 +47,8 @@ type Config struct {
 	// RequestTimeout is how long a round waits for a dispatcher's reply to
 	// each Batch it sends. The round's transaction stays open for as long.
 	RequestTimeout time.Duration
-	// TracerProvider makes the spans of each Batch and of each Message in it.
+	// TracerProvider makes the spans of each Batch and of each Message in it,
+	// or nil for none.
 	TracerProvider trace.TracerProvider
 }
 
@@ -83,6 +85,9 @@ func NewRelay(store *ingest.Store, nc *nats.Conn, cfg Config, logger *slog.Logge
 	}
 	if cfg.RequestTimeout == 0 {
 		cfg.RequestTimeout = defaultRequestTimeout
+	}
+	if cfg.TracerProvider == nil {
+		cfg.TracerProvider = noop.NewTracerProvider()
 	}
 	return &Relay{store: store, nc: nc, cfg: cfg, tracer: cfg.TracerProvider.Tracer(tracerName), logger: logger, claimLimit: cfg.MaxMessages}
 }
@@ -397,20 +402,20 @@ func (rs *roundSpans) startHandoff(ctx context.Context, tracer trace.Tracer, m i
 func (rs *roundSpans) end(err error) {
 	if err != nil {
 		for _, span := range rs.handoffs {
-			telemetry.End(span, "failed", err)
+			telemetry.End(span, telemetry.OutcomeFailed, err)
 		}
 	} else {
 		for _, id := range rs.sent.HandedOff {
-			telemetry.End(rs.handoffs[id], "handed_off", nil)
+			telemetry.End(rs.handoffs[id], telemetry.OutcomeHandedOff, nil)
 		}
 		for _, p := range rs.sent.Parked {
-			telemetry.End(rs.handoffs[p.ID], "parked", errors.New(p.Reason))
+			telemetry.End(rs.handoffs[p.ID], telemetry.OutcomeParked, errors.New(p.Reason))
 		}
 	}
 	if rs.batch != nil {
-		outcome := "handed_off"
+		outcome := telemetry.OutcomeHandedOff
 		if err != nil {
-			outcome = "failed"
+			outcome = telemetry.OutcomeFailed
 		}
 		telemetry.End(rs.batch, outcome, err)
 	}

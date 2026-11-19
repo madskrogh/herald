@@ -101,7 +101,8 @@ func (in *Intake) storeBatch(ctx context.Context, data []byte) error {
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(
 				telemetry.TenantID.String(m.message.TenantID.String()),
-				telemetry.ApplicationID.String(applicationID(m.message.ApplicationID)),
+				// Zero when NULL.
+				telemetry.ApplicationID.String(applicationIDAttr(uuid.UUID(m.message.ApplicationID.Bytes))),
 				telemetry.MessageID.String(m.message.ID.String()),
 				telemetry.BatchSize.Int(len(batch)),
 				telemetry.DeliveryCount.Int(len(m.deliveries)),
@@ -118,9 +119,9 @@ func (in *Intake) storeBatch(ctx context.Context, data []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
 	err = in.store.insert(ctx, messages, deliveries)
-	outcome := "stored"
+	outcome := telemetry.OutcomeStored
 	if err != nil {
-		outcome = "failed"
+		outcome = telemetry.OutcomeFailed
 	}
 	for _, span := range spans {
 		telemetry.End(span, outcome, err)
@@ -162,15 +163,6 @@ func decodeBatch(data []byte, now time.Time) ([]batchMessage, error) {
 		messages = append(messages, bm)
 	}
 	return messages, nil
-}
-
-// applicationID returns id as a span attribute: empty for a Message handed
-// off before Batches carried its Application.
-func applicationID(id pgtype.UUID) string {
-	if !id.Valid {
-		return ""
-	}
-	return uuid.UUID(id.Bytes).String()
 }
 
 func parseMessage(m *handoffv1.Message) (deliverydb.InsertMessageParams, error) {

@@ -60,6 +60,29 @@ const (
 	Error attribute.Key = "herald.error"
 )
 
+// The values of Outcome. Schema says which each span uses.
+const (
+	// OutcomeHandedOff: the Message, or every Message of the Batch, was
+	// handed off.
+	OutcomeHandedOff = "handed_off"
+	// OutcomeParked: the Message was parked.
+	OutcomeParked = "parked"
+	// OutcomeStored: the Message's Deliveries were stored.
+	OutcomeStored = "stored"
+	// OutcomeFailed: the work failed, and the error says why. For an
+	// Attempt, the Delivery's retry schedule ran out.
+	OutcomeFailed = "failed"
+	// OutcomeSucceeded and OutcomePending: the Delivery's state after an
+	// Attempt.
+	OutcomeSucceeded = "succeeded"
+	OutcomePending   = "pending"
+	// OutcomeCutOff: shutdown cut the Attempt off, and it isn't counted.
+	OutcomeCutOff = "cut_off"
+	// OutcomeNotRecorded: the Attempt couldn't be recorded, and the error
+	// says why.
+	OutcomeNotRecorded = "not_recorded"
+)
+
 // Schema lists the attribute keys of each span Herald emits. Every span
 // carries exactly these, so renaming or dropping one is a visible change
 // that fails the tests, not a query that silently reads nothing.

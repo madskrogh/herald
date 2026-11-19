@@ -1,9 +1,13 @@
 package delivery_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/google/go-cmp/cmp"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -115,6 +119,43 @@ func TestAttemptsOfADeliveryWithoutTraceContextEachStartATrace(t *testing.T) {
 	// The control for the checks above: the Attempts were made.
 	if got := rcv.count(); got != 2 {
 		t.Errorf("Endpoint received %d requests, want 2", got)
+	}
+}
+
+// TestAttemptSpanLeavesOutTheEndpointURL makes an Attempt that gets no
+// response, to an Endpoint whose URL holds a token. The HTTP client's error
+// names the URL, and the span's error must not.
+func TestAttemptSpanLeavesOutTheEndpointURL(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	// Nothing listens there any more, so the connection is refused.
+	gone := httptest.NewServer(http.NotFoundHandler())
+	gone.Close()
+	const token = "tok_9f2c41d7"
+	url := gone.URL + "/webhooks?token=" + token
+	tw := newTestWorkers(t)
+	tw.in.send(t, tw.workerBatch(t, url))
+
+	tw.runOnce(t)
+
+	// The control for the check below: the Attempt's own error, which the
+	// Tenant sees, does name the URL.
+	recorded := attempts(t, tw.in.store, uuid.MustParse(deliveryID1))
+	if len(recorded) != 1 || !strings.Contains(recorded[0].Error, token) {
+		t.Fatalf("recorded Attempts %+v, want one whose error names the URL", recorded)
+	}
+	spans := tw.in.spans.Named(telemetry.SpanAttempt)
+	if len(spans) != 1 {
+		t.Fatalf("got %d Attempt spans, want 1", len(spans))
+	}
+	spanErr := spans[0].Attributes["herald.error"]
+	if spanErr == "" {
+		t.Error("Attempt span has no error, want why the connection failed")
+	}
+	if strings.Contains(spanErr, token) {
+		t.Errorf("Attempt span's error %q holds the Endpoint URL's token", spanErr)
 	}
 }
 

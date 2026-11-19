@@ -9,6 +9,7 @@ package tenantapi
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -36,7 +38,7 @@ type Config struct {
 	// https. It is for the local stack and tests only, whose Endpoints don't
 	// serve TLS. herald-api sets it from HERALD_ALLOW_INSECURE_ENDPOINTS.
 	AllowHTTPEndpoints bool
-	// TracerProvider makes the span of each call.
+	// TracerProvider makes the span of each call, or nil for none.
 	TracerProvider trace.TracerProvider
 }
 
@@ -46,7 +48,7 @@ type Config struct {
 func NewGRPCServer(store *ingest.Store, kr *keyring.Keyring, cfg Config, logger *slog.Logger) *grpc.Server {
 	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		// First, so that its span sees the status each call ends with.
-		traceCalls(cfg.TracerProvider),
+		traceCalls(cmp.Or[trace.TracerProvider](cfg.TracerProvider, noop.NewTracerProvider())),
 		recoverPanics(logger),
 		statusErrors(logger),
 		authenticate(store),

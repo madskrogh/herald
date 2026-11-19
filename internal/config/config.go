@@ -32,11 +32,12 @@ type Shared struct {
 	Telemetry telemetry.Config
 }
 
-// Load reads the shared settings through getenv. All but
-// HERALD_ALLOW_INSECURE_ENDPOINTS and the telemetry settings (HERALD_OTLP_URL,
-// HERALD_RUN_ID, and HERALD_BUILD_VERSION, default "dev") are required. The first setting missing or
-// invalid is reported, checked in this order: the database URL, the keyring,
-// the NATS URL, then HERALD_ALLOW_INSECURE_ENDPOINTS.
+// Load reads the shared settings through getenv. The database URL, the
+// keyring and the NATS URL are required; HERALD_ALLOW_INSECURE_ENDPOINTS and
+// the telemetry settings (HERALD_OTLP_URL, HERALD_RUN_ID and
+// HERALD_BUILD_VERSION, default "dev") are optional. The first setting
+// missing or invalid is reported, checked in this order: the database URL,
+// the keyring, the NATS URL, then HERALD_ALLOW_INSECURE_ENDPOINTS.
 func Load(getenv func(string) string) (Shared, error) {
 	dbURL, err := DatabaseURL(getenv)
 	if err != nil {

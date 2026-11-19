@@ -150,6 +150,15 @@ func (s *Store) Delivery(ctx context.Context, id uuid.UUID) (Delivery, error) {
 	return deliveryFromRow(row), nil
 }
 
+// applicationIDAttr returns id as a span attribute: empty when it is zero,
+// for a Message handed off before Batches carried its Application.
+func applicationIDAttr(id uuid.UUID) string {
+	if id == (uuid.UUID{}) {
+		return ""
+	}
+	return id.String()
+}
+
 // deliveryFromRow returns the Delivery a query read. Every query that reads a
 // whole Delivery returns the same columns, so its rows convert to this type.
 func deliveryFromRow(row deliverydb.GetDeliveryRow) Delivery {

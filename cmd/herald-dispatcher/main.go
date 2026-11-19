@@ -44,7 +44,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
-	"go.opentelemetry.io/otel"
 
 	"github.com/madskrogh/herald/internal/config"
 	"github.com/madskrogh/herald/internal/delivery"
@@ -63,11 +62,6 @@ const shutdownTimeout = 8 * time.Second
 // released, which takes up to 2 seconds more, so the workers too stop within
 // shutdownTimeout.
 const attemptDrainTimeout = 5 * time.Second
-
-// flushTimeout is how long the spans still waiting get to be exported at
-// shutdown. With shutdownTimeout it stays under the 10 seconds Docker and
-// Kubernetes wait before killing a container.
-const flushTimeout = time.Second
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
@@ -156,24 +150,12 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	if cfg.shrunkSchedule {
 		logger.WarnContext(ctx, "retry schedule shrunk: for local development only")
 	}
-	tp, err := telemetry.NewTracerProvider(ctx, "herald-dispatcher", cfg.shared.Telemetry)
+	tp, flush, err := telemetry.Setup(ctx, "herald-dispatcher", cfg.shared.Telemetry, logger)
 	if err != nil {
-		return fmt.Errorf("HERALD_OTLP_URL: %w", err)
+		return err
 	}
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout)
-		defer cancel()
-		if err := tp.Shutdown(ctx); err != nil {
-			logger.WarnContext(ctx, "spans not exported at shutdown", "error", err)
-		}
-	}()
-	// Spans that can't be exported are dropped; the service goes on.
-	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
-		logger.WarnContext(ctx, "export spans", "error", err)
-	}))
-	if cfg.shared.Telemetry.OTLPURL == "" {
-		logger.WarnContext(ctx, "HERALD_OTLP_URL is not set: spans are not exported")
-	}
+	// Last, once nothing makes spans any more.
+	defer flush(ctx)
 	pool, err := pgxpool.New(ctx, cfg.shared.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
