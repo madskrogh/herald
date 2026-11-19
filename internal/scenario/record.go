@@ -45,9 +45,21 @@ type Sent struct {
 // Recording is a run's Observations normalised: what doesn't vary between
 // runs of the same build. It is what the baseline holds.
 type Recording struct {
-	Seed       uint64           `json:"seed"`
+	Seed uint64 `json:"seed"`
+	// Faults has one record for each phase with a fault, in order.
+	Faults     []FaultRecord    `json:"faults"`
 	Messages   []MessageRecord  `json:"messages"`
 	Deliveries []DeliveryRecord `json:"deliveries"`
+}
+
+// FaultRecord is how a fault held back the Messages sent under it.
+type FaultRecord struct {
+	Fault Fault `json:"fault"`
+	// Late says some Delivery of the phase's Messages had its first Attempt
+	// lateAfter or more after its Message was sent. It is about the phase,
+	// not each Delivery: a Message sent as the fault takes hold may escape
+	// it in one run and not another.
+	Late bool `json:"late"`
 }
 
 // MessageRecord is what the Tenant API answered to a Message.
@@ -65,10 +77,7 @@ type DeliveryRecord struct {
 	Endpoint  string    `json:"endpoint"`
 	Behaviour Behaviour `json:"behaviour"`
 	// Fault is the fault in effect while the Message was sent.
-	Fault Fault `json:"fault,omitempty"`
-	// Late says, under a fault, that the first Attempt came lateAfter or
-	// more after the Message was sent: the fault held the Message back.
-	Late     bool            `json:"late,omitempty"`
+	Fault    Fault           `json:"fault,omitempty"`
 	State    string          `json:"state"`
 	Attempts []AttemptRecord `json:"attempts"`
 }
@@ -108,9 +117,18 @@ func NewRecording(obs Observations) (Recording, error) {
 	sentAt := map[string]time.Time{}
 	// names maps each Message ID to the name of the Message that created it.
 	names := map[string]string{}
+	// faultRecords maps each Message sent under a fault to the index of its
+	// FaultRecord.
+	faultRecords := map[string]int{}
 	for _, phase := range obs.Scenario.Phases {
+		if phase.Fault != "" {
+			rec.Faults = append(rec.Faults, FaultRecord{Fault: phase.Fault})
+		}
 		for _, m := range phase.Messages {
 			messages[m.Name], faults[m.Name] = m, phase.Fault
+			if phase.Fault != "" {
+				faultRecords[m.Name] = len(rec.Faults) - 1
+			}
 			sent, ok := obs.Sent[m.Name]
 			if !ok {
 				return Recording{}, fmt.Errorf("message %s was not sent", m.Name)
@@ -199,7 +217,9 @@ func NewRecording(obs Observations) (Recording, error) {
 			ar.AfterMs = &ms
 		case len(r.Attempts) == 0:
 			// The Delivery's own Message is the one that created it.
-			r.Late = a.ReceivedAt.Sub(sentAt[k.message]) >= lateAfter
+			if a.ReceivedAt.Sub(sentAt[k.message]) >= lateAfter {
+				rec.Faults[faultRecords[k.message]].Late = true
+			}
 		}
 		if a.Handshake {
 			ar.Answer = "untrusted certificate"

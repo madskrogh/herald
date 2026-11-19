@@ -20,6 +20,10 @@ const (
 	// little enough that each Delivery's first Attempt comes seconds late,
 	// so the recording shows the fault. A tenth of a CPU barely shows.
 	postgresCPU = 0.01
+	// postgresSettle is how long Postgres runs slowed before the phase sends
+	// its first Message. Sent at once, the first Message has sometimes been
+	// delivered as fast as without the fault, and sometimes not.
+	postgresSettle = 2 * time.Second
 	// sendInterval spaces the Messages a phase sends, as traffic is spread
 	// out. Sent all at once, they would build a backlog at the Endpoints
 	// that accept every Event type, which goes first as the most overdue,
@@ -145,6 +149,9 @@ func (r *runner) phase(ctx context.Context, phase Phase) (err error) {
 			return err
 		}
 		defer undo(func(ctx context.Context) error { return r.compose.UnlimitCPU(ctx, "postgres") })
+		if err := sleep(ctx, postgresSettle); err != nil {
+			return err
+		}
 		if err := r.send(ctx, phase.Messages); err != nil {
 			return err
 		}

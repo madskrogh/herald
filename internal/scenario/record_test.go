@@ -97,6 +97,7 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	ms := func(n int64) *int64 { return &n }
 	want := scenario.Recording{
 		Seed: 42,
+		Faults: []scenario.FaultRecord{{Fault: scenario.NATSPaused, Late: true}},
 		Messages: []scenario.MessageRecord{
 			{Name: "m001", Outcome: "accepted"},
 			{Name: "m002", Outcome: "same as m001"},
@@ -120,7 +121,7 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 				},
 			},
 			{
-				Message: "m005", Endpoint: "app-1/ep-1", Behaviour: scenario.Fail, Fault: scenario.NATSPaused, State: "succeeded", Late: true,
+				Message: "m005", Endpoint: "app-1/ep-1", Behaviour: scenario.Fail, Fault: scenario.NATSPaused, State: "succeeded",
 				Attempts: []scenario.AttemptRecord{
 					{
 						Header: header("m005"), Signature: "verified", Answer: "reset",

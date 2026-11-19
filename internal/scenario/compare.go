@@ -8,13 +8,15 @@ import (
 )
 
 // Timing margins. An Attempt's time since its Delivery's first may differ
-// from the baseline's by jitterMargin of it, which covers the retry
-// schedule's jitter, plus slackMs, which covers the delivery workers'
-// polling and the machine. With the local stack's retry scale, a change to a
-// retry delay of 10 minutes or more fails the comparison, and shorter ones
-// are lost in the slack (docs/design.md, Testing).
+// from the baseline's by jitterMargin of it, plus slackMs. The retry
+// schedule's jitter moves each delay by up to 10% either way, in the
+// baseline's run as well as this one, so the two can be 20% of the schedule
+// apart, which is up to 22% of the baseline's time. slackMs covers the
+// delivery workers' polling and the machine. With the local stack's retry
+// scale, a change to a retry delay of an hour or more fails the comparison,
+// and shorter ones are lost in the margins (docs/design.md, Testing).
 const (
-	jitterMargin = 10 // percent
+	jitterMargin = 25 // percent
 	slackMs      = 1000
 )
 
@@ -24,7 +26,8 @@ const none = "(none)"
 // Difference is one way a Recording differs from the baseline.
 type Difference struct {
 	// Delivery names the Delivery that differs, as "<message> to
-	// <endpoint>", or the Message, or nothing for the run as a whole.
+	// <endpoint>", or the Message, or the fault, or nothing for the run as a
+	// whole.
 	Delivery string
 	// Field names what differs, such as "state" or "attempt 2: body".
 	Field     string
@@ -50,6 +53,12 @@ func Compare(want, got Recording) []Difference {
 		}
 	}
 	add("", "seed", strconv.FormatUint(want.Seed, 10), strconv.FormatUint(got.Seed, 10))
+	add("", "faults", strconv.Itoa(len(want.Faults)), strconv.Itoa(len(got.Faults)))
+	for i := range min(len(want.Faults), len(got.Faults)) {
+		w, g := want.Faults[i], got.Faults[i]
+		add("", fmt.Sprintf("fault %d", i+1), string(w.Fault), string(g.Fault))
+		add(string(w.Fault), "late", strconv.FormatBool(w.Late), strconv.FormatBool(g.Late))
+	}
 
 	gotOutcomes := map[string]string{}
 	for _, m := range got.Messages {
@@ -81,7 +90,6 @@ func Compare(want, got Recording) []Difference {
 		}
 		add(name, "behaviour", string(w.Behaviour), string(g.Behaviour))
 		add(name, "fault", string(w.Fault), string(g.Fault))
-		add(name, "late", strconv.FormatBool(w.Late), strconv.FormatBool(g.Late))
 		add(name, "state", w.State, g.State)
 		add(name, "attempts", strconv.Itoa(len(w.Attempts)), strconv.Itoa(len(g.Attempts)))
 		for i := range min(len(w.Attempts), len(g.Attempts)) {

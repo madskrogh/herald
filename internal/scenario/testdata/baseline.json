@@ -1,5 +1,19 @@
 {
   "seed": 1,
+  "faults": [
+    {
+      "fault": "nats paused",
+      "late": true
+    },
+    {
+      "fault": "postgres slowed",
+      "late": true
+    },
+    {
+      "fault": "dispatcher restarted",
+      "late": false
+    }
+  ],
   "messages": [
     {
       "name": "m001",
@@ -827,7 +841,7 @@
           "answer": "reset"
         },
         {
-          "after_ms": 519,
+          "after_ms": 508,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "478",
@@ -957,7 +971,7 @@
           "answer": "reset"
         },
         {
-          "after_ms": 511,
+          "after_ms": 520,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -1110,7 +1124,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 519,
+          "after_ms": 505,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "628",
@@ -1125,7 +1139,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 1027,
+          "after_ms": 1017,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "628",
@@ -1232,7 +1246,7 @@
           "answer": "reset"
         },
         {
-          "after_ms": 508,
+          "after_ms": 502,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "628",
@@ -1316,7 +1330,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 508,
+          "after_ms": 511,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "478",
@@ -1331,7 +1345,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 1012,
+          "after_ms": 1023,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "478",
@@ -1507,7 +1521,7 @@
           "answer": "reset"
         },
         {
-          "after_ms": 519,
+          "after_ms": 506,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "478",
@@ -1936,7 +1950,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 503,
+          "after_ms": 512,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "153628",
@@ -1951,7 +1965,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 1012,
+          "after_ms": 1020,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "153628",
@@ -2035,7 +2049,7 @@
           "answer": "reset"
         },
         {
-          "after_ms": 511,
+          "after_ms": 510,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "478",
@@ -2096,7 +2110,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 504,
+          "after_ms": 507,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "628",
@@ -2111,7 +2125,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 1013,
+          "after_ms": 1018,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "628",
@@ -2310,7 +2324,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 505,
+          "after_ms": 510,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "204828",
@@ -2325,7 +2339,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 1010,
+          "after_ms": 1024,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "204828",
@@ -2455,7 +2469,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 503,
+          "after_ms": 509,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "20508",
@@ -2470,7 +2484,7 @@
           "answer": "500"
         },
         {
-          "after_ms": 1012,
+          "after_ms": 1029,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "20508",
@@ -2853,7 +2867,7 @@
           "answer": "unanswered"
         },
         {
-          "after_ms": 15077,
+          "after_ms": 15114,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "478",
@@ -2891,7 +2905,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 504,
+          "after_ms": 506,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -2906,7 +2920,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 1010,
+          "after_ms": 1013,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -2921,7 +2935,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 2015,
+          "after_ms": 2024,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -2936,7 +2950,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 5536,
+          "after_ms": 6051,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -2951,7 +2965,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 15583,
+          "after_ms": 17634,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -2966,7 +2980,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 38700,
+          "after_ms": 37220,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -2981,7 +2995,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 77879,
+          "after_ms": 79910,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -3019,7 +3033,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 504,
+          "after_ms": 505,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -3034,7 +3048,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 1009,
+          "after_ms": 1011,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -3049,7 +3063,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 2014,
+          "after_ms": 2024,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -3064,7 +3078,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 6042,
+          "after_ms": 6056,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -3079,7 +3093,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 16085,
+          "after_ms": 16619,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -3094,7 +3108,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 38195,
+          "after_ms": 38220,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -3109,7 +3123,7 @@
           "answer": "302, Location: /moved"
         },
         {
-          "after_ms": 78387,
+          "after_ms": 84930,
           "header": {
             "Accept-Encoding": "gzip",
             "Content-Length": "778",
@@ -3137,7 +3151,7 @@
           "answer": "untrusted certificate"
         },
         {
-          "after_ms": 506,
+          "after_ms": 507,
           "handshake": true,
           "answer": "untrusted certificate"
         },
@@ -3147,27 +3161,27 @@
           "answer": "untrusted certificate"
         },
         {
-          "after_ms": 2015,
+          "after_ms": 2026,
           "handshake": true,
           "answer": "untrusted certificate"
         },
         {
-          "after_ms": 6044,
+          "after_ms": 6057,
           "handshake": true,
           "answer": "untrusted certificate"
         },
         {
-          "after_ms": 16595,
+          "after_ms": 17632,
           "handshake": true,
           "answer": "untrusted certificate"
         },
         {
-          "after_ms": 39708,
+          "after_ms": 38729,
           "handshake": true,
           "answer": "untrusted certificate"
         },
         {
-          "after_ms": 80903,
+          "after_ms": 81919,
           "handshake": true,
           "answer": "untrusted certificate"
         }
@@ -3178,7 +3192,6 @@
       "endpoint": "app-3/ep-1",
       "behaviour": "succeed",
       "fault": "nats paused",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3202,7 +3215,6 @@
       "endpoint": "app-2/ep-1",
       "behaviour": "succeed",
       "fault": "nats paused",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3226,7 +3238,6 @@
       "endpoint": "app-2/ep-1",
       "behaviour": "succeed",
       "fault": "nats paused",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3250,7 +3261,6 @@
       "endpoint": "app-2/ep-1",
       "behaviour": "succeed",
       "fault": "nats paused",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3274,7 +3284,6 @@
       "endpoint": "app-4/ep-1",
       "behaviour": "oversized",
       "fault": "nats paused",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3298,7 +3307,6 @@
       "endpoint": "app-4/ep-3",
       "behaviour": "fail",
       "fault": "nats paused",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3336,7 +3344,6 @@
       "endpoint": "app-3/ep-1",
       "behaviour": "succeed",
       "fault": "postgres slowed",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3360,7 +3367,6 @@
       "endpoint": "app-1/ep-1",
       "behaviour": "oversized",
       "fault": "postgres slowed",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3384,7 +3390,6 @@
       "endpoint": "app-4/ep-1",
       "behaviour": "oversized",
       "fault": "postgres slowed",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3408,7 +3413,6 @@
       "endpoint": "app-4/ep-1",
       "behaviour": "oversized",
       "fault": "postgres slowed",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {
@@ -3432,7 +3436,6 @@
       "endpoint": "app-4/ep-3",
       "behaviour": "fail",
       "fault": "postgres slowed",
-      "late": true,
       "state": "succeeded",
       "attempts": [
         {

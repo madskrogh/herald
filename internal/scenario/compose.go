@@ -16,10 +16,17 @@ type Compose struct {
 	File string
 }
 
+// stopTimeout is how long Restart lets a service shut down before killing
+// it: Docker's default of 10 seconds, which Herald's services shut down
+// within. Without it, docker compose restart has killed herald-dispatcher
+// after about 3 seconds, before its Attempts in flight could be cut off and
+// released.
+const stopTimeout = "10"
+
 // Restart stops service and starts it again. Stopping sends SIGTERM, so the
 // service shuts down as it would in a rollout.
 func (c Compose) Restart(ctx context.Context, service string) error {
-	_, err := c.compose(ctx, "restart", service)
+	_, err := c.compose(ctx, "restart", "--timeout", stopTimeout, service)
 	return err
 }
 

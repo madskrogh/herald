@@ -23,12 +23,12 @@ func TestCompare(t *testing.T) {
 		},
 		{
 			name: "retry later within the margin",
-			// 10% of 3600 ms plus a second.
-			change: func(r *scenario.Recording) { *r.Deliveries[0].Attempts[2].AfterMs = 3600 + 1360 },
+			// 25% of 3600 ms plus a second.
+			change: func(r *scenario.Recording) { *r.Deliveries[0].Attempts[2].AfterMs = 3600 + 1900 },
 		},
 		{
 			name:   "retry earlier within the margin",
-			change: func(r *scenario.Recording) { *r.Deliveries[0].Attempts[2].AfterMs = 3600 - 1360 },
+			change: func(r *scenario.Recording) { *r.Deliveries[0].Attempts[2].AfterMs = 3600 - 1900 },
 		},
 		{
 			name:   "retry later beyond the margin",
@@ -39,9 +39,9 @@ func TestCompare(t *testing.T) {
 		},
 		{
 			name:   "retry earlier beyond the margin",
-			change: func(r *scenario.Recording) { *r.Deliveries[0].Attempts[2].AfterMs = 3600 - 1361 },
+			change: func(r *scenario.Recording) { *r.Deliveries[0].Attempts[2].AfterMs = 3600 - 1901 },
 			want: []scenario.Difference{
-				{Delivery: "m001 to app-1/ep-1", Field: "attempt 3: after_ms", Want: "3600", Got: "2239"},
+				{Delivery: "m001 to app-1/ep-1", Field: "attempt 3: after_ms", Want: "3600", Got: "1699"},
 			},
 		},
 		{
@@ -79,10 +79,10 @@ func TestCompare(t *testing.T) {
 			},
 		},
 		{
-			name:   "late",
-			change: func(r *scenario.Recording) { r.Deliveries[1].Late = true },
+			name:   "fault without effect",
+			change: func(r *scenario.Recording) { r.Faults[0].Late = false },
 			want: []scenario.Difference{
-				{Delivery: "m002 to app-1/ep-1", Field: "late", Want: "false", Got: "true"},
+				{Delivery: "postgres slowed", Field: "late", Want: "true", Got: "false"},
 			},
 		},
 		{
@@ -137,6 +137,7 @@ func baseline() scenario.Recording {
 	}
 	return scenario.Recording{
 		Seed: 1,
+		Faults: []scenario.FaultRecord{{Fault: scenario.PostgresSlowed, Late: true}},
 		Messages: []scenario.MessageRecord{
 			{Name: "m001", Outcome: "accepted"},
 			{Name: "m003", Outcome: "same as m001"},
