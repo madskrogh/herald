@@ -93,7 +93,7 @@ curl -s localhost:8080/v1/applications/$APP/endpoints -H "Authorization: Bearer 
 {"endpoint":{"id":"01a1f3d8-aaa6-7bd0-9bcf-f4e6ac096503", "application_id":"01a1f3d8-9882-75ee-9024-f3a2fb016df0", "url":"http://host.docker.internal:9000/", "filter":[], "created_at":"2026-11-19T12:47:05.382887Z"}, "signing_secret":"whsec_oEhCmeiYNyR2FEdjWvHZhpDBLfoFIQKs"}
 ```
 
-In a second terminal, serve that Endpoint. `make endpoint` prints each Attempt it receives and, given the signing secret, checks its signature:
+In a second terminal, serve that Endpoint. `make endpoint` prints each Attempt it receives and, given the signing secret, checks its signature. Like a real Endpoint, it rejects an Attempt whose signature doesn't verify, with 401, and Herald retries it:
 
 ```sh
 make endpoint SECRET=whsec_oEhCmeiYNyR2FEdjWvHZhpDBLfoFIQKs

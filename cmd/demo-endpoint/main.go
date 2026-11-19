@@ -35,7 +35,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	listen := fs.String("listen", "127.0.0.1:9000", "address to listen on")
 	endpointURL := fs.String("url", "", "the URL Herald reaches this Endpoint at, printed to register it with")
 	secret := fs.String("secret", "", "the Endpoint's signing secret, to verify signatures with")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 

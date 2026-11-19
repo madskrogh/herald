@@ -91,9 +91,10 @@ wait-ci:
 
 # Per-checkout compose project name and ports. Generated on first use, and
 # regenerated, in the same slot, when the script changes, so a checkout's
-# .env gains the ports of services added since.
+# .env gains the ports of services added since. Its message goes to stderr,
+# so that a target's output, such as make admin's, can still be captured.
 .env: scripts/worktree-env.sh
-	./scripts/worktree-env.sh
+	@./scripts/worktree-env.sh >&2
 
 # --build so the stack always runs this checkout's code and migrations.
 up: .env
@@ -127,6 +128,7 @@ e2e: .env
 # signature verifies. The README walks through it.
 # Usage: make endpoint [SECRET=whsec_...]
 endpoint: .env
+	@test -n '$(HOST_ENDPOINT_IP)' || { echo "endpoint: no host address to listen on: is Docker running?"; exit 1; }
 	@. ./.env && go run ./cmd/demo-endpoint \
 		-listen "$(HOST_ENDPOINT_IP):$$HERALD_DEMO_ENDPOINT_PORT" \
 		-url "http://host.docker.internal:$$HERALD_DEMO_ENDPOINT_PORT/" \
