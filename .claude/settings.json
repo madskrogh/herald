@@ -10,6 +10,7 @@
     "filesystem": {
       "allowWrite": [
         "~/go/pkg/mod",
+        "~/go/pkg/sumdb",
         "~/Library/Caches/go-build",
         "~/.cache/go-build",
         "~/.cache/golangci-lint"
