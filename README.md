@@ -39,7 +39,7 @@ Milestone M1, the core delivery path, is complete. M2, observability and behavio
 
 ## Try it
 
-You need Go and Docker. The commands below use the stack's default ports. A second checkout of the repo (a git worktree) gets ports of its own, listed in its `.env`.
+You need Go and Docker. The commands are for bash or zsh.
 
 ### Check it works
 
@@ -61,7 +61,15 @@ The end-to-end tests take about a minute and a half. They show that Herald:
 
 ### Watch it work
 
-With the stack up, create a Tenant and an API key:
+With the stack up, read the stack's ports from `.env`. Each checkout of the repo gets ports of its own; in the main checkout, the Tenant API is on 8080 and the Endpoint below on 9000.
+
+```sh
+. ./.env
+API=localhost:$HERALD_API_HTTP_PORT
+ENDPOINT_URL=http://host.docker.internal:$HERALD_DEMO_ENDPOINT_PORT/
+```
+
+Create a Tenant and an API key:
 
 ```sh
 TENANT=$(make admin ARGS='tenant create --name Acme')
@@ -71,7 +79,7 @@ KEY=$(make admin ARGS="apikey create --tenant $TENANT")
 Create an Application, and copy its `id` from the response:
 
 ```sh
-curl -s localhost:8080/v1/applications -H "Authorization: Bearer $KEY" -d '{"name": "Globex"}'
+curl -sS $API/v1/applications -H "Authorization: Bearer $KEY" -d '{"name": "Globex"}'
 ```
 
 ```json
@@ -85,8 +93,8 @@ APP=01a1f3d8-9882-75ee-9024-f3a2fb016df0
 Register an Endpoint for it, and copy its `signing_secret` from the response:
 
 ```sh
-curl -s localhost:8080/v1/applications/$APP/endpoints -H "Authorization: Bearer $KEY" \
-  -d '{"url": "http://host.docker.internal:9000/"}'
+curl -sS $API/v1/applications/$APP/endpoints -H "Authorization: Bearer $KEY" \
+  -d '{"url": "'$ENDPOINT_URL'"}'
 ```
 
 ```json
@@ -102,7 +110,7 @@ make endpoint SECRET=whsec_oEhCmeiYNyR2FEdjWvHZhpDBLfoFIQKs
 Back in the first terminal, send a Message:
 
 ```sh
-curl -s localhost:8080/v1/messages -H "Authorization: Bearer $KEY" \
+curl -sS $API/v1/messages -H "Authorization: Bearer $KEY" \
   -d '{"application_id": "'$APP'", "event_type": "invoice.paid", "payload": "{\"invoice\": 42}"}'
 ```
 
