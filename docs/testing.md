@@ -54,10 +54,18 @@ Herald has six kinds of tests. They differ in what they run against and in what 
 ## Load test
 
 - **Check:** the scenario scaled up, with several replicas of each service.
-- **Compare against:** nothing. It measures handoff lag, Attempt lateness and throughput, to settle the tuning questions in [docs/design.md](design.md) (Deferred).
+- **Compare against:** nothing. It measures handoff lag, Attempt lateness and throughput, to settle the tuning questions that wait on load (#124, #125, #126).
 - **Catch:** limits that only show under load.
 - **Can't catch:** regressions on a PR: shared runners make its timings too noisy to gate on.
 - **Run:** `make loadtest`, on demand, once #82 adds it.
+
+## Profiles
+
+Not a test, and not a gate: CPU time on a small, I/O-bound scenario is noise. `make profile` captures CPU, heap and allocation profiles and an execution trace from two builds while the scenario runs against both, and shows how they differ (`go tool pprof -diff_base`). Use it to explain a difference the comparison found, or to back a claim about performance.
+
+## CI
+
+On every PR, and on `main` after each merge: `make ci` (`golangci-lint`, `go test -race` with the unit and integration tests, `buf lint`, `buf breaking` against `main`, and a check that the sqlc and protobuf generated code is up to date), and a Docker image build for each service. On `main` only, the end-to-end tests against the compose stack. Once #81 lands, every PR also runs the end-to-end tests, the behaviour comparison and the scenario invariants. `.github/workflows/ci.yml` is the record.
 
 ## Where a new check belongs
 

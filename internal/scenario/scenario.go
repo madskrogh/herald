@@ -2,7 +2,7 @@
 // what its Endpoints receive, so that a later build can be compared with a
 // committed baseline. The scenario stands in for production traffic, and the
 // recording is taken outside Herald, at the Endpoints, so a change to
-// Herald's instrumentation can't change it (docs/design.md, Testing).
+// Herald's instrumentation can't change it (docs/testing.md).
 package scenario
 
 // Scenario is the traffic of one run, generated from its Seed.

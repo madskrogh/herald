@@ -18,8 +18,8 @@ import (
 const leaseDuration = 60 * time.Second
 
 // maxInFlight is the most Attempts in flight to one Endpoint, across all
-// dispatcher replicas (docs/design.md, Isolation). The scenario's generator
-// relies on it (maxDeliveries in internal/scenario).
+// dispatcher replicas (the spec's max-in-flight-per-endpoint, R-19). The
+// scenario's generator relies on it (maxDeliveries in internal/scenario).
 const maxInFlight = 4
 
 // Lease is a worker's claim on a Delivery, for one Attempt.

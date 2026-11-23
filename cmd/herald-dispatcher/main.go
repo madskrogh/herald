@@ -124,7 +124,7 @@ func loadSettings(getenv func(string) string) (settings, error) {
 		return settings{}, err
 	}
 	cfg := settings{shared: shared}
-	// Scale 1: the retry schedule at full length, as docs/design.md gives it.
+	// Scale 1: the retry schedule at full length, as the spec gives it (R-11).
 	scale := 1.0
 	if s := getenv("HERALD_RETRY_SCALE"); s != "" {
 		scale, err = strconv.ParseFloat(s, 64)

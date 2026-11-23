@@ -66,7 +66,7 @@ jobs:
       - run: docker build --build-arg CMD=${{ matrix.cmd }} .
 
   # The end-to-end suite against the compose stack, on main only, as
-  # docs/design.md says. Locally, it is `make up` then `make e2e`.
+  # docs/testing.md says. Locally, it is `make up` then `make e2e`.
   e2e:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
