@@ -60,7 +60,7 @@ Worktrees: `claude -w <name>` creates `.claude/worktrees/<name>/` on branch `wor
 
 Some decisions are the human's, and are settled before the PR opens, not in it. Ask when a point is one of the cases below **and** passes all three gates: hard to reverse, surprising to someone without context, a real trade-off. Everything else is your call.
 
-1. **Open in the issue.** The issue (comments included) leaves it open or never addresses it, and you can't settle it from the issue, the spec, an ADR or `GLOSSARY.md`. This includes a surprise that invalidates the issue's premise: stop and ask, don't work around it. Ask before the first test at the latest, and again whenever a new point appears.
+1. **Open in the issue.** The issue (comments included) leaves it open or never addresses it, and you can't settle it from the issue, the spec, an ADR, `GLOSSARY.md`, or the milestone and deferred-item issues it belongs with. This includes a surprise that invalidates the issue's premise: stop and ask, don't work around it. Ask before the first test at the latest, and again whenever a new point appears.
 2. **Disputed in review.** `rejection-review` disputes a rejection and you have an argument the judge didn't address, or a rejection rests on the issue's intent. Ask before `make ci` and the push.
 3. **A change to the agent setup.** A suggested change to `CLAUDE.md`, `.claude/rules/` or a skill. Ask before `make ci` and the push.
 
