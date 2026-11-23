@@ -111,4 +111,4 @@ event-type = token *("." token)
 
 ## Changing the spec
 
-ADR 0007's "Changing the spec" says how: the spec is edited in place, a behaviour change is the spec and its vectors first, failing, then the code, and git history is the spec's log.
+ADR 0007's "Changing the spec" says how: the spec is edited in place, a behaviour change is the spec and its vectors first, then the tests written from them, failing, then the code, and git history is the spec's log.

@@ -61,7 +61,10 @@ type section struct {
 	line      int    // the heading's line; 0 before the first heading
 	why       bool   // whether it has a "Why:" paragraph
 	withdrawn bool   // whether it has a "Withdrawn:" paragraph
-	tables    []int  // the first line of each table with at least one row
+	// tables holds the first line of each table with at least one row. Only
+	// vector files' tables are checked: in a requirement file, a table may sit
+	// under any heading, such as the limits table.
+	tables []int
 }
 
 type requirement struct {
