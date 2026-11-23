@@ -326,6 +326,79 @@ Withdrawn: a MUST in R-3 replaces it.
 				"README.md": "~~~markdown\n```abnf\n### R-1 · implemented\n\nHerald MUST sign every Attempt.\n~~~\n",
 			},
 		},
+		{
+			name: "a shorter fence or one with an info string doesn't close a code block",
+			files: map[string]string{
+				"README.md": "````markdown\n```abnf\n### R-1 · implemented\n\nHerald MUST sign every Attempt.\n```\n````\n",
+			},
+		},
+		{
+			name: "inline code at the start of a line doesn't open a code block",
+			files: map[string]string{
+				"delivery.md": "```abnf``` blocks hold the grammars.\n\n### R-1 · implemented\n\nHerald MUST sign every Attempt.\n\nWhy: ADR 0003.\n",
+			},
+			want: []spec.Problem{
+				{File: "delivery.md", Line: 3, Message: "R-1 is an implemented MUST with no vector"},
+			},
+		},
+		{
+			name: "a heading indented by up to three spaces",
+			files: map[string]string{
+				"delivery.md": "   ### R-1 · implemented\n\nHerald MUST sign every Attempt.\n\nWhy: ADR 0003.\n",
+			},
+			want: []spec.Problem{
+				{File: "delivery.md", Line: 1, Message: "R-1 is an implemented MUST with no vector"},
+			},
+		},
+		{
+			name: "a table in an indented code block is no vector",
+			files: map[string]string{
+				"delivery.md": "### R-1 · implemented\n\nHerald MUST sign every Attempt.\n\nWhy: ADR 0003.\n\n" +
+					"    | payload |\n    |---------|\n    | a       |\n",
+			},
+			want: []spec.Problem{
+				{File: "delivery.md", Line: 1, Message: "R-1 is an implemented MUST with no vector"},
+			},
+		},
+		{
+			name: "malformed IDs",
+			files: map[string]string{
+				"delivery.md": `### R-01 · planned
+
+Herald MAY make an Attempt early.
+
+Why: ADR 0001.
+`,
+				"vectors/early.md": `## R-1.2 cases
+
+| attempts |
+|----------|
+| 1        |
+`,
+			},
+			want: []spec.Problem{
+				{File: "delivery.md", Line: 1, Message: `"R-01" is not an ID: write R- and a number with no leading zero, such as "R-1"`},
+				{File: "vectors/early.md", Line: 1, Message: `"R-1.2" is not an ID: write R- and a number with no leading zero, such as "R-1"`},
+			},
+		},
+		{
+			name: "a duplicate ID gets no other problems",
+			files: map[string]string{
+				"api.md": `### R-1 · planned
+
+Herald MAY return the Attempt history.
+
+Why: Tenants debug failed Deliveries.
+`,
+				"delivery.md": `### R-1 · implemented
+
+Herald MUST sign every Attempt.
+`,
+			},
+			want: []spec.Problem{
+				{File: "delivery.md", Line: 1, Message: "R-1 is already the ID of the requirement at api.md:1"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

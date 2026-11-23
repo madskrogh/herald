@@ -14,7 +14,7 @@ This file states the spec's conventions. Its examples are in code blocks, which 
 
 ## Requirements
 
-A requirement is one rule, under a heading of its own: its ID, a middle dot (`·`), and its status. The text says what Herald MUST, SHOULD or MAY do, using a conditional pattern ("When…", "If… then…", "While…") when the rule holds only in some cases. A `Why:` line gives the reason, and links the ADR where one exists.
+A requirement is one rule, under a heading of its own, written with `#`s: its ID, a middle dot (`·`), and its status. The text says what Herald MUST, SHOULD or MAY do, using a conditional pattern ("When…", "If… then…", "While…") when the rule holds only in some cases. A `Why:` line gives the reason, and links the ADR where one exists.
 
 ```markdown
 ### R-4 · implemented
@@ -102,7 +102,8 @@ event-type = token *("." token)
 - an implemented requirement with a MUST has no vector;
 - a vector file names an ID that no requirement has, or has a table under no requirement's heading;
 - two requirements have the same ID;
-- a heading starts with an ID but has no status;
+- a heading starts with a malformed ID, such as `R-01`;
+- a heading in a requirement file starts with an ID but has no status;
 - a requirement has no `Why:` line, or is withdrawn with no `Withdrawn:` line.
 
 A MUST in a `Why:` or `Withdrawn:` paragraph doesn't make the requirement a MUST.

@@ -45,11 +45,16 @@ const (
 )
 
 var (
-	headingRE     = regexp.MustCompile(`^#{1,6}\s+(.*?)\s*$`)
-	idRE          = regexp.MustCompile(`^R-\d+\b`)
-	requirementRE = regexp.MustCompile(`^(R-\d+) · (` + strings.Join(statuses, "|") + `)$`)
+	headingRE = regexp.MustCompile(`^ {0,3}#{1,6}\s+(.*?)\s*$`)
+	// idLikeRE matches what a heading that starts with an ID starts with,
+	// well-formed or not; idRE matches a well-formed ID.
+	idLikeRE      = regexp.MustCompile(`^R-[0-9][^\s:·]*`)
+	idRE          = regexp.MustCompile(`^R-[1-9][0-9]*$`)
+	requirementRE = regexp.MustCompile(`^(R-[1-9][0-9]*) · (` + strings.Join(statuses, "|") + `)$`)
 	mustRE        = regexp.MustCompile(`\bMUST\b`)
+	rowRE         = regexp.MustCompile(`^ {0,3}\|`)
 	delimiterRE   = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+$`)
+	fenceRE       = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})(.*)$")
 )
 
 // section is the part of a file from one heading to the next.
@@ -68,6 +73,9 @@ type requirement struct {
 	file   string
 	line   int
 	must   bool
+	// why and withdrawn say whether it has a "Why:" and a "Withdrawn:"
+	// paragraph.
+	why, withdrawn bool
 	// vectors counts its vectors: the tables under it, and those under
 	// headings in vector files that name it.
 	vectors int
@@ -126,6 +134,9 @@ func Check(fsys fs.FS) ([]Problem, error) {
 		}
 		byID[r.id] = r
 	}
+	// A requirement whose ID is taken has no other problems: which of the
+	// two a vector belongs to is unknown until one of them is renumbered.
+	reqs = slices.DeleteFunc(reqs, func(r *requirement) bool { return byID[r.id] != r })
 	for _, ref := range refs {
 		r, ok := byID[ref.id]
 		if !ok {
@@ -135,6 +146,14 @@ func Check(fsys fs.FS) ([]Problem, error) {
 		r.vectors += ref.vectors
 	}
 	for _, r := range reqs {
+		if !r.why {
+			problems = append(problems, Problem{File: r.file, Line: r.line, Message: fmt.Sprintf(
+				"%s has no reason: add a %q line", r.id, whyPrefix)})
+		}
+		if r.status == withdrawn && !r.withdrawn {
+			problems = append(problems, Problem{File: r.file, Line: r.line, Message: fmt.Sprintf(
+				"%s is withdrawn with no reason: add a %q line", r.id, withdrawnPrefix)})
+		}
 		if r.status == implemented && r.must && r.vectors == 0 {
 			problems = append(problems, Problem{File: r.file, Line: r.line, Message: r.id + " is an implemented MUST with no vector"})
 		}
@@ -149,32 +168,41 @@ func Check(fsys fs.FS) ([]Problem, error) {
 	return problems, nil
 }
 
+// headingID returns the ID a heading starts with, or "" if it starts with
+// none. A malformed ID is a problem.
+func headingID(name string, s section) (string, *Problem) {
+	id := idLikeRE.FindString(s.heading)
+	if id == "" || idRE.MatchString(id) {
+		return id, nil
+	}
+	return "", &Problem{File: name, Line: s.line, Message: fmt.Sprintf(
+		`%q is not an ID: write R- and a number with no leading zero, such as "R-1"`, id)}
+}
+
 // requirements returns the requirements in a file of the spec. A heading
-// that starts with an ID but has no status is a problem, and so is a
-// requirement without its reasons.
+// that starts with an ID but has no status is a problem.
 func requirements(name string, sections []section) ([]*requirement, []Problem) {
 	var (
 		reqs     []*requirement
 		problems []Problem
 	)
 	for _, s := range sections {
-		m := requirementRE.FindStringSubmatch(s.heading)
-		if m == nil {
-			if id := idRE.FindString(s.heading); id != "" {
-				problems = append(problems, Problem{File: name, Line: s.line, Message: noStatus(id)})
-			}
+		id, p := headingID(name, s)
+		if p != nil {
+			problems = append(problems, *p)
+		}
+		if id == "" {
 			continue
 		}
-		r := &requirement{id: m[1], status: m[2], file: name, line: s.line, must: s.must, vectors: len(s.tables)}
-		reqs = append(reqs, r)
-		if !s.why {
-			problems = append(problems, Problem{File: name, Line: s.line, Message: fmt.Sprintf(
-				"%s has no reason: add a %q line", r.id, whyPrefix)})
+		m := requirementRE.FindStringSubmatch(s.heading)
+		if m == nil {
+			problems = append(problems, Problem{File: name, Line: s.line, Message: noStatus(id)})
+			continue
 		}
-		if r.status == withdrawn && !s.withdrawn {
-			problems = append(problems, Problem{File: name, Line: s.line, Message: fmt.Sprintf(
-				"%s is withdrawn with no reason: add a %q line", r.id, withdrawnPrefix)})
-		}
+		reqs = append(reqs, &requirement{
+			id: m[1], status: m[2], file: name, line: s.line,
+			must: s.must, why: s.why, withdrawn: s.withdrawn, vectors: len(s.tables),
+		})
 	}
 	return reqs, problems
 }
@@ -198,7 +226,12 @@ func vectorRefs(name string, sections []section) ([]vectorRef, []Problem) {
 		problems []Problem
 	)
 	for _, s := range sections {
-		if id := idRE.FindString(s.heading); id != "" {
+		id, p := headingID(name, s)
+		if p != nil {
+			problems = append(problems, *p)
+			continue
+		}
+		if id != "" {
 			refs = append(refs, vectorRef{id: id, file: name, line: s.line, vectors: len(s.tables)})
 			continue
 		}
@@ -220,13 +253,13 @@ func parse(data []byte) []section {
 	reason := false // whether the line is in a paragraph giving a reason
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		if f := fenceOf(line); fence != "" {
-			if f == fence {
+		if fence != "" {
+			if closes(line, fence) {
 				fence = ""
 			}
 			continue
-		} else if f != "" {
-			fence = f
+		}
+		if fence = opens(line); fence != "" {
 			continue
 		}
 		if m := headingRE.FindStringSubmatch(line); m != nil {
@@ -271,19 +304,26 @@ func tableLen(lines []string) int {
 	return n
 }
 
+// isRow reports whether line is a table row. A line indented by four
+// spaces or more is code, not a row.
 func isRow(line string) bool {
-	return strings.HasPrefix(strings.TrimSpace(line), "|")
+	return rowRE.MatchString(line)
 }
 
-// fenceOf returns the fence ("```" or "~~~") that line starts with, or ""
-// if it starts none. A code block ends only at the kind of fence that opened
-// it.
-func fenceOf(line string) string {
-	t := strings.TrimSpace(line)
-	for _, f := range []string{"```", "~~~"} {
-		if strings.HasPrefix(t, f) {
-			return f
-		}
+// opens returns the fence that opens a fenced code block on line, or "" if
+// line opens none. Like CommonMark, a backtick fence's info string can't
+// contain a backtick, so a line that starts with inline code opens nothing.
+func opens(line string) string {
+	m := fenceRE.FindStringSubmatch(line)
+	if m == nil || (m[1][0] == '`' && strings.Contains(m[2], "`")) {
+		return ""
 	}
-	return ""
+	return m[1]
+}
+
+// closes reports whether line closes the code block that fence opened: a
+// fence of the same character, at least as long, with nothing after it.
+func closes(line, fence string) bool {
+	m := fenceRE.FindStringSubmatch(line)
+	return m != nil && m[1][0] == fence[0] && len(m[1]) >= len(fence) && strings.TrimSpace(m[2]) == ""
 }
