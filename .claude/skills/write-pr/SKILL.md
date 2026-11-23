@@ -19,7 +19,8 @@ The reviewer works like a coach. They hold the context (the business, the users,
 
 ## Before writing, gather
 
-- The issue or spec: goal, why it matters, stakes and risk appetite, non-goals, and the decisions recorded in its comments.
+- The issue: goal, why it matters, stakes and risk appetite, non-goals, and the decisions recorded in its comments.
+- The requirement IDs the diff adds, changes or withdraws in the spec, and each decision it surfaced from existing code: a value or behaviour that was only in the code and is now a requirement.
 - Surprises recorded during implementation: anywhere reality didn't match the issue or plan.
 - Review findings and their outcomes, with the reason given for each and the rejection review's verdict.
 - Evidence for load-bearing claims: tests, file and line, logs, queries.
@@ -29,9 +30,13 @@ The reviewer works like a coach. They hold the context (the business, the users,
 
 ## Shape
 
-Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and if decisions were recorded there, say so; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Verification and the Review notes always stay: they are the evidence for later changes to the agent setup.
+Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and if decisions were recorded there, say so; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Requirements, Verification and the Review notes always stay: Requirements is the evidence for the spec, the other two for later changes to the agent setup.
 
 If the PR fixes a problem an earlier PR shipped, replace the template's comment under `Closes #` with `Regression from #<n>`. Otherwise delete the comment.
+
+## Requirements
+
+Never left out. One line per requirement ID the PR adds, changes or withdraws, saying which and what changed. Then one line per decision surfaced from existing code: the value or behaviour, where it was in the code, and the requirement that now states it. A PR that touches no requirement says "None", so an unstated decision shows as a gap in review and in the regeneration audit (`docs/ai-workflow.md`).
 
 ## Verification
 
@@ -80,6 +85,7 @@ Route rejected findings by the reason given:
 
 - Could someone new to the codebase understand the opening?
 - Does the description link the issue and, if decisions were recorded there, say so without repeating them?
+- Does Requirements list every requirement ID the diff adds, changes or withdraws, and every decision surfaced from code, or say "None"?
 - Is every rejection that rests on intent either settled by a decision recorded on the issue or marked "settled by reading the issue"?
 - Does every reassuring word have a pointer?
 - Does Verification say what wasn't checked, or "nothing"?

@@ -7,7 +7,13 @@ description: Test-driven development. Use when the user wants to build features 
 
 TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.
 
-When exploring the codebase, read `GLOSSARY.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching.
+When exploring the codebase, read `GLOSSARY.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs and the spec's requirements in the area you're touching.
+
+## Where expected values come from
+
+Expected values for behaviour come from the spec's test vectors ([ADR 0007](../../../docs/adr/0007-code-regenerated-from-the-spec.md)). A test of behaviour reads the vector file, so the requirement and its check can't drift apart. A literal in a Go test for behaviour that no requirement states is a decision made only in the code, and a finding: write the requirement and its vectors first, and test against them. Literals stay fine where they state no behaviour: inputs, fixtures, and the results of internal helpers that no one outside Herald sees.
+
+Until the spec exists, `docs/design.md` is the statement of behaviour: a literal is fine when it states a value `docs/design.md` gives.
 
 ## What a good test is
 
@@ -28,11 +34,12 @@ When the shape of that interface is itself in question (how deep the module is, 
 ## Anti-patterns
 
 - **Implementation-coupled**: mocks internal collaborators, tests private methods, or verifies through a side channel (querying the database instead of using the interface). The tell: the test breaks when you refactor but behavior hasn't changed.
-- **Tautological**: the assertion recomputes the expected value the way the code does (`expect(add(a, b)).toBe(a + b)`, a snapshot derived by hand the same way, a constant asserted equal to itself), so it passes by construction and can never disagree with the code. Expected values must come from an independent source of truth: a known-good literal, a worked example, the spec.
+- **Tautological**: the assertion recomputes the expected value the way the code does (`expect(add(a, b)).toBe(a + b)`, a snapshot derived by hand the same way, a constant asserted equal to itself), so it passes by construction and can never disagree with the code. Expected values must come from an independent source of truth: the spec's vectors for behaviour, or a known-good literal or worked example for anything else.
 - **Horizontal slicing**: writing all tests first, then all implementation. Bulk tests verify _imagined_ behavior: you test the _shape_ of things rather than user-facing behavior, the tests go insensitive to real changes, and you commit to test structure before understanding the implementation. Work in **vertical slices** instead: one test → one implementation → repeat, each test a **tracer bullet** that responds to what the last cycle taught you.
 
 ## Rules of the loop
 
+- **Spec first.** A behaviour change starts in the spec: the requirement and its vectors, failing in the check that reads them, before any Go test or code (ADR 0007, "Changing the spec").
 - **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.
 - **Red for the reason the test names.** Read the failure: it must come from the missing behaviour the test describes, not from a compile error, a typo or a fixture. A test that passes on its first run has proved nothing yet, and it may pass by coincidence (an input that fails for some other reason than the one under test). Break the code it covers until the test fails for its stated reason, then restore it. A test written for behaviour that already exists is characterization, not red: say so, and still see it fail once.
 - **One slice at a time.** One seam, one test, one minimal implementation per cycle.
