@@ -10,12 +10,13 @@ So the work carries its own trace context:
 
 ## Considered Options
 
-- **Context in the handoff message's headers**: rejected. There is one set of headers per Batch, and a Batch holds Messages from many traces.
+- **Context in the headers of the NATS message that carries a Batch**: rejected. There is one set of headers per Batch, and a Batch holds Messages from many traces.
 - **A span for each Delivery, covering its Attempts**: rejected. It would stay open for up to a day and across restarts.
 
 ## Consequences
 
+- Kind, in [ADR 0007](0007-code-regenerated-from-the-spec.md)'s terms: architecture.
 - Each schema has a column for the context, and the handoff contract a field. Neither can be taken back once rows are stored with them.
-- A trace stays open as long as retries go on, about a day.
+- A trace stays open as long as the retry schedule runs.
 - Whether a replayed Delivery's Attempts join the original trace is decided with replay (M3).
-- The trace's shape and what each span carries are debugging data, stated in the spec ([ADR 0007](0007-code-regenerated-from-the-spec.md)). This ADR is the architecture that lets that shape survive the Outbox, the handoff and the time between Attempts.
+- The trace's shape and what each span carries are debugging data, so they belong in the spec. This ADR is the architecture that lets that shape survive the Outbox, the handoff and the time between Attempts.

@@ -11,5 +11,6 @@ Nothing has shown that handoff throughput limits Herald, and the load test is wh
 
 ## Consequences
 
+- Kind, in [ADR 0007](0007-code-regenerated-from-the-spec.md)'s terms: architecture.
 - Handoff throughput grows with herald-api replicas, not with dispatchers.
-- Handoff lag under load is a latency requirement in the spec ([ADR 0007](0007-code-regenerated-from-the-spec.md)). Running more relays per process is a new ADR, which replaces this one.
+- Handoff lag under load belongs in the spec as a latency requirement. Running more relays per process is a new ADR, which replaces this one.

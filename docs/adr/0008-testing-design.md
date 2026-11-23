@@ -1,6 +1,6 @@
 # Testing: expected results, a behaviour comparison, and invariants
 
-Herald is checked in six ways. They differ in what they run against and in what decides whether they pass: an expected result written in the test, a committed baseline, a run of `main` on the same runner, or a rule that holds on any build. Each exists because the others can't catch what it catches. [docs/testing.md](../testing.md) says how to choose between them for a new check.
+Herald is checked in six ways, and each exists because the others can't catch what it catches. [docs/testing.md](../testing.md) says how they differ and where a new check belongs; this ADR says why each exists.
 
 - **Unit tests** check pure logic, such as filters, the retry schedule and signing, against expected results. They answer in milliseconds for an input someone thought of.
 - **Integration tests** run one package against real Postgres and NATS, never mocks of either. Herald's correctness rests on how they behave: SQL that does what its caller assumes, claims that stay apart between replicas, Batches neither lost nor doubled at the handoff. A mock would assume that behaviour instead of checking it.
@@ -43,12 +43,12 @@ The scenario scaled up, with several replicas of each service, on demand. They s
 
 - **A scripted scenario, recorded at both edges and run again against a later build**: replaced. A fixed set of Tenant calls with a response script per Endpoint covers one script's cases. Generated traffic, misbehaving Endpoints and faults cover more of what real use would.
 - **Telemetry as the only witness**: rejected. Spans are reported by the code under test, so a change to its instrumentation could change what the checks read. The edge recording can't be changed that way.
-- **Timing against a committed baseline**: rejected. Timing recorded on another machine needs margins too wide to catch a regression.
-- **Load tests on every change**: rejected. Shared runners make their timings too noisy to gate on.
+- **Timing against a committed baseline**: rejected, for the margins it would need (above).
+- **Load tests on every change**: rejected, for noisy runners (above).
 
 ## Consequences
 
-- This is architecture in the sense of [ADR 0007](0007-code-regenerated-from-the-spec.md): regenerated checks keep these kinds of tests, the two witnesses, and what each is compared with. The tools, how faults are injected, and how the recording is normalised are their own choice. The invariants' rules and the margins and limits they hold Herald to are stated in the spec.
-- Every PR runs the end-to-end tests, the comparison and the invariants, which adds the full stack and two scenario runs (the candidate, and `main` for timing) to its CI time.
+- Kind, in [ADR 0007](0007-code-regenerated-from-the-spec.md)'s terms: architecture. Regenerated checks keep these kinds of tests, the two witnesses, and what each is compared with. The tools, how faults are injected, and how the recording is normalised are their own choice. The invariants' rules, and the margins and limits they hold Herald to, belong in the spec.
+- Every PR is to run the end-to-end tests, the comparison and the invariants, which adds the full stack and two scenario runs (the candidate, and `main` for timing) to its CI time. The telemetry statistics, the `main` run and running all of it on every PR come with #81.
 - A run needs the stack to itself: its faults restart and pause services that any other test on the same stack would be using.
 - A reviewer reads a baseline diff as a behaviour change to approve, not as noise.

@@ -11,7 +11,7 @@ Each service owns the migrations for its own schema ([ADR 0002](0002-two-service
 
 ## Consequences
 
-- A deploy has an ordered step: the service waits for its `migrate` step to succeed. Locally that is a dependency in the compose file; on Kubernetes (M5) it is a Job.
+- Kind, in [ADR 0007](0007-code-regenerated-from-the-spec.md)'s terms: architecture.
+- A deploy has an ordered step: each service starts only after its `migrate` step has succeeded.
 - A service assumes its schema is already current.
-- During a rollout, replicas of the previous build run against the new schema, so a migration must keep the previous build working.
-- A deployer can start the step twice at once, as a retried Job or overlapping deploys do, so overlapping runs must be safe. That is part of what operators use, and is stated in the spec ([ADR 0007](0007-code-regenerated-from-the-spec.md)).
+- A deployer can start the step twice at once, as a retried Job or overlapping deploys do, and the code makes overlapping runs take turns. That is part of what operators use, so it belongs in the spec.
