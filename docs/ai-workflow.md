@@ -45,7 +45,7 @@ Roles that need context and roles that need distance go to different agents:
 
 ## Decisions go in the spec
 
-[ADR 0007](adr/0007-code-regenerated-from-the-spec.md) sets the goal that all of Herald's code could be regenerated from the spec, the shape files, `GLOSSARY.md` and the ADRs. A decision that exists only in the code is lost in a regeneration, and nobody can review it as a decision: a diff shows that a constant changed, not whether the old value was intended. The scenario's `delayLimit` and `lateAfter` are such decisions: limits with no stated reason.
+[ADR 0007](adr/0007-code-regenerated-from-the-spec.md) sets the goal that all of Herald's code could be regenerated from the spec, the shape files, `GLOSSARY.md` and the ADRs. A decision that exists only in the code is lost in a regeneration, and nobody can review it as a decision: a diff shows that a constant changed, not whether the old value was intended. The scenario's limits on handoff lag and on how late a Delivery's first Attempt may come are such decisions: values with no stated reason.
 
 So every change surfaces its decisions into the spec, in the same PR. Four places hold this:
 
@@ -66,7 +66,7 @@ It runs at the end of each milestone, and after a large change to the spec. Not 
 
 To run it:
 
-1. **Export the inputs.** Pick the commit to audit. Copy only the inputs into a new directory outside any Herald checkout, with `git archive <commit> <paths> | tar -x -C <dir>`: the spec, `proto/`, the shape files (the telemetry schema and the Postgres column list), `GLOSSARY.md` and `docs/adr/`. Run `git init` there, so neither the code nor its history comes along.
+1. **Export the inputs.** Pick the commit to audit. Copy only the inputs into a new directory outside any Herald checkout, with `git archive <commit> <paths> | tar -x -C <dir>`: the spec, `proto/`, the shape files (the telemetry schema and the Postgres column list, once each is a file; until then the column list is ADR 0007's table), `GLOSSARY.md` and `docs/adr/`. Run `git init` there, so neither the code nor its history comes along.
 2. **Generate.** Start a fresh Claude Code session in that directory, with permission rules that deny reading any Herald checkout and its git directory. Try one such read first, to confirm it is refused. Ask the session to build Herald from the inputs alone, with a `compose.yaml` that uses Herald's service names (fault injection restarts services by name) and takes its ports from the variables a checkout's `.env` sets. Until the spec states how Herald is deployed, the prompt says both.
 3. **Check.** In a new Herald worktree at the audited commit, replace `compose.yaml` with the regenerated build's, its build contexts pointing at the regenerated directory. Then run `make up`, `make e2e` and `make scenario-compare`. The harness comes from the checkout, and the stack it runs against is the regenerated build. `scenario-compare` checks the scenario invariants and compares the regenerated build's edge recording with the committed baseline, which is the current build's.
 4. **Classify.** Each failing test, broken invariant and difference in the recording is either a defect in the regenerated build or a decision the spec doesn't state. File each missing decision as an issue that names where the two builds differ.

@@ -1,6 +1,6 @@
 ---
 name: standards-review
-description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
+description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue and the requirements it touches ask for, and is every decision it makes stated in the spec?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
 ---
 
 Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
@@ -10,7 +10,7 @@ Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
 Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
 
-The Spec axis reads two sources. The GitHub issue is what the change is checked against: fetch it with `gh issue view <number> --comments`, because decisions the human made while the work was underway are recorded as comments. The spec (ADR 0007, `docs/adr/0007-code-regenerated-from-the-spec.md`) holds Herald's requirements; the review reads the ones the change touches. Until the spec exists, `docs/design.md` is the statement of behaviour and stands in for it.
+The Spec axis reads two sources. The GitHub issue is what the change is checked against: fetch it with `gh issue view <number> --comments`, because decisions the human made while the work was underway are recorded as comments. The spec (ADR 0007, `docs/adr/0007-code-regenerated-from-the-spec.md`) holds Herald's requirements; the review reads the ones the change touches.
 
 ## Process
 
@@ -76,7 +76,7 @@ Issue both sub-agent calls together, in the foreground, and aggregate the report
 
 - The diff command and commit list.
 - The fetched issue with its comments, and the requirements from step 2 with their text, vectors and reasons (or the `docs/design.md` sections standing in for them).
-- The brief: "Report: (a) what the issue or a touched requirement asks for that is missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong; (d) decisions no requirement states: every decision in the diff that someone at Herald's boundaries could notice (a Tenant, an Endpoint, an operator, a developer reading telemetry) and that no requirement states, such as a new or changed constant, limit, timeout, count, format or span attribute, the behaviour in a case, something the scenario harness expects, or a literal in a Go test that pins behaviour; (e) unreasoned values: a value the diff moves into the spec or a data file without a reason. Quote the issue or requirement line for (a)–(c), and the hunk for (d) and (e). Give each finding a severity: High, Medium or Low. Under 400 words."
+- The brief: "Report: (a) what the issue or a touched requirement asks for that is missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong; (d) unstated decisions: a decision in the diff that someone at Herald's boundaries could notice and that no requirement states. Someone is a Tenant, an Endpoint, an operator, or a developer reading telemetry. Look for a new or changed constant, limit, timeout, count, format or span attribute; the behaviour in a case; something the scenario harness expects; a literal in a Go test that pins behaviour; (e) unreasoned values: a value the diff moves into the spec or a data file without a reason. Quote the issue or requirement line for (a)–(c), and the hunk for (d) and (e). Give each finding a severity: High, Medium or Low. Under 400 words."
 
 If there is neither an issue nor any requirement, skip the Spec sub-agent and note this in the final report.
 
