@@ -100,7 +100,7 @@ Why: ADR 0001.
 			},
 		},
 		{
-			name: "implemented MUST with a vector in a vector file",
+			name: "a vector file names an existing requirement",
 			files: map[string]string{
 				"delivery.md": `### R-1 · implemented
 
