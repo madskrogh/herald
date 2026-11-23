@@ -38,12 +38,17 @@ cd "$top"
 worktrees=$(git worktree list --porcelain | sed -n 's/^worktree //p')
 main=$(head -n1 <<<"$worktrees")
 
+# Prints the port in slot $2 of $1, an entry of $ports.
+slot_port() {
+  echo $((${1#*=} + $2 * 100))
+}
+
 # Succeeds if Docker publishes any of slot $1's ports. $published holds one
 # published host port, or range of them (5532 or 4300-4400), per line.
 slot_published() {
   local entry port lo hi
   for entry in "${ports[@]}"; do
-    port=$((${entry#*=} + $1 * 100))
+    port=$(slot_port "$entry" "$1")
     while IFS=- read -r lo hi; do
       if [[ -n "$lo" ]] && ((port >= lo && port <= ${hi:-$lo})); then return 0; fi
     done <<<"$published"
@@ -64,9 +69,8 @@ elif [[ "$top" == "$main" ]]; then
   slot=0
   project=herald
 else
-  # A worktree that exists but can't be read, as in a sandbox that denies
-  # reads outside this one, would hide its slot. A removed worktree that git
-  # still lists doesn't exist, and holds no slot.
+  # A worktree that exists but can't be read would hide its slot. A removed
+  # worktree that git still lists doesn't exist, and holds no slot.
   used=
   while IFS= read -r wt; do
     if [[ -e "$wt" && ! (-r "$wt" && -x "$wt") ]]; then
@@ -77,11 +81,11 @@ else
   done <<<"$worktrees"
   # docker ps prints each container's ports as 127.0.0.1:5532->5432/tcp,
   # comma-separated; the host side is between the last ':' and '->'.
-  if ! listed=$(docker ps --format '{{.Ports}}'); then
+  if ! docker_ports=$(docker ps --format '{{.Ports}}'); then
     echo "worktree-env: can't list the ports Docker publishes, to find a free slot: is Docker running?" >&2
     exit 1
   fi
-  published=$(grep -oE ':[0-9]+(-[0-9]+)?->' <<<"$listed" | sed -E 's/^:|->$//g' || true)
+  published=$(grep -oE ':[0-9]+(-[0-9]+)?->' <<<"$docker_ports" | sed -E 's/^:|->$//g' || true)
   for s in 1 2 3 4 5 6 7 8 9; do
     if ! grep -qx "$s" <<<"$used" && ! slot_published "$s"; then slot=$s; break; fi
   done
@@ -100,7 +104,7 @@ fi
   echo "COMPOSE_PROJECT_NAME=$project"
   echo "HERALD_SLOT=$slot"
   for entry in "${ports[@]}"; do
-    echo "${entry%%=*}=$((${entry#*=} + slot * 100))"
+    echo "${entry%%=*}=$(slot_port "$entry" "$slot")"
   done
 } >.env
 echo "worktree-env: wrote .env ($project, slot $slot)"

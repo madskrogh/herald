@@ -170,6 +170,21 @@ func TestWorktreeSkipsSlotInAnotherWorktreesEnv(t *testing.T) {
 	}
 }
 
+// A worktree whose directory was deleted is still listed by git until
+// pruned, and holds no slot.
+func TestWorktreeTakesSlotOfDeletedWorktree(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	gone := r.addWorktree("gone")
+	r.slot(gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.slot(r.addWorktree("new")); got != "1" {
+		t.Errorf("slot = %s, want 1", got)
+	}
+}
+
 // Regenerating .env, as make does when the script changes, keeps its slot
 // and needs no Docker.
 func TestExistingEnvKeepsSlotWithoutDocker(t *testing.T) {
@@ -201,10 +216,12 @@ func TestNewSlotFails(t *testing.T) {
 			wantOut: "is Docker running?",
 		},
 		{
-			// As in a sandbox that denies reads outside the current
-			// worktree: the other worktree's slot can't be seen.
+			// The other worktree's slot can't be seen.
 			name: "when another worktree can't be read",
 			arrange: func(t *testing.T, r *repo) {
+				if os.Geteuid() == 0 {
+					t.Skip("root reads a directory whatever its mode")
+				}
 				other := r.addWorktree("other")
 				r.slot(other)
 				if err := os.Chmod(other, 0); err != nil {
