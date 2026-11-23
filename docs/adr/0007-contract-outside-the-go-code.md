@@ -29,6 +29,10 @@ These are what the scenario writes for setup and reads for final state. This tab
 
 Nothing else in either schema is in the contract: not indexes, not the other columns. Behaviour that rests on an index, such as the Idempotency-Key, is specified and tested through the Tenant API. Once the Delivery API (M3) returns Attempt history, `delivery.attempts` leaves the contract.
 
+## The harness
+
+The checks that run the scenario may be written in any language, but they never import the implementation. What they expect, such as which Endpoints a Message reaches and the earliest each Attempt may come, comes from the spec: from its vectors, or from the harness's own code, checked against them. Otherwise a check grades the implementation by its own logic, and a bug there becomes the expected result.
+
 ## Form
 
 - The spec is a set of numbered requirements, one rule each. An exception is its own requirement and names the requirement it limits.
@@ -88,5 +92,6 @@ Checks that only make sense for the Go build stay as repository checks outside t
 - Until the spec exists, `docs/design.md` stays the statement of behaviour.
 - The development workflow changes to follow "Changing the spec": today an issue, with the decisions recorded on it, is what a change is checked against. That change is made on its own.
 - The checks that read the telemetry schema come after the schema file, so they read it rather than the Go constants.
-- The scenario's Go harness reads Postgres through the services' own queries, which touch more columns than the contract lists, and one table it doesn't (`delivery.messages`). It has to read only the listed columns before a port can be checked by it.
+- The scenario's harness imports Herald's own code today: Event type and filter matching, the retry schedule, the telemetry constants, and the stores it reads Postgres through. Those stores touch more columns than the contract lists, and one table it doesn't (`delivery.messages`). Each import goes in the follow-up that covers its fact: the telemetry constants with the schema file, the stores with the column list, and filter matching and the retry schedule with the scenario invariants. The harness then has its own matcher and schedule, a second copy of each, kept honest by the vectors.
+- Fault injection restarts and pauses services by name (herald-dispatcher, NATS, Postgres), so it assumes [ADR 0002](0002-two-services-outbox-nats-handoff.md)'s architecture. A port that replaces that architecture needs its own way to inject the same faults.
 - Known gaps, not built now: provenance (which spec version a build passed), and checks against production, which Herald doesn't have.
