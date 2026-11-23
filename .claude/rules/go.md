@@ -13,7 +13,7 @@ Follow Effective Go and the Go Code Review Comments wiki. On top of those:
 - Wrap errors with context: `fmt.Errorf("load endpoint %s: %w", id, err)`. Use `%w` (not `%v`) when callers may need `errors.Is`/`errors.As`. Don't log and return the same error.
 - `context.Context` is the first parameter, named `ctx`. Never store it in a struct.
 - Define interfaces where they are consumed, keep them small, and return concrete types.
-- Standard library first. A new dependency needs a reason the standard library can't meet; the chosen stack is listed in `docs/design.md`.
+- Standard library first. A new dependency needs a reason the standard library can't meet; the chosen stack is listed in the README's "Built with".
 - Log with `log/slog`. Pass the logger in; don't use the global default in library code.
 - Data access goes through sqlc queries in `.sql` files; never build SQL strings in Go (ADR 0005). Three exceptions, each with a comment saying why:
   - DDL on identifiers in test helpers (`CREATE DATABASE` for a test's own database). Identifiers can't be query parameters.

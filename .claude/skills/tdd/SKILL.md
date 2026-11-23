@@ -13,8 +13,6 @@ When exploring the codebase, read `GLOSSARY.md` (if it exists) so test names and
 
 Expected values for behaviour come from the spec's test vectors ([ADR 0007](../../../docs/adr/0007-code-regenerated-from-the-spec.md)). A test of behaviour reads the vector file, so the requirement and its check can't drift apart. A literal in a Go test for behaviour that no requirement states is a decision made only in the code, and a finding: write the requirement and its vectors first, and test against them. Literals stay fine where they state no behaviour: a test's inputs and fixtures, and values no one at Herald's boundaries can observe.
 
-Until the spec exists, `docs/design.md` is the statement of behaviour: a literal is fine when it states a value `docs/design.md` gives.
-
 ## What a good test is
 
 Tests verify behavior through public interfaces, not implementation details. Code can change entirely; tests shouldn't. A good test reads like a specification: "user can checkout with valid cart" tells you exactly what capability exists, and it survives refactors because it doesn't care about internal structure.
@@ -39,7 +37,7 @@ When the shape of that interface is itself in question (how deep the module is, 
 
 ## Rules of the loop
 
-- **Spec first.** A behaviour change starts in the spec: the requirement and its vectors, failing in the check that reads them, before any Go test or code (ADR 0007, "Changing the spec"). Until the spec exists, it starts with the change to `docs/design.md`, then the failing test.
+- **Spec first.** A behaviour change starts in the spec: the requirement and its vectors, failing in the check that reads them, before any Go test or code (ADR 0007, "Changing the spec").
 - **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.
 - **Red for the reason the test names.** Read the failure: it must come from the missing behaviour the test describes, not from a compile error, a typo or a fixture. A test that passes on its first run has proved nothing yet, and it may pass by coincidence (an input that fails for some other reason than the one under test). Break the code it covers until the test fails for its stated reason, then restore it. A test written for behaviour that already exists is characterization, not red: say so, and still see it fail once.
 - **One slice at a time.** One seam, one test, one minimal implementation per cycle.

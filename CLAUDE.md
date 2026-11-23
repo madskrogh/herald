@@ -4,9 +4,9 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 
 ## Read before changing code
 
-- The spec: Herald's numbered requirements, each with its status, its reason and the test vectors the checks read. [ADR 0007](docs/adr/0007-code-regenerated-from-the-spec.md) sets its form and how it changes, and is a rule for every change, whatever area it touches (see "Decisions go in the spec" below). Until the spec exists, `docs/design.md` is the statement of behaviour, and what this file says about the spec applies to it.
-- [docs/design.md](docs/design.md): product description, architecture, delivery semantics, milestones M1–M5. It is being split into the spec and the README.
-- [docs/adr/](docs/adr/): settled decisions. Don't reopen them in passing; propose a new ADR if one needs to change.
+- [The spec](spec/README.md): Herald's numbered requirements, each with its status, its reason and the test vectors the checks read. [ADR 0007](docs/adr/0007-code-regenerated-from-the-spec.md) sets its form and how it changes, and is a rule for every change, whatever area it touches (see "Decisions go in the spec" below).
+- [docs/adr/](docs/adr/): settled decisions and the architecture. Don't reopen them in passing; propose a new ADR if one needs to change.
+- [README.md](README.md): what Herald is, how to run it, and the stack it is built with. Milestones are GitHub milestones.
 - [GLOSSARY.md](GLOSSARY.md): domain language. Use these terms in code, tests, comments and docs, and avoid the listed alternatives.
 
 ## Commands
@@ -60,7 +60,7 @@ Worktrees: `claude -w <name>` creates `.claude/worktrees/<name>/` on branch `wor
 
 Some decisions are the human's, and are settled before the PR opens, not in it. Ask when a point is one of the cases below **and** passes all three gates: hard to reverse, surprising to someone without context, a real trade-off. Everything else is your call.
 
-1. **Open in the issue.** The issue (comments included) leaves it open or never addresses it, and you can't settle it from the issue, the spec, `docs/design.md`, an ADR or `GLOSSARY.md`. This includes a surprise that invalidates the issue's premise: stop and ask, don't work around it. Ask before the first test at the latest, and again whenever a new point appears.
+1. **Open in the issue.** The issue (comments included) leaves it open or never addresses it, and you can't settle it from the issue, the spec, an ADR or `GLOSSARY.md`. This includes a surprise that invalidates the issue's premise: stop and ask, don't work around it. Ask before the first test at the latest, and again whenever a new point appears.
 2. **Disputed in review.** `rejection-review` disputes a rejection and you have an argument the judge didn't address, or a rejection rests on the issue's intent. Ask before `make ci` and the push.
 3. **A change to the agent setup.** A suggested change to `CLAUDE.md`, `.claude/rules/` or a skill. Ask before `make ci` and the push.
 

@@ -62,7 +62,7 @@ These catch decisions that look like decisions: a constant, a limit, a format. T
 
 The audit runs ADR 0007's own test: regenerate Herald from the spec and see what differs. Every difference is either a defect in the regenerated build, or a decision the spec doesn't state.
 
-It runs at the end of each milestone, and after a large change to the spec. Not on every PR: a full regeneration costs too much for that. The first runs once the spec covers today's behaviour, after `docs/design.md` is split.
+It runs at the end of each milestone, and after a large change to the spec. Not on every PR: a full regeneration costs too much for that. The first runs once the spec covers today's behaviour.
 
 To run it:
 

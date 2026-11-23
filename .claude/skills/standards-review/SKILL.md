@@ -36,7 +36,7 @@ Then collect the requirements the change touches, with their text, vectors and r
 - every requirement the diff adds, changes or withdraws in the spec;
 - the requirements covering the behaviour the diff changes, found by searching the spec for the area (an Endpoint failing, a limit, a span).
 
-Until the spec exists, take the sections of `docs/design.md` that cover the behaviour the diff changes instead. If there is neither an issue nor any requirement, the **Spec** sub-agent skips and reports "no issue or requirements available".
+If there is neither an issue nor any requirement, the **Spec** sub-agent skips and reports "no issue or requirements available".
 
 ### 3. Identify the standards sources
 
@@ -75,8 +75,8 @@ Issue both sub-agent calls together, in the foreground, and aggregate the report
 **Spec sub-agent prompt** should include (spawn it on the session's model: judging whether someone at Herald's boundaries could notice a decision, and whether a value has a reason, needs as much judgement as the Standards review):
 
 - The diff command and commit list.
-- The fetched issue with its comments, and the requirements from step 2 with their text, vectors and reasons (or the `docs/design.md` sections standing in for them).
-- The brief: "Report: (a) what the issue or a touched requirement asks for that is missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong; (d) unstated decisions: a decision in the diff that someone at Herald's boundaries could notice and that no requirement states. Someone is a Tenant, an Endpoint, an operator, or a developer reading telemetry. Look for a new or changed constant, limit, timeout, count, format or span attribute; the behaviour in a case; something the scenario harness expects; a literal in a Go test that pins behaviour; (e) unreasoned values: a value the diff moves into the spec or a data file without a reason. Until the spec exists, a value or behaviour `docs/design.md` states counts as stated, and (e) covers values moved into `docs/design.md`. Quote the issue or requirement line for (a)–(c), and the hunk for (d) and (e). Give each finding a severity: High, Medium or Low. Under 400 words."
+- The fetched issue with its comments, and the requirements from step 2 with their text, vectors and reasons.
+- The brief: "Report: (a) what the issue or a touched requirement asks for that is missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong; (d) unstated decisions: a decision in the diff that someone at Herald's boundaries could notice and that no requirement states. Someone is a Tenant, an Endpoint, an operator, or a developer reading telemetry. Look for a new or changed constant, limit, timeout, count, format or span attribute; the behaviour in a case; something the scenario harness expects; a literal in a Go test that pins behaviour; (e) unreasoned values: a value the diff moves into the spec or a data file without a reason. Quote the issue or requirement line for (a)–(c), and the hunk for (d) and (e). Give each finding a severity: High, Medium or Low. Under 400 words."
 
 If there is neither an issue nor any requirement, skip the Spec sub-agent and note this in the final report.
 
