@@ -11,7 +11,7 @@ When exploring the codebase, read `GLOSSARY.md` (if it exists) so test names and
 
 ## Where expected values come from
 
-Expected values for behaviour come from the spec: a requirement's text, and its test vectors where it has them ([ADR 0013](../../../docs/adr/0013-vectors-are-input-for-tests.md)). A vector is input for writing tests, not a test in itself: a test may read the table directly, or be written from it, whichever suits the code. Every row of a vector is a case every build must pass, so none is skipped. The vectors are a minimum: add cases of your own. A test written from a vector, rather than reading it, can drift from it when the vector changes, and nothing checks that.
+Expected values for behaviour come from the spec: a requirement's text, and its test vectors where it has them ([ADR 0013](../../../docs/adr/0013-vectors-are-input-for-tests.md)). A vector is input for writing tests, not a test in itself: a test may read the table directly, or be written from it, whichever suits the code. Every row of a vector is a case every build must pass, so none is skipped, until its requirement is withdrawn. The vectors are a minimum: add cases of your own. A test written from a vector, rather than reading it, can drift from it when the vector changes, and nothing checks that.
 
 A literal in a Go test for behaviour that no requirement states is a decision made only in the code, and a finding: write the requirement first, with a vector where a misreading is likely, and test against it. Literals stay fine where they state no behaviour: a test's inputs and fixtures, and values no one at Herald's boundaries can observe.
 
@@ -39,7 +39,7 @@ When the shape of that interface is itself in question (how deep the module is, 
 
 ## Rules of the loop
 
-- **Spec first.** A behaviour change starts in the spec: the requirement, with a vector where a misreading is likely, before any Go test or code. Then the tests written from them, failing, then the code (ADR 0007's "Changing the spec"; ADR 0013 replaces what it says about vectors).
+- **Spec first.** A behaviour change starts in the spec: the requirement, with a vector where a misreading is likely. Then the tests for it, failing, then the code (ADR 0007's "Changing the spec"; ADR 0013 replaces what it says about vectors).
 - **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.
 - **Red for the reason the test names.** Read the failure: it must come from the missing behaviour the test describes, not from a compile error, a typo or a fixture. A test that passes on its first run has proved nothing yet, and it may pass by coincidence (an input that fails for some other reason than the one under test). Break the code it covers until the test fails for its stated reason, then restore it. A test written for behaviour that already exists is characterization, not red: say so, and still see it fail once.
 - **One slice at a time.** One seam, one test, one minimal implementation per cycle.
