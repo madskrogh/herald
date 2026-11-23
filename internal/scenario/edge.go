@@ -10,8 +10,6 @@ import (
 	"uuid"
 
 	"github.com/madskrogh/herald/internal/endpointtest"
-	"github.com/madskrogh/herald/internal/eventtype"
-	"github.com/madskrogh/herald/internal/retry"
 )
 
 // The rules CheckEdge checks, in the order it reports them.
@@ -26,47 +24,27 @@ const (
 	ruleRetrySchedule = "retry schedule"
 )
 
-// The rules about Attempts that every build keeps (spec/delivery.md,
-// R-7 to R-12 and R-19).
-const (
-	// maxAttempts is how many Attempts a Delivery gets at most.
-	maxAttempts = 8
-	// maxInFlight is how many Attempts an Endpoint has in flight at most.
-	maxInFlight = 4
-	// retryScale is the local stack's retry scale, HERALD_RETRY_SCALE in
-	// compose.yaml, which every delay is multiplied by.
-	retryScale = 0.001
-)
+// retryScale is the local stack's retry scale, HERALD_RETRY_SCALE in
+// compose.yaml, which every retry delay is multiplied by (R-76).
+const retryScale = 0.001
 
-// earliestRetries is the retry schedule at the local stack's scale, with
-// every delay jittered as short as it goes: the earliest each Attempt may
-// come.
-var earliestRetries = func() retry.Schedule {
-	s, err := retry.New(retryScale, func() float64 { return 0 })
-	if err != nil {
-		panic(err)
-	}
-	return s
-}()
-
-// CheckEdge checks the rules that hold at the edge, in what the Endpoints
-// received, against what the scenario sent:
+// CheckEdge checks the requirements that show in what the Endpoints
+// received, against what the scenario sent, one rule each:
 //
-//   - every Attempt is signed with its Endpoint's signing secret;
-//   - every Attempt of a Delivery carries its Message's ID as its
-//     webhook-id, and no two Messages share one at an Endpoint;
-//   - every Attempt's body is its Message's payload, byte for byte;
-//   - each Message reaches every Endpoint of its Application whose filter
-//     matches its Event type, and no other;
-//   - no Endpoint has more than 4 Attempts in flight at once;
-//   - no Attempt follows a 2xx for the same Delivery, Herald records no
-//     more than 8 Attempts for a Delivery, and no Attempt comes before the
-//     retry schedule allows, less its jitter.
+//   - signature: R-42 and R-43;
+//   - webhook-id: R-6;
+//   - payload: R-5;
+//   - fan-out: R-1 to R-4, by the harness's own matching;
+//   - in flight: R-19;
+//   - after success: R-9;
+//   - attempts: R-12, on the Attempts Herald recorded;
+//   - retry schedule: R-11 and R-76, by the harness's own schedule, held to
+//     each delay's shortest.
 //
-// Herald makes an Attempt again when it couldn't record it, or shutdown cut
-// it off: at-least-once delivery (ADR 0001). The Attempts a Delivery's
-// Endpoint received beyond those Herald recorded are such repeats, and as
-// many as there are may follow a 2xx, and as many may come early.
+// R-17 lets Herald repeat an Attempt it couldn't record, or that shutdown
+// cut off. The Attempts a Delivery's Endpoint received beyond those Herald
+// recorded are such repeats, and as many as there are may follow a 2xx,
+// and as many may come early.
 //
 // Each rule also fails when the run gives it nothing to check.
 func CheckEdge(obs Observations) []Violation {
@@ -346,14 +324,14 @@ func (e *edge) checkPayloads() {
 func (e *edge) checkFanOut() {
 	for _, app := range e.obs.Scenario.Applications {
 		for _, ep := range app.Endpoints {
-			if _, err := eventtype.ParseFilter(ep.Filter); err != nil {
+			if err := validFilter(ep.Filter); err != nil {
 				e.add(ruleFanOut, ep.Name, fmt.Sprintf("the scenario's filter %q doesn't parse: %v", ep.Filter, err))
 			}
 		}
 	}
 	for id, name := range e.names {
 		m := e.messages[name]
-		if _, err := eventtype.ParseEventType(m.EventType); err != nil {
+		if err := validEventType(m.EventType); err != nil {
 			e.add(ruleFanOut, name, fmt.Sprintf("Herald accepted Message %s with Event type %q, which doesn't parse: %v", id, m.EventType, err))
 		}
 	}
@@ -388,12 +366,11 @@ func (e *edge) matching() map[deliveryKey]bool {
 	want := map[deliveryKey]bool{}
 	for _, name := range e.names {
 		m := e.messages[name]
-		et, err := eventtype.ParseEventType(m.EventType)
-		if err != nil {
+		if validEventType(m.EventType) != nil {
 			continue
 		}
 		for _, ep := range filters[m.Application] {
-			if f, err := eventtype.ParseFilter(ep.Filter); err == nil && f.Matches(et) {
+			if validFilter(ep.Filter) == nil && matches(ep.Filter, m.EventType) {
 				want[deliveryKey{name, ep.Name}] = true
 			}
 		}
@@ -494,7 +471,7 @@ func (e *edge) checkRetrySchedule() {
 			}
 			// Attempt i+1 follows i Attempts, of which up to repeats weren't
 			// recorded.
-			earliest, _ := earliestRetries.Next(min(max(i-repeats, 0), maxAttempts-1))
+			earliest, _ := retryWindow(min(i-repeats, maxAttempts-1), retryScale)
 			if gap := a.ReceivedAt.Sub(end); gap < earliest {
 				early++
 				if first == "" {

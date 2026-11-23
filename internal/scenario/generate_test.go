@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/madskrogh/herald/internal/eventtype"
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
@@ -153,17 +152,9 @@ func application(t *testing.T, s scenario.Scenario, name string) scenario.Applic
 	return scenario.Application{}
 }
 
-// matches reports whether Herald's own filter matching sends a Message of
-// Event type et to an Endpoint with filter.
+// matches reports whether a Message of Event type et reaches an Endpoint
+// with filter, by the harness's own matching, which follows the spec.
 func matches(t *testing.T, filter []string, et string) bool {
 	t.Helper()
-	f, err := eventtype.ParseFilter(filter)
-	if err != nil {
-		t.Fatalf("filter %q: %v", filter, err)
-	}
-	e, err := eventtype.ParseEventType(et)
-	if err != nil {
-		t.Fatalf("Event type %q: %v", et, err)
-	}
-	return f.Matches(e)
+	return scenario.Matches(filter, et)
 }

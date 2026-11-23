@@ -265,6 +265,53 @@ func TestCheckSpansAllowsTheRefusalTheScenarioAsksFor(t *testing.T) {
 	}
 }
 
+// TestCheckSpansDoesNotReadErrorText checks that an error the scenario
+// causes is expected whatever words it uses: R-75 tells causes apart by
+// outcome and status code, and leaves the words to the build.
+func TestCheckSpansDoesNotReadErrorText(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		behaviour scenario.Behaviour
+	}{
+		{"an Endpoint that doesn't answer in time", scenario.TimeOut},
+		{"an Endpoint that resets the connection", scenario.Reset},
+		{"an Endpoint that answers with something that isn't HTTP", scenario.Malformed},
+		{"an Endpoint with an untrusted certificate", scenario.TLSError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			obs, spans := spanRun()
+			obs.Scenario.Applications[0].Endpoints[1].Behaviour = tt.behaviour
+			for i := range spans {
+				if spans[i].SpanID == "a3" || spans[i].SpanID == "a4" {
+					spans[i].Attributes["herald.status_code"] = "0"
+					spans[i].Attributes["herald.error"] = "no response: something went wrong"
+				}
+			}
+			if got := scenario.CheckSpans(obs, spans); len(got) != 0 {
+				t.Errorf("CheckSpans = %v, want no violations", got)
+			}
+		})
+	}
+	t.Run("a refusal of an Idempotency-Key used with another request", func(t *testing.T) {
+		t.Parallel()
+		obs, spans := spanRun()
+		m := scenario.Message{Name: "m004", Application: "app-1", EventType: "invoice.paid", IdempotencyKey: "key-m001", Payload: `{"message":"m004"}`}
+		obs.Scenario.Phases[0].Messages = append(obs.Scenario.Phases[0].Messages, m)
+		obs.Sent["m004"] = scenario.Sent{Status: 422}
+		refused := clone(spans[slices.IndexFunc(spans, func(s e2e.Span) bool { return s.SpanID == "c3" })], "c4")
+		refused.TraceID = "t4"
+		refused.StatusCode = "Error"
+		refused.Attributes["herald.outcome"] = "FailedPrecondition"
+		refused.Attributes["herald.error"] = "this key belongs to another request"
+		if got := scenario.CheckSpans(obs, append(spans, refused)); len(got) != 0 {
+			t.Errorf("CheckSpans = %v, want no violations", got)
+		}
+	})
+}
+
 // TestCheckSpansLeavesTheEdgeToCheckEdge checks that an Attempt CheckEdge
 // reports, at an Endpoint the scenario didn't create, isn't reported again
 // with the spans.
