@@ -13,7 +13,6 @@ import (
 
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/e2e"
-	"github.com/madskrogh/herald/internal/spanschema"
 )
 
 // The rules CheckSpans checks, in the order it reports them.
@@ -293,32 +292,14 @@ func (c *spanCheck) checkSchema() {
 		c.nothingToCheck(ruleSchema, "spans")
 		return
 	}
-	schema, err := spanschema.Load()
+	problems, err := e2e.SchemaProblems(c.spans)
 	if err != nil {
 		c.add(ruleSchema, "", err.Error())
 		return
 	}
-	names := make(map[string]string, len(c.spans))
 	for _, s := range c.spans {
-		names[s.SpanID] = s.Name
-	}
-	for _, s := range c.spans {
-		span := spanschema.Span{
-			Name:       s.Name,
-			Service:    s.ServiceName,
-			Attributes: s.Attributes,
-			Root:       s.ParentSpanID == "",
-		}
-		if parent, ok := c.byTrace[s.TraceID][s.ParentSpanID]; ok {
-			span.Parent = parent.Name
-		}
-		for _, l := range s.Links {
-			if name, ok := names[l.SpanID]; ok {
-				span.Links = append(span.Links, name)
-			}
-		}
-		if problems := schema.Check(span); len(problems) > 0 {
-			c.add(ruleSchema, subject(s), errors.Join(problems...).Error())
+		if ps := problems[s.SpanID]; len(ps) > 0 {
+			c.add(ruleSchema, subject(s), errors.Join(ps...).Error())
 		}
 	}
 }

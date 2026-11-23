@@ -33,22 +33,32 @@ const (
 	UUID   Type = "uuid"
 )
 
-// Attribute is an attribute key the schema lists.
+// Attribute is what the schema says of an attribute key.
 type Attribute struct {
-	Key  string
 	Type Type
 	// MayBeEmpty says whether the value may be empty text.
 	MayBeEmpty bool
 }
 
+// Root says whether a span may be the root of its trace.
+type Root string
+
+// The values of Root, as the schema's Root column gives them.
+const (
+	// RootAlways: the span never has a parent.
+	RootAlways Root = "always"
+	// RootMay: the span may have a parent or none.
+	RootMay Root = "may"
+	// RootNever: the span always has a parent.
+	RootNever Root = "never"
+)
+
 // SpanSchema is what the schema says of one span.
 type SpanSchema struct {
-	Name    string
 	Service string
 	// Parents are the spans that may be its parent.
 	Parents []string
-	// Root says whether it may have no parent.
-	Root bool
+	Root    Root
 	// Links are the spans it may link to.
 	Links []string
 	// Attributes are its attribute keys, in the schema's order.
@@ -117,7 +127,8 @@ func notInSchema(name string) error {
 // CheckAttributes returns the ways span's name and attributes break the
 // schema: a span it doesn't name; an attribute missing, or not among the
 // span's; a value of another type, or empty where it may not be; and a
-// herald.outcome the span may not take.
+// herald.outcome the span may not take. Check is what callers use; tests use
+// CheckAttributes on its own, for the vectors that give only attributes.
 func (s Schema) CheckAttributes(span Span) []error {
 	want, ok := s.Spans[span.Name]
 	if !ok {
@@ -148,7 +159,9 @@ func (s Schema) CheckAttributes(span Span) []error {
 
 // CheckTrace returns the ways span's place in its trace breaks the schema:
 // a service other than the schema's, a parent it may not have, no parent
-// where it must have one, and a link to a span it may not link to.
+// where it must have one, a parent where it may have none, and a link to a
+// span it may not link to. Check is what callers use; tests use CheckTrace
+// on its own, for the vectors that give only the trace shape.
 func (s Schema) CheckTrace(span Span) []error {
 	want, ok := s.Spans[span.Name]
 	if !ok {
@@ -159,8 +172,14 @@ func (s Schema) CheckTrace(span Span) []error {
 		problems = append(problems, fmt.Errorf("span %q: from %s, want %s", span.Name, span.Service, want.Service))
 	}
 	switch {
-	case span.Root && !want.Root:
+	case span.Root && want.Root == RootNever:
 		problems = append(problems, fmt.Errorf("span %q: no parent, want one of %q", span.Name, want.Parents))
+	case !span.Root && want.Root == RootAlways:
+		parent := "a span not among those checked"
+		if span.Parent != "" {
+			parent = fmt.Sprintf("%q", span.Parent)
+		}
+		problems = append(problems, fmt.Errorf("span %q: parent %s, want none", span.Name, parent))
 	case span.Parent != "" && !slices.Contains(want.Parents, span.Parent):
 		problems = append(problems, fmt.Errorf("span %q: parent %q, want one of %q", span.Name, span.Parent, want.Parents))
 	}
@@ -202,7 +221,7 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-// The sections of the schema file, by heading.
+// The headings of the schema file's tables.
 const (
 	sectionSpans      = "Spans"
 	sectionAttributes = "Attributes"
@@ -212,15 +231,15 @@ const (
 
 // The values of the schema's Root and Empty columns.
 var (
-	roots   = map[string]bool{"always": true, "may": true, "never": false}
+	roots   = []Root{RootAlways, RootMay, RootNever}
 	empties = map[string]bool{"allowed": true, "never": false}
 	types   = []Type{String, Int, UUID}
 )
 
 var (
-	sectionRE  = regexp.MustCompile(`^##\s+(.*?)\s*$`)
-	backtickRE = regexp.MustCompile("`([^`]*)`")
-	nameRE     = regexp.MustCompile("^`([^`]+)`$")
+	headingRE    = regexp.MustCompile(`^#+\s+(.*?)\s*$`)
+	backtickRE   = regexp.MustCompile("`([^`]*)`")
+	backtickedRE = regexp.MustCompile("^`([^`]+)`$")
 )
 
 // parse reads a span schema in the form of spec/span-schema.md: a table of
@@ -238,23 +257,25 @@ func parse(data []byte) (Schema, error) {
 		}
 	}
 	for _, r := range tables[sectionSpans] {
-		name, err := r.name("Span")
+		name, err := r.backticked("Span")
 		if err != nil {
 			return Schema{}, err
 		}
 		if _, ok := s.Spans[name]; ok {
 			return Schema{}, r.errorf("span %q listed twice", name)
 		}
-		root, ok := roots[r.cells["Root"]]
-		if !ok {
-			return Schema{}, r.errorf("Root %q is not always, may or never", r.cells["Root"])
+		root := Root(r.cells["Root"])
+		if !slices.Contains(roots, root) {
+			return Schema{}, r.errorf("Root %q is not one of %q", root, roots)
 		}
 		parents := backticks(r.cells["Parent"])
-		if !root && len(parents) == 0 {
+		switch {
+		case root == RootNever && len(parents) == 0:
 			return Schema{}, r.errorf("span %q has no parent and may not be a root", name)
+		case root == RootAlways && len(parents) > 0:
+			return Schema{}, r.errorf("span %q is always a root, but has parents", name)
 		}
 		s.Spans[name] = SpanSchema{
-			Name:    name,
 			Service: r.cells["Service"],
 			Parents: parents,
 			Root:    root,
@@ -262,7 +283,7 @@ func parse(data []byte) (Schema, error) {
 		}
 	}
 	for _, r := range tables[sectionAttributes] {
-		key, err := r.name("Key")
+		key, err := r.backticked("Key")
 		if err != nil {
 			return Schema{}, err
 		}
@@ -277,10 +298,10 @@ func parse(data []byte) (Schema, error) {
 		if !ok {
 			return Schema{}, r.errorf("attribute %q: Empty %q is not allowed or never", key, r.cells["Empty"])
 		}
-		s.Attributes[key] = Attribute{Key: key, Type: t, MayBeEmpty: empty}
+		s.Attributes[key] = Attribute{Type: t, MayBeEmpty: empty}
 	}
 	for _, r := range tables[sectionSpanAttrs] {
-		name, err := r.name("Span")
+		name, err := r.backticked("Span")
 		if err != nil {
 			return Schema{}, err
 		}
@@ -303,7 +324,7 @@ func parse(data []byte) (Schema, error) {
 		s.Spans[name] = span
 	}
 	for _, r := range tables[sectionOutcomes] {
-		name, err := r.name("Span")
+		name, err := r.backticked("Span")
 		if err != nil {
 			return Schema{}, err
 		}
@@ -311,7 +332,7 @@ func parse(data []byte) (Schema, error) {
 		if !ok {
 			return Schema{}, r.errorf("span %q is not under %q", name, "## "+sectionSpans)
 		}
-		v, err := r.name("`" + outcomeKey + "`")
+		v, err := r.backticked("`" + outcomeKey + "`")
 		if err != nil {
 			return Schema{}, err
 		}
@@ -347,16 +368,18 @@ func (r row) errorf(format string, args ...any) error {
 	return fmt.Errorf("line %d: %s", r.line, fmt.Sprintf(format, args...))
 }
 
-// name returns the one backticked name in the row's column.
-func (r row) name(column string) (string, error) {
-	m := nameRE.FindStringSubmatch(r.cells[column])
+// backticked returns what the row's column holds in backticks, the whole
+// cell: a span name, a key or a value.
+func (r row) backticked(column string) (string, error) {
+	m := backtickedRE.FindStringSubmatch(r.cells[column])
 	if m == nil {
 		return "", r.errorf("%s %q is not one name in backticks", column, r.cells[column])
 	}
 	return m[1], nil
 }
 
-// readTables returns the rows of the first table under each "##" heading.
+// readTables returns the rows of the first table under each heading, by the
+// heading's text.
 func readTables(data []byte) (map[string][]row, error) {
 	tables := map[string][]row{}
 	var (
@@ -367,7 +390,7 @@ func readTables(data []byte) (map[string][]row, error) {
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	for line := 1; sc.Scan(); line++ {
 		text := strings.TrimSpace(sc.Text())
-		if m := sectionRE.FindStringSubmatch(text); m != nil {
+		if m := headingRE.FindStringSubmatch(text); m != nil {
 			section, header, done = m[1], nil, false
 			continue
 		}
@@ -397,7 +420,7 @@ func readTables(data []byte) (map[string][]row, error) {
 		tables[section] = append(tables[section], r)
 	}
 	if err := sc.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read tables: %w", err)
 	}
 	return tables, nil
 }

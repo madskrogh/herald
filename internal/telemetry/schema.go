@@ -1,7 +1,8 @@
 // Package telemetry is Herald's tracing: the names and attribute keys of the
 // spans every service emits, which follow the span schema
-// (spec/span-schema.md), the trace context stored with Messages and Deliveries, and the
-// setup that exports spans to the Collector (spec/observability.md).
+// (spec/span-schema.md); the trace context stored with Messages and
+// Deliveries; and the setup that exports spans to the Collector
+// (spec/observability.md).
 package telemetry
 
 import (

@@ -11,7 +11,6 @@ import (
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
-	"github.com/madskrogh/herald/internal/spanschema"
 )
 
 // TestMessageIsOneTraceFromTheAPIToEveryAttempt sends a Message to two
@@ -52,23 +51,12 @@ func TestMessageIsOneTraceFromTheAPIToEveryAttempt(t *testing.T) {
 	if len(spans) != wantSpans {
 		t.Fatalf("Message's trace has %d spans, want %d: %+v", len(spans), wantSpans, spans)
 	}
-	schema, err := spanschema.Load()
+	problems, err := e2e.SchemaProblems(spans)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	names := map[string]string{}
-	for _, s := range spans {
-		names[s.SpanID] = s.Name
+		t.Fatalf("SchemaProblems: %v", err)
 	}
 	for _, s := range spans {
-		span := spanschema.Span{
-			Name:       s.Name,
-			Service:    s.ServiceName,
-			Attributes: s.Attributes,
-			Parent:     names[s.ParentSpanID],
-			Root:       s.ParentSpanID == "",
-		}
-		for _, err := range schema.Check(span) {
+		for _, err := range problems[s.SpanID] {
 			t.Errorf("span schema: %v", err)
 		}
 		for _, key := range []string{"service.version", "herald.run_id"} {

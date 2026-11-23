@@ -44,15 +44,15 @@ Why: each span carries everything known at that point, so a question nobody plan
 
 ### R-71 · implemented
 
-Each attribute of a span MUST have the type the [span schema](span-schema.md) gives its key, and MUST NOT be empty unless the schema allows it.
+Each attribute of a span MUST have the type the [span schema](span-schema.md) gives its key, and MUST NOT be empty unless the schema allows it. An `int` attribute MUST be emitted as an integer, and any other as a string.
 
-Why: a query compares and sums attribute values, so an ID that isn't a UUID or a count that isn't a number reads as nothing, silently. Empty is allowed only where the value can be unknown, so a missing ID is a visible change.
+Why: a query compares and sums attribute values, so an ID that isn't a UUID or a count that isn't a number reads as nothing, silently. Empty is allowed only where the value can be unknown, so a missing ID is a visible change. Emitting a number as an integer keeps its type in OTLP for any store that keeps it.
 
 | Span | Attributes | Follows the schema | Names |
 |---|---|---|---|
 | `handoff.batch` | `herald.batch_size=two`, `herald.outcome=handed_off`, `herald.error=` | no | `herald.batch_size` |
 | `handoff.batch` | `herald.batch_size=`, `herald.outcome=handed_off`, `herald.error=` | no | `herald.batch_size` |
-| `handoff.batch` | `herald.batch_size=-1`, `herald.outcome=failed`, `herald.error=nats: timeout` | yes | |
+| `handoff.batch` | `herald.batch_size=3`, `herald.outcome=failed`, `herald.error=nats: timeout` | yes | |
 | `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/CreateMessage`, `herald.tenant_id=`, `herald.outcome=Unauthenticated`, `herald.error=no API key` | yes | |
 | `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/CreateMessage`, `herald.tenant_id=0198A1B2-0000-7000-8000-0000000000AA`, `herald.outcome=OK`, `herald.error=` | no | `herald.tenant_id` |
 | `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/CreateMessage`, `herald.tenant_id=tenant-1`, `herald.outcome=OK`, `herald.error=` | no | `herald.tenant_id` |
@@ -90,6 +90,7 @@ Why: the trace shape is what a developer follows from one Message to every step 
 | `tenant_api.call` | herald-api | `tenant_api.call` | | no | `tenant_api.call` |
 | `handoff.batch` | herald-api | none | `handoff`, `handoff` | yes | |
 | `handoff.batch` | herald-api | none | `attempt` | no | `attempt` |
+| `handoff.batch` | herald-api | `tenant_api.call` | `handoff` | no | `handoff.batch` |
 | `handoff` | herald-api | `tenant_api.call` | `handoff` | no | `handoff` |
 
 ### R-74 · implemented
@@ -101,6 +102,12 @@ Why: spans leave Herald for the Collector and the telemetry store, which the Ten
 | Endpoint URL | Attempt | Attempt's error names | `herald.error` |
 |---|---|---|---|
 | `http://127.0.0.1:1/webhooks?token=tok_9f2c41d7` | connection refused | the URL, with `tok_9f2c41d7` | why the connection failed, without `tok_9f2c41d7` |
+
+### R-75 · planned
+
+A Tenant API call's span MUST start a new trace, whatever trace context the Tenant sends with the call.
+
+Why: a Tenant then can't choose Herald's trace IDs, join its own traces to Herald's, or turn Herald's sampling off.
 
 ### R-54 · implemented
 

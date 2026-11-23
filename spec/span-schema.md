@@ -6,11 +6,11 @@ Each span is one wide span: it carries everything known at that point, so a ques
 
 ## Spans
 
-`Parent` lists the spans that may be a span's parent, in its trace. `Root` says whether the span may have no parent: `always`, `may` or `never`. `Links to` lists the spans it may link to.
+`Service` is the service that emits the span, as its `service.name` ([R-55](observability.md#r-55--implemented)), so a developer knows which service's code and logs to read. `Parent` lists the spans that may be a span's parent, in its trace. `Root` says whether the span may have no parent: `always`, `may` or `never`. `Links to` lists the spans it may link to.
 
 | Span | Service | Parent | Root | Links to | Why |
 |---|---|---|---|---|---|
-| `tenant_api.call` | herald-api | | always | | One call to the Tenant API, over gRPC or REST, is the root of the trace of any Message it creates ([R-51](observability.md#r-51--implemented)). It ignores trace context a Tenant sends, so a Tenant can't choose Herald's trace IDs or turn its sampling off. |
+| `tenant_api.call` | herald-api | | always | | One call to the Tenant API, over gRPC or REST, is the root of the trace of any Message it creates ([R-51](observability.md#r-51--implemented)), whatever trace context the Tenant sends ([R-75](observability.md#r-75--planned)). |
 | `handoff.batch` | herald-api | | always | `handoff` | A Batch holds Messages from many traces, so it can't have one parent; it starts a trace of its own and links to the handoff of each Message in it ([R-52](observability.md#r-52--implemented)). |
 | `handoff` | herald-api | `tenant_api.call` | may | | One Message in a Batch, in the Message's trace. A Message stored before Messages kept their trace context has none to continue, and starts a trace of its own. |
 | `store_deliveries` | herald-dispatcher | `handoff` | may | | A dispatcher storing one Message's Deliveries from a Batch, in the Message's trace. Each Delivery keeps its context, so that every Attempt for it is its child. A Message handed off without trace context starts a trace of its own. |
@@ -27,7 +27,7 @@ Every value is text in the store, where checks and people read it ([ADR 0006](..
 | `herald.application_id` | uuid | allowed | The Application the Message was sent to. Empty for a Message stored by a dispatcher before Messages carried their Application across the handoff. |
 | `herald.endpoint_id` | uuid | never | The Endpoint an Attempt went to, so a query reads one Endpoint's Attempts. |
 | `herald.message_id` | uuid | never | The Message, so a query finds its trace from the ID the Tenant API returned. |
-| `herald.delivery_id` | uuid | never | The Delivery an Attempt was for. |
+| `herald.delivery_id` | uuid | never | The Delivery an Attempt was for, so a query reads one Delivery's Attempts in order, as its retries. |
 | `herald.attempt` | int | never | Which of its Delivery's Attempts this is, counted from 1, so retries are told from first Attempts. |
 | `herald.outcome` | string | never | How the span's work ended. Its values are listed for each span below, so Attempts and handoffs are counted by outcome. |
 | `herald.status_code` | int | never | An Attempt's response status, or 0 if there was no response. |
