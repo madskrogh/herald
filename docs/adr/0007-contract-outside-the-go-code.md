@@ -37,7 +37,7 @@ Nothing else in either schema is in the contract: not indexes, not the other col
 - A grammar, such as the Event type and the filter syntax, is written in ABNF.
 - Numbers and limits are a table, with the reason beside each one.
 - Test vectors are readable tables, each tagged with the requirement it exercises. The checks read the same file a person reads.
-- CI fails if a MUST has no vector, or a vector names a requirement that doesn't exist.
+- CI fails if an implemented MUST has no vector, or a vector names a requirement that doesn't exist. A planned requirement needs no vector, so it can be written down before anyone knows how to test it.
 
 ## Where each fact lives
 
@@ -79,7 +79,7 @@ Checks that only make sense for the Go build stay as repository checks outside t
 ## Considered Options
 
 - **The Go code as the contract** (today): rejected. A port would have to read the Go to know what to do, and could only show it matches by running Go checks over Go types.
-- **RFC-style paragraphs**: rejected on evidence. In a trial, six independent implementations of three rules (no Attempt after a `2xx`, the retry schedule, Event type and filter matching) were written without the Go code, from three spec styles. Both implementations built from paragraphs missed the last sentence of the retry-schedule paragraph (as many Attempts as there are repeats may come early). They failed 2 of 26 hand-picked and 17 of 120 random cases, and neither noticed the gap. All four implementations built from numbered requirements passed every case.
+- **RFC-style paragraphs**: rejected on evidence. In a trial, six independent implementations of three rules (no Attempt after a `2xx`, the retry schedule, Event type and filter matching) were written without the Go code, from three spec styles. Both implementations built from paragraphs missed the last sentence of the retry-schedule paragraph (as many Attempts as there are repeats may come early). Each failed 2 of 26 hand-picked and 17 of 120 random retry-schedule cases, and neither noticed the gap. All four implementations built from numbered requirements passed every case.
 - **Numbered requirements with worked examples**: not required. In the same trial, worked examples showed no extra gain, because every implementation built from numbered requirements already passed without them. The sample is small, and it can't separate one rule per item from the sentence patterns.
 
 ## Consequences
