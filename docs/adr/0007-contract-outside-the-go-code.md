@@ -10,21 +10,21 @@ An implementation must match:
 
 - the Tenant API: the `.proto` files, the OpenAPI spec, and the golden responses;
 - the webhook wire format: Standard Webhooks ([ADR 0003](0003-standard-webhooks-signing.md));
-- the telemetry schema: span names, attribute keys and types, the allowed `outcome` values, and the trace shape. It is stated explicitly, enforced against the spans a run produces, and expected to grow;
+- the telemetry schema: span names, attribute keys and types, the allowed values of `herald.outcome`, and the trace shape. It is stated explicitly, enforced against the spans a run produces, and expected to grow;
 - the Postgres schema, limited to the columns below.
 
 `herald-admin` is not in the boundary for now.
 
 ### Postgres columns
 
-These are what the scenario writes for setup and reads for final state:
+These are what the scenario writes for setup and reads for final state. This table is the column list's first statement; once the column list is a data file, that file is its home.
 
 | Table | Columns | What must hold |
 |---|---|---|
 | `ingest.tenants` | `id`, `name` | Creating a row with a name creates a Tenant. |
 | `ingest.api_keys` | `tenant_id`, `key_hash` | `key_hash` is the SHA-256 of a key that the Tenant API then accepts for that Tenant. |
-| `ingest.messages` | `id`, `tenant_id`, `idempotency_key`, `handed_off_at`, `parked_at` | `id` is the Message ID the Tenant API returned. The two timestamps are read only as set or not set. |
-| `delivery.deliveries` | `id`, `message_id`, `endpoint_id`, `state` | `endpoint_id` is the Endpoint ID the Tenant API returned. `state` is `pending`, `succeeded` or `failed`. |
+| `ingest.messages` | `id`, `tenant_id`, `idempotency_key`, `handed_off_at`, `parked_at` | `id` is the Message ID the Tenant API returned, and `tenant_id` is its Tenant's `id`. The two timestamps are read only as set or not set. |
+| `delivery.deliveries` | `id`, `message_id`, `endpoint_id`, `state` | `message_id` is the Message ID the Tenant API returned, and `endpoint_id` is the Endpoint ID. `state` is `pending`, `succeeded` or `failed`. |
 | `delivery.attempts` | `delivery_id`, `number` | One row per recorded Attempt, numbered from 1. |
 
 Nothing else in either schema is in the contract: not indexes, not the other columns. Behaviour that rests on an index, such as the Idempotency-Key, is specified and tested through the Tenant API. Once the Delivery API (M3) returns Attempt history, `delivery.attempts` leaves the contract.
@@ -84,7 +84,7 @@ Checks that only make sense for the Go build stay as repository checks outside t
 
 ## Consequences
 
-- The work after this ADR is separate changes: the spec skeleton (structure, IDs, status field, and the CI link check); splitting `docs/design.md` into the spec and the README; the telemetry schema as a data file, which the Go constants are checked against and a check runs over every span of a scenario run; the Postgres column list as a data file, checked against the migrated database; the scenario invariants as requirements with vectors, which the Go checks read; and the scenario's traffic as data rather than a seed.
+- The work after this ADR is separate changes: the spec skeleton (structure, IDs, status field, and the CI link check); splitting `docs/design.md` into the spec and the README; the telemetry schema as a data file, which the Go constants are checked against and a check runs over every span of a scenario run; the Postgres column list as a data file, with each column's type and the IDs the database generates, checked against the migrated database; the scenario invariants as requirements with vectors, which the Go checks read; and the scenario's traffic as data rather than a seed.
 - Until the spec exists, `docs/design.md` stays the statement of behaviour.
 - The development workflow changes to follow "Changing the spec": today an issue, with the decisions recorded on it, is what a change is checked against. That change is made on its own.
 - The checks that read the telemetry schema come after the schema file, so they read it rather than the Go constants.
