@@ -30,17 +30,77 @@ Why: a Batch holds Messages from many traces, so it can't have one parent; the l
 
 ### R-53 · implemented
 
-Every span Herald emits MUST be one the span schema names, with exactly the attributes the schema gives it. An attribute that doesn't apply MUST be set to its zero value, never left out.
+Every span Herald emits MUST be one the [span schema](span-schema.md) names, with exactly the attributes the schema gives it, each once. An attribute that doesn't apply MUST be set to its zero value, never left out.
 
 Why: each span carries everything known at that point, so a question nobody planned for is a new query, not new instrumentation. A fixed set of keys makes renaming or dropping one a visible change, not a check that silently reads nothing, and a check can tell a missing attribute from an empty one.
 
-| Span | Attributes | `herald.outcome` |
-|---|---|---|
-| `tenant_api.call` | `rpc.method`, `herald.tenant_id`, `herald.outcome`, `herald.error` | the call's gRPC status code, such as `OK` or `NotFound` |
-| `handoff.batch` | `herald.batch_size`, `herald.outcome`, `herald.error` | `handed_off`, `failed` |
-| `handoff` | `herald.tenant_id`, `herald.application_id`, `herald.message_id`, `herald.batch_size`, `herald.delivery_count`, `herald.outcome`, `herald.error` | `handed_off`, `parked`, `failed` |
-| `store_deliveries` | `herald.tenant_id`, `herald.application_id`, `herald.message_id`, `herald.batch_size`, `herald.delivery_count`, `herald.outcome`, `herald.error` | `stored`, `failed` |
-| `attempt` | `herald.tenant_id`, `herald.application_id`, `herald.endpoint_id`, `herald.message_id`, `herald.delivery_id`, `herald.attempt`, `herald.outcome`, `herald.status_code`, `herald.latency_ms`, `herald.lateness_ms`, `herald.error` | `succeeded`, `pending`, `failed`, `cut_off`, `not_recorded` |
+| Span | Attributes | Follows the schema | Names |
+|---|---|---|---|
+| `handoff.batch` | `herald.batch_size=2`, `herald.outcome=handed_off`, `herald.error=` | yes | |
+| `handoff.batch` | `herald.error=`, `herald.outcome=handed_off`, `herald.batch_size=2` | yes | |
+| `handoff.batch` | `herald.batch_size=2`, `herald.outcome=handed_off` | no | `herald.error` |
+| `handoff.batch` | `herald.batch_size=2`, `herald.outcome=handed_off`, `herald.error=`, `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa` | no | `herald.tenant_id` |
+| `batch` | `herald.batch_size=2`, `herald.outcome=handed_off`, `herald.error=` | no | `batch` |
+
+### R-71 · implemented
+
+Each attribute of a span MUST have the type the [span schema](span-schema.md) gives its key, and MUST NOT be empty unless the schema allows it.
+
+Why: a query compares and sums attribute values, so an ID that isn't a UUID or a count that isn't a number reads as nothing, silently. Empty is allowed only where the value can be unknown, so a missing ID is a visible change.
+
+| Span | Attributes | Follows the schema | Names |
+|---|---|---|---|
+| `handoff.batch` | `herald.batch_size=two`, `herald.outcome=handed_off`, `herald.error=` | no | `herald.batch_size` |
+| `handoff.batch` | `herald.batch_size=`, `herald.outcome=handed_off`, `herald.error=` | no | `herald.batch_size` |
+| `handoff.batch` | `herald.batch_size=-1`, `herald.outcome=failed`, `herald.error=nats: timeout` | yes | |
+| `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/CreateMessage`, `herald.tenant_id=`, `herald.outcome=Unauthenticated`, `herald.error=no API key` | yes | |
+| `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/CreateMessage`, `herald.tenant_id=0198A1B2-0000-7000-8000-0000000000AA`, `herald.outcome=OK`, `herald.error=` | no | `herald.tenant_id` |
+| `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/CreateMessage`, `herald.tenant_id=tenant-1`, `herald.outcome=OK`, `herald.error=` | no | `herald.tenant_id` |
+| `tenant_api.call` | `rpc.method=`, `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.outcome=OK`, `herald.error=` | no | `rpc.method` |
+| `handoff` | `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.application_id=`, `herald.message_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.batch_size=1`, `herald.delivery_count=0`, `herald.outcome=handed_off`, `herald.error=` | yes | |
+| `handoff` | `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.application_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.message_id=`, `herald.batch_size=1`, `herald.delivery_count=0`, `herald.outcome=handed_off`, `herald.error=` | no | `herald.message_id` |
+
+### R-72 · implemented
+
+The `herald.outcome` attribute of a span MUST be one of the values the [span schema](span-schema.md) lists for that span.
+
+Why: Attempts, handoffs and calls are counted by outcome, so a value outside the list is a count nobody queries.
+
+| Span | Attributes | Follows the schema | Names |
+|---|---|---|---|
+| `handoff.batch` | `herald.batch_size=2`, `herald.outcome=failed`, `herald.error=nats: timeout` | yes | |
+| `handoff.batch` | `herald.batch_size=2`, `herald.outcome=parked`, `herald.error=` | no | `herald.outcome` |
+| `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/GetMessage`, `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.outcome=NotFound`, `herald.error=message not found` | yes | |
+| `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/GetMessage`, `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.outcome=NOT_FOUND`, `herald.error=message not found` | no | `herald.outcome` |
+
+### R-73 · implemented
+
+A span's parent, and each span it links to, MUST be one the [span schema](span-schema.md) allows for it. A span MUST have a parent unless the schema allows it to be a root, and MUST come from the service the schema names.
+
+Why: the trace shape is what a developer follows from one Message to every step of its journey ([R-51](#r-51--implemented), [R-52](#r-52--implemented)); a span under the wrong parent, or from the wrong service, breaks the path without breaking the trace.
+
+| Span | Service | Parent | Links to | Follows the schema | Names |
+|---|---|---|---|---|---|
+| `handoff` | herald-api | `tenant_api.call` | | yes | |
+| `handoff` | herald-api | none | | yes | |
+| `handoff` | herald-dispatcher | `tenant_api.call` | | no | herald-dispatcher |
+| `store_deliveries` | herald-dispatcher | `tenant_api.call` | | no | `tenant_api.call` |
+| `attempt` | herald-dispatcher | `store_deliveries` | | yes | |
+| `attempt` | herald-dispatcher | `attempt` | | no | `attempt` |
+| `tenant_api.call` | herald-api | `tenant_api.call` | | no | `tenant_api.call` |
+| `handoff.batch` | herald-api | none | `handoff`, `handoff` | yes | |
+| `handoff.batch` | herald-api | none | `attempt` | no | `attempt` |
+| `handoff` | herald-api | `tenant_api.call` | `handoff` | no | `handoff` |
+
+### R-74 · implemented
+
+An `attempt` span's `herald.error` MUST NOT hold the Endpoint's URL, or any part of its path or query, even when the Attempt's own error, which the Tenant sees, does.
+
+Why: spans leave Herald for the Collector and the telemetry store, which the Tenant's secrets don't otherwise reach, and an Endpoint URL may carry a token in its query (decided in #77).
+
+| Endpoint URL | Attempt | Attempt's error names | `herald.error` |
+|---|---|---|---|
+| `http://127.0.0.1:1/webhooks?token=tok_9f2c41d7` | connection refused | the URL, with `tok_9f2c41d7` | why the connection failed, without `tok_9f2c41d7` |
 
 ### R-54 · implemented
 

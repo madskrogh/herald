@@ -1,13 +1,12 @@
-// Package telemetry is Herald's tracing: the span schema every service's spans
-// follow, the trace context stored with Messages and Deliveries, and the
+// Package telemetry is Herald's tracing: the names and attribute keys of the
+// spans every service emits, which follow the span schema
+// (spec/span-schema.md), the trace context stored with Messages and Deliveries, and the
 // setup that exports spans to the Collector (spec/observability.md).
 package telemetry
 
 import (
-	"fmt"
-	"slices"
-
 	"go.opentelemetry.io/otel/attribute"
+	"google.golang.org/grpc/codes"
 )
 
 // The names of the spans Herald emits. Schema lists each one's attributes.
@@ -43,8 +42,8 @@ const (
 	DeliveryID    attribute.Key = "herald.delivery_id"
 	// AttemptNumber counts a Delivery's Attempts from 1.
 	AttemptNumber attribute.Key = "herald.attempt"
-	// Outcome is how the span's work ended. The values each span uses are
-	// listed with it in Schema.
+	// Outcome is how the span's work ended. Outcomes lists the values each
+	// span uses.
 	Outcome attribute.Key = "herald.outcome"
 	// StatusCode is an Attempt's response status, or 0 if there was no
 	// response.
@@ -63,7 +62,7 @@ const (
 	Error attribute.Key = "herald.error"
 )
 
-// The values of Outcome. Schema says which each span uses.
+// The values of Outcome. Outcomes says which each span uses.
 const (
 	// OutcomeHandedOff: the Message was handed off. For a Batch, its round
 	// committed: each of its Messages was handed off or parked, and their
@@ -88,47 +87,32 @@ const (
 )
 
 // Schema lists the attribute keys of each span Herald emits. Every span
-// carries exactly these, so renaming or dropping one is a visible change
-// that fails the tests, not a query that silently reads nothing.
+// carries exactly these. A test checks it against the span schema in the
+// spec, which is what the code must follow; nothing else reads it.
 var Schema = map[string][]attribute.Key{
-	// Outcome: the call's gRPC status code, such as OK or NotFound. The
-	// Tenant is empty for a call that isn't authenticated.
-	SpanTenantAPICall: {RPCMethod, TenantID, Outcome, Error},
-	// Outcome: handed_off, or failed when the Batch's round failed.
-	SpanHandoffBatch: {BatchSize, Outcome, Error},
-	// Outcome: handed_off, parked, or failed when the round failed and the
-	// Message stays in the Outbox.
-	SpanHandoff: {TenantID, ApplicationID, MessageID, BatchSize, DeliveryCount, Outcome, Error},
-	// Outcome: stored, or failed when the Batch was not stored.
+	SpanTenantAPICall:   {RPCMethod, TenantID, Outcome, Error},
+	SpanHandoffBatch:    {BatchSize, Outcome, Error},
+	SpanHandoff:         {TenantID, ApplicationID, MessageID, BatchSize, DeliveryCount, Outcome, Error},
 	SpanStoreDeliveries: {TenantID, ApplicationID, MessageID, BatchSize, DeliveryCount, Outcome, Error},
-	// Outcome: the Delivery's state after the Attempt (succeeded, pending or
-	// failed); cut_off when shutdown cut the Attempt off and it isn't
-	// counted; or not_recorded when the Attempt couldn't be recorded, and
-	// the error says why.
-	SpanAttempt: {TenantID, ApplicationID, EndpointID, MessageID, DeliveryID, AttemptNumber, Outcome, StatusCode, LatencyMs, LatenessMs, Error},
+	SpanAttempt:         {TenantID, ApplicationID, EndpointID, MessageID, DeliveryID, AttemptNumber, Outcome, StatusCode, LatencyMs, LatenessMs, Error},
 }
 
-// CheckSpan reports whether a span named name with attributes keys matches
-// the schema: a span Schema lists, with each of its keys once and no other.
-func CheckSpan(name string, keys []string) error {
-	want, ok := Schema[name]
-	if !ok {
-		return fmt.Errorf("span %q is not in the schema", name)
+// Outcomes lists the values of Outcome each span Herald emits takes. A test
+// checks it against the span schema in the spec; nothing else reads it.
+var Outcomes = map[string][]string{
+	SpanTenantAPICall:   grpcCodes(),
+	SpanHandoffBatch:    {OutcomeHandedOff, OutcomeFailed},
+	SpanHandoff:         {OutcomeHandedOff, OutcomeParked, OutcomeFailed},
+	SpanStoreDeliveries: {OutcomeStored, OutcomeFailed},
+	SpanAttempt:         {OutcomeSucceeded, OutcomePending, OutcomeFailed, OutcomeCutOff, OutcomeNotRecorded},
+}
+
+// grpcCodes returns the name of each gRPC status code, the outcome of a
+// Tenant API call.
+func grpcCodes() []string {
+	var names []string
+	for c := codes.OK; c <= codes.Unauthenticated; c++ {
+		names = append(names, c.String())
 	}
-	seen := make(map[string]bool, len(keys))
-	for _, k := range keys {
-		if seen[k] {
-			return fmt.Errorf("span %q: attribute %q twice", name, k)
-		}
-		seen[k] = true
-		if !slices.Contains(want, attribute.Key(k)) {
-			return fmt.Errorf("span %q: attribute %q is not in the schema", name, k)
-		}
-	}
-	for _, k := range want {
-		if !seen[string(k)] {
-			return fmt.Errorf("span %q: attribute %q is missing", name, k)
-		}
-	}
-	return nil
+	return names
 }
