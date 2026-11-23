@@ -60,6 +60,20 @@ _Avoid_: Try, call, request
 Starting a fresh retry schedule for an existing Delivery, whether it succeeded or failed, with the same webhook ID.
 _Avoid_: Resend, retry, redeliver
 
+### The spec
+
+**Spec**:
+The numbered requirements in `spec/`, which state every decision in Herald that someone at its boundaries can notice, and which Herald's code is derived from. Not an issue, a design doc or the code.
+_Avoid_: Specification document, design doc, RFC, requirements doc
+
+**Requirement**:
+One rule in the spec, with a stable ID (`R-4`), a status (implemented, planned or withdrawn), and the reason for it.
+_Avoid_: Clause, spec item, acceptance criterion
+
+**Test vector**:
+A table of cases for one requirement (given these inputs, Herald gives these results) that a person reads and the checks run. Usually called a vector.
+_Avoid_: Test case, fixture, example, golden file
+
 ### Testing
 
 **Scenario invariant**:
