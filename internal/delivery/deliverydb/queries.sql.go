@@ -14,33 +14,37 @@ import (
 )
 
 const claimEndpointDeliveries = `-- name: ClaimEndpointDeliveries :many
-WITH claimed AS (
+WITH due AS (
+    SELECT id, next_attempt_at FROM delivery.deliveries
+    WHERE endpoint_id = $1::uuid
+      AND state = 'pending' AND next_attempt_at <= $2::timestamptz
+    ORDER BY next_attempt_at
+    LIMIT $3::integer
+    FOR UPDATE SKIP LOCKED
+),
+claimed AS (
     UPDATE delivery.deliveries d
     SET lease_id = gen_random_uuid(),
-        leased_until = $1::timestamptz,
-        next_attempt_at = $1::timestamptz
-    WHERE d.id IN (
-        SELECT due.id FROM delivery.deliveries due
-        WHERE due.endpoint_id = $2::uuid
-          AND due.state = 'pending' AND due.next_attempt_at <= $3::timestamptz
-        ORDER BY due.next_attempt_at
-        LIMIT $4::integer
-        FOR UPDATE SKIP LOCKED
-    )
-    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count, d.traceparent
+        leased_until = $4::timestamptz,
+        next_attempt_at = $4::timestamptz
+    FROM due
+    WHERE d.id = due.id
+    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count, d.traceparent,
+              due.next_attempt_at AS due_at
 )
 SELECT c.id, c.message_id, m.tenant_id, m.application_id, m.event_type, m.payload,
        c.endpoint_id, c.endpoint_url, c.signing_secrets, c.state, c.next_attempt_at,
-       c.lease_id::uuid AS lease_id, c.attempt_count, coalesce(c.traceparent, '')::text AS traceparent
+       c.lease_id::uuid AS lease_id, c.attempt_count, coalesce(c.traceparent, '')::text AS traceparent,
+       c.due_at::timestamptz AS due_at
 FROM claimed c
 JOIN delivery.messages m ON m.id = c.message_id
 `
 
 type ClaimEndpointDeliveriesParams struct {
-	LeasedUntil   time.Time
 	EndpointID    uuid.UUID
 	Now           time.Time
 	MaxDeliveries int32
+	LeasedUntil   time.Time
 }
 
 type ClaimEndpointDeliveriesRow struct {
@@ -58,17 +62,19 @@ type ClaimEndpointDeliveriesRow struct {
 	LeaseID        uuid.UUID
 	AttemptCount   int32
 	Traceparent    string
+	DueAt          time.Time
 }
 
 // Leases up to @max_deliveries of the Endpoint's pending Deliveries due at
 // @now, until @leased_until. A leased Delivery is due again when its lease
 // runs out, so one whose worker never records its Attempt is claimed again.
+// due_at is when each fell due, before the lease moved it.
 func (q *Queries) ClaimEndpointDeliveries(ctx context.Context, arg ClaimEndpointDeliveriesParams) ([]ClaimEndpointDeliveriesRow, error) {
 	rows, err := q.db.Query(ctx, claimEndpointDeliveries,
-		arg.LeasedUntil,
 		arg.EndpointID,
 		arg.Now,
 		arg.MaxDeliveries,
+		arg.LeasedUntil,
 	)
 	if err != nil {
 		return nil, err
@@ -92,6 +98,7 @@ func (q *Queries) ClaimEndpointDeliveries(ctx context.Context, arg ClaimEndpoint
 			&i.LeaseID,
 			&i.AttemptCount,
 			&i.Traceparent,
+			&i.DueAt,
 		); err != nil {
 			return nil, err
 		}

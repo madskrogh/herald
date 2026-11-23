@@ -41,6 +41,10 @@ type Config struct {
 	// ClickHouseURL is ClickHouse's HTTP interface, with its credentials,
 	// such as http://herald:herald@localhost:8123.
 	ClickHouseURL string
+	// APIPprofURL and DispatcherPprofURL are where herald-api and
+	// herald-dispatcher serve pprof, such as http://localhost:6060. The
+	// scenario reads their goroutine profiles; the end-to-end tests don't.
+	APIPprofURL, DispatcherPprofURL string
 }
 
 // ConfigFromEnv reads the Config for the compose stack from the environment,
@@ -54,6 +58,9 @@ type Config struct {
 //	                           (default 127.0.0.1, as on Docker Desktop)
 //	HERALD_E2E_OTLP_URL        the Collector's OTLP/HTTP base URL
 //	HERALD_E2E_CLICKHOUSE_URL  ClickHouse's HTTP interface, with credentials
+//	HERALD_E2E_API_PPROF_URL   herald-api's pprof, for the scenario
+//	HERALD_E2E_DISPATCHER_PPROF_URL
+//	                           herald-dispatcher's pprof, for the scenario
 //
 // herald-dispatcher reaches the fake Endpoints as host.docker.internal
 // (compose.yaml), on a port picked when they start.
@@ -63,12 +70,14 @@ func ConfigFromEnv(getenv func(string) string) (cfg Config, ok bool, err error) 
 		ip = "127.0.0.1"
 	}
 	cfg = Config{
-		APIURL:        getenv("HERALD_E2E_API_URL"),
-		DatabaseURL:   getenv("HERALD_E2E_DATABASE_URL"),
-		EndpointAddr:  net.JoinHostPort(ip, "0"),
-		EndpointHost:  "host.docker.internal",
-		OTLPURL:       getenv("HERALD_E2E_OTLP_URL"),
-		ClickHouseURL: getenv("HERALD_E2E_CLICKHOUSE_URL"),
+		APIURL:             getenv("HERALD_E2E_API_URL"),
+		DatabaseURL:        getenv("HERALD_E2E_DATABASE_URL"),
+		EndpointAddr:       net.JoinHostPort(ip, "0"),
+		EndpointHost:       "host.docker.internal",
+		OTLPURL:            getenv("HERALD_E2E_OTLP_URL"),
+		ClickHouseURL:      getenv("HERALD_E2E_CLICKHOUSE_URL"),
+		APIPprofURL:        getenv("HERALD_E2E_API_PPROF_URL"),
+		DispatcherPprofURL: getenv("HERALD_E2E_DISPATCHER_PPROF_URL"),
 	}
 	if cfg.APIURL == "" {
 		return Config{}, false, nil
@@ -92,9 +101,11 @@ type Stack struct {
 	otlpURL       string
 	clickHouseURL string
 	client        *http.Client
-	pool          *pgxpool.Pool
-	ingest        *ingest.Store
-	deliveries    *delivery.Store
+	// pprofURLs holds where each service serves pprof, by service name.
+	pprofURLs  map[string]string
+	pool       *pgxpool.Pool
+	ingest     *ingest.Store
+	deliveries *delivery.Store
 	// Endpoints serves the fake Endpoints that Tenants register.
 	Endpoints *endpointtest.Server
 }
@@ -120,10 +131,14 @@ func Connect(ctx context.Context, cfg Config) (*Stack, error) {
 		otlpURL:       cfg.OTLPURL,
 		clickHouseURL: cfg.ClickHouseURL,
 		client:        &http.Client{Timeout: 30 * time.Second},
-		pool:          pool,
-		ingest:        ingest.NewStore(pool),
-		deliveries:    delivery.NewStore(pool),
-		Endpoints:     endpoints,
+		pprofURLs: map[string]string{
+			"herald-api":        cfg.APIPprofURL,
+			"herald-dispatcher": cfg.DispatcherPprofURL,
+		},
+		pool:       pool,
+		ingest:     ingest.NewStore(pool),
+		deliveries: delivery.NewStore(pool),
+		Endpoints:  endpoints,
 	}, nil
 }
 
@@ -143,7 +158,7 @@ func (s *Stack) NewTenant(ctx context.Context, name string) (*Tenant, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Tenant{stack: s, apiKey: key}, nil
+	return &Tenant{ID: tenant.ID, stack: s, apiKey: key}, nil
 }
 
 // pollInterval is how often poll checks the stack's state. The stack runs in
@@ -196,6 +211,53 @@ func (s *Stack) Attempts(ctx context.Context, deliveryID uuid.UUID) ([]delivery.
 	return s.deliveries.Attempts(ctx, deliveryID)
 }
 
+// TenantMessages returns where each of the Tenant's Messages is: handed off,
+// Parked, or still in the Outbox.
+func (s *Stack) TenantMessages(ctx context.Context, tenantID uuid.UUID) ([]ingest.MessageStatus, error) {
+	return s.ingest.TenantMessages(ctx, tenantID)
+}
+
+// MessageDeliveries returns the Deliveries of the Message with the given ID,
+// whatever their state, ordered by ID.
+func (s *Stack) MessageDeliveries(ctx context.Context, messageID uuid.UUID) ([]delivery.Delivery, error) {
+	return s.deliveries.MessageDeliveries(ctx, messageID)
+}
+
+// GoroutineProfile returns the service's goroutine profile, in pprof's
+// debug=1 text. Each request has a connection of its own, closed after it,
+// so the profiles a caller compares don't count a connection kept from the
+// one before.
+func (s *Stack) GoroutineProfile(ctx context.Context, service string) ([]byte, error) {
+	base := s.pprofURLs[service]
+	if base == "" {
+		return nil, fmt.Errorf("goroutine profile of %s: no pprof URL for it", service)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/debug/pprof/goroutine?debug=1", nil)
+	if err != nil {
+		return nil, fmt.Errorf("goroutine profile of %s: %w", service, err)
+	}
+	req.Close = true
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("goroutine profile of %s: %w", service, err)
+	}
+	defer res.Body.Close()
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("goroutine profile of %s: read: %w", service, err)
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("goroutine profile of %s: %w", service, &StatusError{Code: res.StatusCode, Body: data})
+	}
+	return data, nil
+}
+
+// CloseIdleConnections closes the connections to the Tenant API that the
+// Stack keeps open between calls, so that herald-api stops serving them.
+func (s *Stack) CloseIdleConnections() {
+	s.client.CloseIdleConnections()
+}
+
 func anyPending(deliveries []delivery.Delivery) bool {
 	for _, d := range deliveries {
 		if d.State == delivery.StatePending {
@@ -207,6 +269,7 @@ func anyPending(deliveries []delivery.Delivery) bool {
 
 // Tenant calls the Tenant API with one Tenant's API key.
 type Tenant struct {
+	ID     uuid.UUID
 	stack  *Stack
 	apiKey string
 }

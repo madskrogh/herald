@@ -94,7 +94,8 @@ func (s *Server) NewTLSEndpoint(ctx context.Context) (*Endpoint, error) {
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
-			e.record(Attempt{EndpointURL: e.URL, ReceivedAt: time.Now(), Handshake: true})
+			now := time.Now()
+			e.record(Attempt{EndpointURL: e.URL, ReceivedAt: now, AnsweredAt: now, Handshake: true})
 			return nil, nil
 		},
 	}
@@ -266,6 +267,7 @@ func (e *Endpoint) answered(number int, answer Answer) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.attempts[number-1].Answer = answer
+	e.attempts[number-1].AnsweredAt = time.Now()
 }
 
 // SetSecret sets the signing secret the Endpoint verifies its Attempts with:
@@ -316,6 +318,10 @@ type Attempt struct {
 	Handshake bool
 	// Answer is how the Endpoint answered, once it has.
 	Answer Answer
+	// AnsweredAt is when the Endpoint answered, or found the client gone,
+	// just before it wrote the answer: the end of the Attempt as the
+	// Endpoint sees it. A Handshake is answered when it is received.
+	AnsweredAt time.Time
 }
 
 // Respond returns the Answer to an Attempt. ctx is the request's, cancelled

@@ -1,6 +1,6 @@
 # ClickHouse as the telemetry store
 
-Herald's traces go through the OpenTelemetry Collector into ClickHouse, using the Collector's ClickHouse exporter. Each span is one row, with its attributes as maps. The telemetry invariants, the behaviour comparison and ad hoc questions are all SQL over those rows.
+Herald's traces go through the OpenTelemetry Collector into ClickHouse, using the Collector's ClickHouse exporter. Each span is one row, with its attributes as maps. The scenario invariants, the behaviour comparison and ad hoc questions are all SQL over those rows.
 
 The telemetry exists to be queried by checks that run on every PR, and by whoever investigates what a change did, without knowing the question in advance. That calls for wide spans (every attribute known at a handoff or an Attempt), grouping by any of them (run, build version, Endpoint, Tenant), and checks across a trace's spans ("every handoff reached an Attempt"). SQL over a columnar store does all three in one query, and its results are text that fits in a test failure or a PR description.
 

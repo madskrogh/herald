@@ -70,24 +70,29 @@ WHERE endpoint_id = @endpoint_id AND state = 'pending' AND leased_until > @now::
 -- Leases up to @max_deliveries of the Endpoint's pending Deliveries due at
 -- @now, until @leased_until. A leased Delivery is due again when its lease
 -- runs out, so one whose worker never records its Attempt is claimed again.
-WITH claimed AS (
+-- due_at is when each fell due, before the lease moved it.
+WITH due AS (
+    SELECT id, next_attempt_at FROM delivery.deliveries
+    WHERE endpoint_id = @endpoint_id::uuid
+      AND state = 'pending' AND next_attempt_at <= @now::timestamptz
+    ORDER BY next_attempt_at
+    LIMIT @max_deliveries::integer
+    FOR UPDATE SKIP LOCKED
+),
+claimed AS (
     UPDATE delivery.deliveries d
     SET lease_id = gen_random_uuid(),
         leased_until = @leased_until::timestamptz,
         next_attempt_at = @leased_until::timestamptz
-    WHERE d.id IN (
-        SELECT due.id FROM delivery.deliveries due
-        WHERE due.endpoint_id = @endpoint_id::uuid
-          AND due.state = 'pending' AND due.next_attempt_at <= @now::timestamptz
-        ORDER BY due.next_attempt_at
-        LIMIT @max_deliveries::integer
-        FOR UPDATE SKIP LOCKED
-    )
-    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count, d.traceparent
+    FROM due
+    WHERE d.id = due.id
+    RETURNING d.id, d.message_id, d.endpoint_id, d.endpoint_url, d.signing_secrets, d.state, d.next_attempt_at, d.lease_id, d.attempt_count, d.traceparent,
+              due.next_attempt_at AS due_at
 )
 SELECT c.id, c.message_id, m.tenant_id, m.application_id, m.event_type, m.payload,
        c.endpoint_id, c.endpoint_url, c.signing_secrets, c.state, c.next_attempt_at,
-       c.lease_id::uuid AS lease_id, c.attempt_count, coalesce(c.traceparent, '')::text AS traceparent
+       c.lease_id::uuid AS lease_id, c.attempt_count, coalesce(c.traceparent, '')::text AS traceparent,
+       c.due_at::timestamptz AS due_at
 FROM claimed c
 JOIN delivery.messages m ON m.id = c.message_id;
 

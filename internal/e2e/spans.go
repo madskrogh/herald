@@ -19,15 +19,27 @@ type Span struct {
 	// ClickHouse write them.
 	TraceID string
 	SpanID  string
-	// ParentSpanID is empty for a root span. SendSpan sends only roots.
+	// ParentSpanID is empty for a root span.
 	ParentSpanID string
 	Name         string
 	ServiceName  string
-	Attributes   map[string]string
+	// Start and End are when the span started and ended. SendSpan sends a
+	// span that starts now and lasts a millisecond if Start is zero.
+	Start, End time.Time
+	// StatusCode is the span's status: Unset, Ok or Error.
+	StatusCode string
+	Attributes map[string]string
+	// Links are the spans the span links to.
+	Links []Link
 	// ResourceAttributes are those of the service that sent the span,
 	// service.name among them. SendSpan sends only service.name, from
 	// ServiceName.
 	ResourceAttributes map[string]string
+}
+
+// Link is a span's link to another span, in hex.
+type Link struct {
+	TraceID, SpanID string
 }
 
 // SendSpan sends one span to the stack's Collector over OTLP/HTTP, encoded
@@ -37,7 +49,15 @@ func (s *Stack) SendSpan(ctx context.Context, span Span) error {
 	for k, v := range span.Attributes {
 		attrs = append(attrs, otlpString(k, v))
 	}
-	now := time.Now()
+	start, end := span.Start, span.End
+	if start.IsZero() {
+		start = time.Now()
+		end = start.Add(time.Millisecond)
+	}
+	links := make([]otlpLink, len(span.Links))
+	for i, l := range span.Links {
+		links[i] = otlpLink(l)
+	}
 	req := otlpRequest{ResourceSpans: []otlpResourceSpans{{
 		Resource: otlpResource{Attributes: []otlpKeyValue{otlpString("service.name", span.ServiceName)}},
 		ScopeSpans: []otlpScopeSpans{{
@@ -45,11 +65,14 @@ func (s *Stack) SendSpan(ctx context.Context, span Span) error {
 			Spans: []otlpSpan{{
 				TraceID:           span.TraceID,
 				SpanID:            span.SpanID,
+				ParentSpanID:      span.ParentSpanID,
 				Name:              span.Name,
 				Kind:              otlpSpanKindInternal,
-				StartTimeUnixNano: strconv.FormatInt(now.UnixNano(), 10),
-				EndTimeUnixNano:   strconv.FormatInt(now.Add(time.Millisecond).UnixNano(), 10),
+				StartTimeUnixNano: strconv.FormatInt(start.UnixNano(), 10),
+				EndTimeUnixNano:   strconv.FormatInt(end.UnixNano(), 10),
 				Attributes:        attrs,
+				Links:             links,
+				Status:            otlpStatus{Code: otlpStatusCodes[span.StatusCode]},
 			}},
 		}},
 	}}}
@@ -79,8 +102,8 @@ func (s *Stack) SendSpan(ctx context.Context, span Span) error {
 	return nil
 }
 
-// Queries for spans in ClickHouse, each selecting the same columns, ordered
-// by span ID.
+// Queries for spans in ClickHouse, each selecting the same columns, which
+// querySpans reads, ordered by span ID.
 var (
 	// spansQuery selects one trace's spans. It takes the query parameter
 	// trace_id.
@@ -97,6 +120,11 @@ var (
 	//
 	//go:embed linked_spans.sql
 	linkedSpansQuery string
+	// runSpansQuery selects the spans of a Tenant's run. It takes the query
+	// parameter tenant_id.
+	//
+	//go:embed run_spans.sql
+	runSpansQuery string
 )
 
 // WaitSpans waits until ClickHouse holds at least one span of the trace with
@@ -134,6 +162,24 @@ func (s *Stack) WaitBatchesLinkedTo(ctx context.Context, spanID string) ([]Span,
 	return spans, nil
 }
 
+// RunSpans returns the spans of the run of the Tenant with the given ID:
+// every span of each trace that has a span of the Tenant's, and the Batches
+// that link to the Tenant's handoffs. Spans that haven't reached ClickHouse
+// yet aren't returned.
+func (s *Stack) RunSpans(ctx context.Context, tenantID string) ([]Span, error) {
+	return s.querySpans(ctx, runSpansQuery, "tenant_id", tenantID)
+}
+
+// WaitRunSpans waits until RunSpans returns at least n spans, and returns
+// them.
+func (s *Stack) WaitRunSpans(ctx context.Context, tenantID string, n int) ([]Span, error) {
+	spans, err := s.waitSpans(ctx, runSpansQuery, "tenant_id", tenantID, n)
+	if err != nil {
+		return spans, fmt.Errorf("tenant %s: waiting for %d spans of its run, have %d: %w", tenantID, n, len(spans), err)
+	}
+	return spans, nil
+}
+
 // waitSpans runs query, with the query parameter param set to value, until
 // it returns at least n spans, and returns the last spans it returned.
 func (s *Stack) waitSpans(ctx context.Context, query, param, value string, n int) ([]Span, error) {
@@ -162,16 +208,38 @@ func (s *Stack) querySpans(ctx context.Context, query, param, value string) ([]S
 	dec := json.NewDecoder(bytes.NewReader(data))
 	for dec.More() {
 		var row struct {
-			TraceID            string            `json:"TraceId"`
-			SpanID             string            `json:"SpanId"`
-			ParentSpanID       string            `json:"ParentSpanId"`
-			SpanName           string            `json:"SpanName"`
-			ServiceName        string            `json:"ServiceName"`
+			TraceID      string `json:"TraceId"`
+			SpanID       string `json:"SpanId"`
+			ParentSpanID string `json:"ParentSpanId"`
+			SpanName     string `json:"SpanName"`
+			ServiceName  string `json:"ServiceName"`
+			// StartNs and EndNs are Unix times in nanoseconds, as text:
+			// ClickHouse quotes 64-bit integers in JSON.
+			StartNs            string            `json:"StartNs"`
+			EndNs              string            `json:"EndNs"`
+			StatusCode         string            `json:"StatusCode"`
 			SpanAttributes     map[string]string `json:"SpanAttributes"`
 			ResourceAttributes map[string]string `json:"ResourceAttributes"`
+			LinkTraceIDs       []string          `json:"LinkTraceIds"`
+			LinkSpanIDs        []string          `json:"LinkSpanIds"`
 		}
 		if err := dec.Decode(&row); err != nil {
 			return nil, fmt.Errorf("query spans by %s %s: decode row: %w", param, value, err)
+		}
+		start, err := strconv.ParseInt(row.StartNs, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("query spans by %s %s: span %s: start %q: %w", param, value, row.SpanID, row.StartNs, err)
+		}
+		end, err := strconv.ParseInt(row.EndNs, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("query spans by %s %s: span %s: end %q: %w", param, value, row.SpanID, row.EndNs, err)
+		}
+		if len(row.LinkTraceIDs) != len(row.LinkSpanIDs) {
+			return nil, fmt.Errorf("query spans by %s %s: span %s: %d link trace IDs and %d span IDs", param, value, row.SpanID, len(row.LinkTraceIDs), len(row.LinkSpanIDs))
+		}
+		var links []Link
+		for i, id := range row.LinkSpanIDs {
+			links = append(links, Link{TraceID: row.LinkTraceIDs[i], SpanID: id})
 		}
 		spans = append(spans, Span{
 			TraceID:            row.TraceID,
@@ -179,7 +247,11 @@ func (s *Stack) querySpans(ctx context.Context, query, param, value string) ([]S
 			ParentSpanID:       row.ParentSpanID,
 			Name:               row.SpanName,
 			ServiceName:        row.ServiceName,
+			Start:              time.Unix(0, start).UTC(),
+			End:                time.Unix(0, end).UTC(),
+			StatusCode:         row.StatusCode,
 			Attributes:         row.SpanAttributes,
+			Links:              links,
 			ResourceAttributes: row.ResourceAttributes,
 		})
 	}
@@ -209,11 +281,21 @@ type (
 	otlpSpan struct {
 		TraceID           string         `json:"traceId"`
 		SpanID            string         `json:"spanId"`
+		ParentSpanID      string         `json:"parentSpanId,omitempty"`
 		Name              string         `json:"name"`
 		Kind              int            `json:"kind"`
 		StartTimeUnixNano string         `json:"startTimeUnixNano"`
 		EndTimeUnixNano   string         `json:"endTimeUnixNano"`
 		Attributes        []otlpKeyValue `json:"attributes"`
+		Links             []otlpLink     `json:"links,omitempty"`
+		Status            otlpStatus     `json:"status"`
+	}
+	otlpLink struct {
+		TraceID string `json:"traceId"`
+		SpanID  string `json:"spanId"`
+	}
+	otlpStatus struct {
+		Code int `json:"code"`
 	}
 	otlpKeyValue struct {
 		Key   string    `json:"key"`
@@ -226,6 +308,10 @@ type (
 
 // otlpSpanKindInternal is SPAN_KIND_INTERNAL.
 const otlpSpanKindInternal = 1
+
+// otlpStatusCodes maps a span's status, as ClickHouse stores it, to its
+// OTLP status code. Unset is 0, OTLP's default.
+var otlpStatusCodes = map[string]int{"Unset": 0, "Ok": 1, "Error": 2}
 
 func otlpString(key, value string) otlpKeyValue {
 	return otlpKeyValue{Key: key, Value: otlpValue{StringValue: value}}

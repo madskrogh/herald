@@ -25,18 +25,20 @@ var (
 // baselineFile is the committed baseline.
 const baselineFile = "testdata/baseline.json"
 
-// runTimeout bounds a whole run. A run takes about five minutes: the
-// longest Deliveries run the whole retry schedule, about 90 seconds on the
-// local stack, before the phases with faults start, and Deliveries take a
-// few minutes while Postgres is slowed.
-const runTimeout = 10 * time.Minute
+// runTimeout bounds a whole run and the invariants checked after it. A run
+// takes about five minutes: the longest Deliveries run the whole retry
+// schedule, about 90 seconds on the local stack, before the phases with
+// faults start, and Deliveries take a few minutes while Postgres is slowed.
+// The invariants take seconds, and up to two minutes each to wait for spans
+// and goroutines to settle.
+const runTimeout = 15 * time.Minute
 
 // TestScenario runs the scenario against the stack and compares what its
 // Endpoints received with the baseline, or records a new baseline with
-// -update. It restarts herald-dispatcher, pauses NATS and slows Postgres, so
-// nothing else may use the stack meanwhile, and for the same reason it
-// doesn't run in parallel. Run it with make scenario-compare or make
-// scenario-record.
+// -update. Either way, it then checks the scenario invariants. It restarts
+// herald-dispatcher, pauses NATS and slows Postgres, so nothing else may use
+// the stack meanwhile, and for the same reason it doesn't run in parallel.
+// Run it with make scenario-compare or make scenario-record.
 func TestScenario(t *testing.T) {
 	if testing.Short() {
 		t.Skip("end-to-end")
@@ -73,6 +75,10 @@ func TestScenario(t *testing.T) {
 	}
 	defer stack.Close()
 	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
+	idle, err := scenario.IdleGoroutines(ctx, stack, logger)
+	if err != nil {
+		t.Fatalf("IdleGoroutines: %v", err)
+	}
 	obs, err := scenario.Run(ctx, stack, scenario.Compose{File: composeFile}, scenario.Generate(s), logger)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -81,6 +87,16 @@ func TestScenario(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRecording: %v", err)
 	}
+	// Checked once the run is compared or recorded, whichever this is.
+	defer func() {
+		violations, err := scenario.CheckInvariants(ctx, stack, obs, idle)
+		if err != nil {
+			t.Fatalf("CheckInvariants: %v", err)
+		}
+		for _, v := range violations {
+			t.Errorf("scenario invariant: %v", v)
+		}
+	}()
 
 	if *update {
 		data, err := json.MarshalIndent(got, "", "  ")

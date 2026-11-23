@@ -1,6 +1,7 @@
 package ingest_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -432,4 +433,52 @@ func endpointIDs(deliveries []ingest.Delivery) []uuid.UUID {
 		ids[i] = d.EndpointID
 	}
 	return ids
+}
+
+// TestTenantMessagesSaysWhereEachMessageIs hands one of a Tenant's Messages
+// off, parks another and leaves a third in the Outbox, and lists them.
+func TestTenantMessagesSaysWhereEachMessageIs(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	store, _ := ingesttest.NewStore(t, ingesttest.NewDatabase(t))
+	f := newFixture(t, store)
+	f.endpoint(t, nil)
+	var ids []uuid.UUID
+	for _, key := range []string{"key-1", "", ""} {
+		msg, _, err := store.CreateMessage(t.Context(), f.message("invoice.paid", key), accepted)
+		if err != nil {
+			t.Fatalf("CreateMessage: %v", err)
+		}
+		ids = append(ids, msg.ID)
+	}
+	// Another Tenant's Message, which isn't listed.
+	other := newFixture(t, store)
+	other.endpoint(t, nil)
+	if _, _, err := store.CreateMessage(t.Context(), other.message("invoice.paid", ""), accepted); err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	_, err := store.HandOff(t.Context(), 10, accepted, func(context.Context, []ingest.OutboxMessage) (ingest.SendResult, error) {
+		return ingest.SendResult{
+			HandedOff: []uuid.UUID{ids[0]},
+			Parked:    []ingest.ParkedMessage{{ID: ids[1], Reason: "rejected"}},
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("HandOff: %v", err)
+	}
+
+	got, err := store.TenantMessages(t.Context(), f.tenant.ID)
+	if err != nil {
+		t.Fatalf("TenantMessages: %v", err)
+	}
+	want := []ingest.MessageStatus{
+		{ID: ids[0], IdempotencyKey: "key-1", HandedOff: true},
+		{ID: ids[1], Parked: true},
+		{ID: ids[2]},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("TenantMessages (-want +got):\n%s", diff)
+	}
 }

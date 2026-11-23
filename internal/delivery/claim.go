@@ -31,6 +31,9 @@ type Lease struct {
 	// PriorAttempts is how many Attempts were recorded for the Delivery
 	// before this lease.
 	PriorAttempts int
+	// DueAt is when the Delivery fell due, before the lease moved its
+	// NextAttemptAt.
+	DueAt time.Time
 }
 
 // Claim leases up to limit Deliveries that are due at now, for one Attempt
@@ -104,6 +107,7 @@ func claimEndpoint(ctx context.Context, q *deliverydb.Queries, endpointID uuid.U
 		leases = append(leases, Lease{
 			ID:            r.LeaseID,
 			PriorAttempts: int(r.AttemptCount),
+			DueAt:         r.DueAt,
 			Delivery: Delivery{
 				ID:        r.ID,
 				MessageID: r.MessageID,

@@ -11,7 +11,8 @@ func TestCheckSpan(t *testing.T) {
 	attempt := []string{
 		"herald.tenant_id", "herald.application_id", "herald.endpoint_id",
 		"herald.message_id", "herald.delivery_id", "herald.attempt",
-		"herald.outcome", "herald.status_code", "herald.latency_ms", "herald.error",
+		"herald.outcome", "herald.status_code", "herald.latency_ms", "herald.lateness_ms",
+		"herald.error",
 	}
 	tests := []struct {
 		name    string

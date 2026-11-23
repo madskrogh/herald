@@ -59,3 +59,9 @@ _Avoid_: Try, call, request
 **Replay**:
 Starting a fresh retry schedule for an existing Delivery, whether it succeeded or failed, with the same webhook ID.
 _Avoid_: Resend, retry, redeliver
+
+### Testing
+
+**Scenario invariant**:
+A rule about Herald's behaviour that holds on any build, checked after every run of the scenario. Unlike the behaviour comparison, it has no baseline: a violation is a bug, never a change to approve.
+_Avoid_: Telemetry invariant, scenario assertion

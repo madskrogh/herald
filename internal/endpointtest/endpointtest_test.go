@@ -42,7 +42,7 @@ func TestEndpointRecordsEachAttempt(t *testing.T) {
 		{EndpointURL: ep.URL, Number: 1, WebhookID: "msg_1", Body: []byte(`{"invoice": 42}`)},
 		{EndpointURL: ep.URL, Number: 2, WebhookID: "msg_2", Body: []byte(`{"invoice": 43}`)},
 	}
-	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "Header", "ReceivedAt", "SignatureErr", "DeliveryNumber", "Answer")); diff != "" {
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "Header", "ReceivedAt", "SignatureErr", "DeliveryNumber", "Answer", "AnsweredAt")); diff != "" {
 		t.Errorf("Attempts (-want +got):\n%s", diff)
 	}
 	for _, a := range got {
@@ -199,7 +199,7 @@ func TestTLSEndpointFailsTheHandshake(t *testing.T) {
 		{EndpointURL: ep.URL, Number: 1, DeliveryNumber: 1, Handshake: true},
 		{EndpointURL: ep.URL, Number: 2, DeliveryNumber: 2, Handshake: true},
 	}
-	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "ReceivedAt")); diff != "" {
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(endpointtest.Attempt{}, "ReceivedAt", "AnsweredAt")); diff != "" {
 		t.Errorf("Attempts (-want +got):\n%s", diff)
 	}
 }
@@ -414,4 +414,35 @@ func do(req *http.Request) (int, error) {
 	}
 	resp.Body.Close()
 	return resp.StatusCode, nil
+}
+
+// TestEndpointRecordsWhenItAnswers checks that an Attempt's AnsweredAt is
+// when the Endpoint answered it, not when it arrived: an Attempt held until
+// release is answered after the release.
+func TestEndpointRecordsWhenItAnswers(t *testing.T) {
+	t.Parallel()
+	srv := startServer(t)
+	release := make(chan struct{})
+	ep := srv.NewEndpoint(endpointtest.Hold(release))
+	done := make(chan error, 1)
+	go func() {
+		_, err := postStatus(t.Context(), ep.URL, "msg_1", `{}`)
+		done <- err
+	}()
+	if _, err := ep.WaitAttempts(t.Context(), 1); err != nil {
+		t.Fatalf("WaitAttempts: %v", err)
+	}
+	released := time.Now()
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+
+	got, err := ep.WaitAttempts(t.Context(), 1)
+	if err != nil {
+		t.Fatalf("WaitAttempts: %v", err)
+	}
+	if a := got[0]; a.AnsweredAt.Before(released) {
+		t.Errorf("AnsweredAt = %v, before the release at %v (received at %v)", a.AnsweredAt, released, a.ReceivedAt)
+	}
 }

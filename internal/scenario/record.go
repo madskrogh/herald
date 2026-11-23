@@ -19,6 +19,8 @@ import (
 // normalised.
 type Observations struct {
 	Scenario Scenario
+	// TenantID is the ID of the Tenant the run created and sent as.
+	TenantID uuid.UUID
 	// Sent is what the Tenant API answered to each Message, by name.
 	Sent map[string]Sent
 	// EndpointURLs names each Endpoint by its URL, and EndpointIDs by its ID.

@@ -164,3 +164,12 @@ WHERE id = ANY(@ids::uuid[]);
 UPDATE ingest.messages
 SET parked_at = @now::timestamptz, park_error = @park_error
 WHERE id = @id;
+
+-- name: ListTenantMessages :many
+-- Every Message of the Tenant, in ID order, with where it is: handed off,
+-- parked, or in the outbox.
+SELECT id, coalesce(idempotency_key, '')::text AS idempotency_key,
+       (handed_off_at IS NOT NULL)::boolean AS handed_off, (parked_at IS NOT NULL)::boolean AS parked
+FROM ingest.messages
+WHERE tenant_id = @tenant_id
+ORDER BY id;
