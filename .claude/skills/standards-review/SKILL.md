@@ -72,7 +72,7 @@ Issue both sub-agent calls together, in the foreground, and aggregate the report
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
 - The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Give each finding a severity: High, Medium or Low. Under 400 words."
 
-**Spec sub-agent prompt** should include (spawn it with `model: "sonnet"`: checking a diff against a spec needs less judgement than the Standards review):
+**Spec sub-agent prompt** should include (spawn it on the session's model: judging whether someone at Herald's boundaries could notice a decision, and whether a value has a reason, needs as much judgement as the Standards review):
 
 - The diff command and commit list.
 - The fetched issue with its comments, and the requirements from step 2 with their text, vectors and reasons (or the `docs/design.md` sections standing in for them).
