@@ -141,7 +141,7 @@ Withdrawn: replaced by R-5.
 		{
 			name: "requirement heading without a status",
 			files: map[string]string{
-				"delivery.md": `### R-1 · implmented
+				"delivery.md": `### R-1 · done
 
 Herald MUST NOT make another Attempt after a 2xx.
 
