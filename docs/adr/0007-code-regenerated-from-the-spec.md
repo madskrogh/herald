@@ -12,17 +12,20 @@ The spec states, at each boundary:
 
 - **What Herald gives for what it is given.** The Tenant API: the `.proto` files, the OpenAPI spec, and the golden responses. The webhook wire format: Standard Webhooks ([ADR 0003](0003-standard-webhooks-signing.md)). What Herald stores, limited to the Postgres columns below.
 - **What Herald does in each case.** Every feature, and what happens when an Endpoint fails, a service restarts, a limit is reached or a request is refused.
-- **How long it takes.** Latency as numbers with reasons, such as handoff lag and how late an Attempt may start, normally and during a fault.
-- **What resources it uses.** What a service may hold under load and at rest, stated so it can be measured from outside the process, whatever language the code is in: for example, that memory and open connections return to their idle level once the load stops.
+- **How long it takes.** Latency as numbers with reasons, such as handoff lag and how late an Attempt may start, normally and during each fault the spec names.
+- **What resources it uses.** What a service may hold under load and at rest, stated so it can be measured from outside the process, whatever language the code is in. Each such requirement names the load, the measure and the limit: for example, that memory and open connections return to their idle level once the scenario ends.
 - **What debugging data it leaves.** The telemetry schema (span names, attribute keys and types, the allowed values of `herald.outcome`, and the trace shape), the logs, and the profiles. A developer investigating a problem must find the same data in regenerated code.
+- **What operators use.** `herald-admin`, configuration, and how Herald is deployed and started.
 
 Most of this isn't stated yet. It enters the spec as planned requirements, and the boundary grows as they are written. Until a boundary is stated, the code is its only record, and a regeneration would lose it.
 
-`herald-admin`, configuration, and how Herald is deployed are boundaries too, for operators. They aren't in the spec for now.
-
 ### Decisions found in the code
 
-A decision that exists only in the code is a gap in the spec. Whoever finds one states it: as a requirement, or with a MAY when any choice is acceptable. They don't leave it in the code or copy it from there unexamined. A change in the behaviour comparison that no requirement explains is such a gap: the baseline records what Herald does, and the spec says what it must do.
+A decision that exists only in the code is a gap in the spec. Whoever finds one states it: as a requirement with its reason, or with a MAY when any choice is acceptable. They don't leave it in the code.
+
+Moving a fact out of the code is reviewing it as a decision, not copying it. When a follow-up turns constants, migrations or checks into spec, data files or vectors, each value gets its reason, and a value with no reason is questioned before it is written down. A check that compares the code with a file is only as good as the file.
+
+A change in the behaviour comparison ([docs/testing.md](../testing.md)) that no requirement explains is also such a gap: its baseline records what Herald does, and the spec says what it must do.
 
 ### Postgres columns
 
@@ -40,7 +43,7 @@ Nothing else in either schema is in the spec: not indexes, not the other columns
 
 ## The harness
 
-The checks that run the scenario may be written in any language, but they never import the code they check. What they expect, such as which Endpoints a Message reaches and the earliest each Attempt may come, comes from the spec: from its vectors, or from the harness's own code, checked against them. Otherwise a check grades the code by its own logic, and a bug there becomes the expected result.
+The checks that run the scenario may be written in any language, but they never import the code they check. What they expect, such as which Endpoints a Message reaches and the earliest each Attempt may come, comes from the spec: from its vectors, or from the harness's own code, built from the requirements rather than copied from Herald's code, and checked against the vectors. Otherwise a check grades the code by its own logic, and a bug there becomes the expected result. Anything the harness expects that no requirement states is a gap in the spec.
 
 ## Form
 
@@ -58,13 +61,13 @@ Each fact has one home, and everything else links to it.
 
 | Fact | Lives in |
 |---|---|
-| Behaviour, latency, resource use | the spec |
+| Behaviour, latency, resource use, logs, profiles, what operators use | the spec |
 | Words | `GLOSSARY.md` |
-| Reasons | the ADRs, which are never edited, only superseded |
-| Shapes | the protos, the telemetry schema file, the Postgres column list |
-| What Herald is and how it's built | the README |
+| Reasons, and the architecture | the ADRs, which are never edited, only superseded |
+| Shapes | the protos and the OpenAPI spec generated from them, the golden responses, the telemetry schema file, the Postgres column list |
+| What Herald is and how to run it | the README |
 
-The spec, the shapes, `GLOSSARY.md` and the ADRs are what the code is regenerated from. If the spec and another document disagree about behaviour, the spec wins. `docs/design.md` is split between the spec and the README, and retired.
+The spec, the shapes, `GLOSSARY.md` and the ADRs are what the code is regenerated from. The README describes; it isn't an input, so anything in it a regeneration would need belongs in the spec or an ADR. If the spec and another document disagree about behaviour, the spec wins. `docs/design.md` is split between the spec and the README, and retired.
 
 ## Changing the spec
 
@@ -101,10 +104,10 @@ A check that only makes sense for one language, such as the goroutine-leak invar
 
 ## Consequences
 
-- The work after this ADR is separate changes: the spec skeleton (structure, IDs, status field, and the CI link check); splitting `docs/design.md` into the spec and the README; the telemetry schema as a data file, which the Go constants are checked against and a check runs over every span of a scenario run; the Postgres column list as a data file, with each column's type and the IDs the database generates, checked against the migrated database; the scenario invariants as requirements with vectors, which the Go checks read, with their latency limits moved into the spec's limits table; the scenario's traffic as data rather than a seed; and the resource-use, latency and debugging-data boundaries as planned requirements.
+- The work after this ADR is separate changes: the spec skeleton (structure, IDs, status field, and the CI link check); splitting `docs/design.md` into the spec and the README; the telemetry schema as a data file, which the Go constants are checked against and a check runs over every span of a scenario run; the Postgres column list as a data file, with each column's type and the IDs the database generates, checked against the migrated database; the scenario invariants as requirements with vectors, which the Go checks read, with their latency limits moved into the spec's limits table; the scenario's traffic as data rather than a seed; and the resource-use, latency, debugging-data and operator boundaries as planned requirements. Each of them follows "Decisions found in the code".
 - Until the spec exists, `docs/design.md` stays the statement of behaviour.
 - The development workflow changes to follow "Changing the spec" and "Decisions found in the code": today an issue, with the decisions recorded on it, is what a change is checked against. That change is made on its own.
 - The checks that read the telemetry schema come after the schema file, so they read it rather than the Go constants.
-- The scenario's harness imports Herald's own code today: Event type and filter matching, the retry schedule, the telemetry constants, and the stores it reads Postgres through. Those stores touch more columns than the spec lists, and one table it doesn't (`delivery.messages`). Each import goes in the follow-up that covers its fact: the telemetry constants with the schema file, the stores with the column list, and filter matching and the retry schedule with the scenario invariants. The harness then has its own matcher and schedule, a second copy of each, kept honest by the vectors.
+- The scenario's harness imports Herald's own code today: Event type and filter matching, the retry schedule, the telemetry constants, and the stores it reads Postgres through. Those stores touch more columns than the spec lists, and one table it doesn't (`delivery.messages`). Each import goes in the follow-up that covers its fact: the telemetry constants with the schema file, the stores with the column list, and filter matching and the retry schedule with the scenario invariants. The harness then has its own matcher and schedule, built from the requirements and checked against the vectors.
 - Fault injection restarts and pauses services by name (herald-dispatcher, NATS, Postgres), so it assumes [ADR 0002](0002-two-services-outbox-nats-handoff.md)'s architecture. A new ADR that replaces that architecture also needs a way to inject the same faults.
-- Known gaps, not built now: provenance (which spec version a build passed); checks against production, which Herald doesn't have; and the operator boundaries (`herald-admin`, configuration, deployment).
+- Known gaps, not built now: provenance (which spec version a build passed); and checks against production, which Herald doesn't have.
