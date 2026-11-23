@@ -218,7 +218,7 @@ func serve(ctx context.Context, cfg settings, logger *slog.Logger) error {
 	started = append(started, "grpc_addr", grpcLis.Addr().String(), "http_addr", httpLis.Addr().String())
 	logger.InfoContext(ctx, "started", started...)
 
-	// One relay per process (ADR 0002): replicas each run one, and claim
+	// One relay per process (ADR 0012): replicas each run one, and claim
 	// different Messages.
 	relay := outbox.NewRelay(store, nc, outbox.Config{Subject: handoff.Subject, TracerProvider: tp}, logger)
 	relayCtx, stopRelay := context.WithCancel(ctx)

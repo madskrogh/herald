@@ -1,6 +1,6 @@
 # Testing
 
-Herald has six kinds of tests. They differ in what they run against and in what decides whether they pass: an expected result written in the test, a committed baseline, a run of `main` on the same runner, or a rule that holds on any build. This page is for deciding where a new check belongs. [docs/design.md](design.md) (Testing) says why each kind exists.
+Herald has six kinds of tests. They differ in what they run against and in what decides whether they pass: an expected result written in the test, a committed baseline, a run of `main` on the same runner, or a rule that holds on any build. This page is for deciding where a new check belongs. [ADR 0008](adr/0008-testing-design.md) says why each kind exists.
 
 | Kind | Runs against | Passes when it matches | Runs |
 |---|---|---|---|
