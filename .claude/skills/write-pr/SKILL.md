@@ -36,7 +36,7 @@ If the PR fixes a problem an earlier PR shipped, replace the template's comment 
 
 ## Requirements
 
-Never left out. One line per requirement ID the PR adds, changes or withdraws, saying which and what changed. Then one line per decision surfaced from existing code: the value or behaviour, where it was in the code, and the requirement that now states it. A PR that touches no requirement says "None", so an unstated decision shows as a gap in review and in the regeneration audit (`docs/ai-workflow.md`).
+Never left out. One line per requirement ID the PR adds, changes or withdraws, saying which and what changed. Then one line per decision surfaced from existing code: the value or behaviour, where it was in the code, and the requirement that now states it. Until the spec exists, name the `docs/design.md` section a decision went to instead of an ID. A PR that touches no requirement says "None", so an unstated decision shows as a gap in review and in the regeneration audit (`docs/ai-workflow.md`).
 
 ## Verification
 

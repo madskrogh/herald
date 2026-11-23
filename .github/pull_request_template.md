@@ -13,7 +13,7 @@ Closes #
 <!--
 Never left out. Each requirement ID this PR adds, changes or withdraws, and what changed. Then each
 decision surfaced from existing code: the value or behaviour, where it was, the requirement that now
-states it. "None" if the PR touches no requirement.
+states it. "None" if the PR touches no requirement. Until the spec exists, name the `docs/design.md` section instead of an ID.
 -->
 
 - _ID_: _added, changed or withdrawn, and what_
