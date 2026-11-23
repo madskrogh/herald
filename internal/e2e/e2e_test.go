@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/e2e"
@@ -80,11 +83,15 @@ func TestSpanIsStoredInClickHouse(t *testing.T) {
 	t.Parallel()
 	ctx := stackContext(t)
 	// The trace ID is the test's own, so the span is found among any others.
+	start := time.Now().Truncate(time.Microsecond).UTC()
 	span := e2e.Span{
 		TraceID:     randomHex(16),
 		SpanID:      randomHex(8),
 		Name:        "e2e.check",
 		ServiceName: "herald-e2e",
+		Start:       start,
+		End:         start.Add(time.Millisecond),
+		StatusCode:  "Unset",
 		Attributes:  map[string]string{"herald.test": "TestSpanIsStoredInClickHouse"},
 	}
 	if err := stack.SendSpan(ctx, span); err != nil {
@@ -95,8 +102,59 @@ func TestSpanIsStoredInClickHouse(t *testing.T) {
 		t.Fatalf("WaitSpans: %v", err)
 	}
 	span.ResourceAttributes = map[string]string{"service.name": "herald-e2e"}
-	if diff := cmp.Diff([]e2e.Span{span}, got); diff != "" {
+	if diff := cmp.Diff([]e2e.Span{span}, got, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("spans in trace %s (-want +got):\n%s", span.TraceID, diff)
+	}
+}
+
+// TestRunSpansAreATenantsTracesAndTheirBatches sends a trace with a span of
+// a Tenant's, a Batch that links to it, and the same for another Tenant,
+// and reads the first Tenant's run back: its trace, every span of it, and
+// its Batch.
+func TestRunSpansAreATenantsTracesAndTheirBatches(t *testing.T) {
+	t.Parallel()
+	ctx := stackContext(t)
+	start := time.Now().Truncate(time.Microsecond).UTC()
+	traceOf := func(tenant string) []e2e.Span {
+		trace, batchTrace := randomHex(16), randomHex(16)
+		call := e2e.Span{
+			TraceID: trace, SpanID: randomHex(8), Name: "tenant_api.call", ServiceName: "herald-e2e",
+			Start: start, End: start.Add(time.Millisecond), StatusCode: "Unset",
+			Attributes: map[string]string{"herald.tenant_id": tenant},
+		}
+		handoff := call
+		handoff.SpanID, handoff.ParentSpanID, handoff.Name = randomHex(8), call.SpanID, "handoff"
+		// A span of the trace without the Tenant's ID.
+		child := handoff
+		child.SpanID, child.ParentSpanID, child.Name = randomHex(8), handoff.SpanID, "e2e.child"
+		child.StatusCode, child.Attributes = "Error", map[string]string{"herald.error": "failed"}
+		batch := e2e.Span{
+			TraceID: batchTrace, SpanID: randomHex(8), Name: "handoff.batch", ServiceName: "herald-e2e",
+			Start: start, End: start.Add(time.Millisecond), StatusCode: "Unset",
+			Attributes: map[string]string{},
+			Links:      []e2e.Link{{TraceID: trace, SpanID: handoff.SpanID}},
+		}
+		return []e2e.Span{call, handoff, child, batch}
+	}
+	tenant := randomHex(16)
+	want := traceOf(tenant)
+	for _, s := range append(slices.Clone(want), traceOf(randomHex(16))...) {
+		if err := stack.SendSpan(ctx, s); err != nil {
+			t.Fatalf("SendSpan: %v", err)
+		}
+	}
+
+	got, err := stack.WaitRunSpans(ctx, tenant, len(want))
+	if err != nil {
+		t.Fatalf("WaitRunSpans: %v", err)
+	}
+	for i := range want {
+		want[i].ResourceAttributes = map[string]string{"service.name": "herald-e2e"}
+	}
+	byID := func(a, b e2e.Span) int { return strings.Compare(a.SpanID, b.SpanID) }
+	slices.SortFunc(want, byID)
+	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("RunSpans (-want +got):\n%s", diff)
 	}
 }
 

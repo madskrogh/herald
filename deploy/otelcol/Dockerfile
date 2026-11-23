@@ -1,5 +1,5 @@
 # The OpenTelemetry Collector with Herald's configuration. The version is
-# pinned: the telemetry checks are written against its ClickHouse exporter's
+# pinned: the span checks are written against its ClickHouse exporter's
 # table layout (docs/adr/0006-clickhouse-telemetry-store.md).
 #
 # The Collector's image has no shell or HTTP client, so a static busybox wget

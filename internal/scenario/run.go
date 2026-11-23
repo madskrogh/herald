@@ -49,6 +49,7 @@ func Run(ctx context.Context, stack *e2e.Stack, compose Compose, s Scenario, log
 	if err != nil {
 		return Observations{}, fmt.Errorf("create tenant: %w", err)
 	}
+	obs.TenantID = tenant.ID
 	r := &runner{stack: stack, compose: compose, tenant: tenant, obs: &obs, logger: logger,
 		appIDs: map[string]string{}, endpoints: map[string]*endpointtest.Endpoint{}}
 	if err := r.create(ctx); err != nil {

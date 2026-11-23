@@ -213,3 +213,28 @@ func toDeliveries[Row ingestdb.CreateDeliveriesRow | ingestdb.ListDeliveriesRow]
 	}
 	return deliveries
 }
+
+// MessageStatus is where a Message is: handed off, Parked, or neither and
+// still in the Outbox.
+type MessageStatus struct {
+	ID uuid.UUID
+	// IdempotencyKey is the Tenant's Idempotency-Key, or empty for none.
+	IdempotencyKey string
+	HandedOff      bool
+	Parked         bool
+}
+
+// TenantMessages returns where each of the Tenant's Messages is, in ID
+// order. Tests use it, to check where a run left its Messages; herald-api
+// has no use for it.
+func (s *Store) TenantMessages(ctx context.Context, tenantID uuid.UUID) ([]MessageStatus, error) {
+	rows, err := s.q.ListTenantMessages(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list messages of tenant %s: %w", tenantID, err)
+	}
+	messages := make([]MessageStatus, len(rows))
+	for i, row := range rows {
+		messages[i] = MessageStatus(row)
+	}
+	return messages, nil
+}

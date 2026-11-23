@@ -52,6 +52,9 @@ const (
 	// LatencyMs is how long an Attempt's request took, up to the response
 	// headers or the error, in milliseconds.
 	LatencyMs attribute.Key = "herald.latency_ms"
+	// LatenessMs is how long after its Delivery fell due an Attempt
+	// started, in milliseconds.
+	LatenessMs attribute.Key = "herald.lateness_ms"
 	// BatchSize is how many Messages the Batch holds.
 	BatchSize attribute.Key = "herald.batch_size"
 	// DeliveryCount is how many Deliveries a Message has.
@@ -102,7 +105,7 @@ var Schema = map[string][]attribute.Key{
 	// failed); cut_off when shutdown cut the Attempt off and it isn't
 	// counted; or not_recorded when the Attempt couldn't be recorded, and
 	// the error says why.
-	SpanAttempt: {TenantID, ApplicationID, EndpointID, MessageID, DeliveryID, AttemptNumber, Outcome, StatusCode, LatencyMs, Error},
+	SpanAttempt: {TenantID, ApplicationID, EndpointID, MessageID, DeliveryID, AttemptNumber, Outcome, StatusCode, LatencyMs, LatenessMs, Error},
 }
 
 // CheckSpan reports whether a span named name with attributes keys matches

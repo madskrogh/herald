@@ -266,6 +266,7 @@ func (w *Workers) Wait() {
 func (w *Workers) attempt(ctx context.Context, lease Lease) {
 	d := lease.Delivery
 	number := lease.PriorAttempts + 1
+	lateness := w.cfg.Now().Sub(lease.DueAt)
 	ctx, span := telemetry.Start(ctx, w.tracer, d.TraceParent, telemetry.SpanAttempt,
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
@@ -275,6 +276,7 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 			telemetry.MessageID.String(d.MessageID.String()),
 			telemetry.DeliveryID.String(d.ID.String()),
 			telemetry.AttemptNumber.Int(number),
+			telemetry.LatenessMs.Int64(lateness.Milliseconds()),
 		),
 	)
 	a, attemptErr := w.send(ctx, d)

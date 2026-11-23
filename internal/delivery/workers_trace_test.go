@@ -65,6 +65,7 @@ func TestEveryAttemptJoinsTheMessagesTrace(t *testing.T) {
 			"herald.message_id":     messageID1,
 			"herald.delivery_id":    deliveryID1,
 			"herald.attempt":        "1",
+			"herald.lateness_ms":    "0",
 			"herald.outcome":        "pending",
 			"herald.status_code":    "500",
 			// An Attempt that isn't a success says why, whether it got a
@@ -78,6 +79,7 @@ func TestEveryAttemptJoinsTheMessagesTrace(t *testing.T) {
 			"herald.message_id":     messageID1,
 			"herald.delivery_id":    deliveryID1,
 			"herald.attempt":        "2",
+			"herald.lateness_ms":    "0",
 			"herald.outcome":        "succeeded",
 			"herald.status_code":    "204",
 			"herald.error":          "",
@@ -158,6 +160,33 @@ func TestAttemptSpanLeavesOutTheEndpointURL(t *testing.T) {
 	}
 	if strings.Contains(spanErr, token) {
 		t.Errorf("Attempt span's error %q holds the Endpoint URL's token", spanErr)
+	}
+}
+
+// TestAttemptSpanSaysHowLateTheAttemptStarted makes a Delivery's first
+// Attempt 2 s after it fell due, and its second 3 s after the retry
+// schedule's 5 s delay.
+func TestAttemptSpanSaysHowLateTheAttemptStarted(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("integration")
+	}
+	rcv := newReceiver(t, 500, 204)
+	tw := newTestWorkers(t)
+	// Stored, and due, at now.
+	tw.in.send(t, tw.workerBatch(t, rcv.URL()))
+
+	tw.clock.set(now.Add(2 * time.Second))
+	tw.runOnce(t)
+	tw.clock.set(now.Add(10 * time.Second))
+	tw.runOnce(t)
+
+	var got []string
+	for _, a := range tw.in.spans.Named(telemetry.SpanAttempt) {
+		got = append(got, a.Attributes["herald.lateness_ms"])
+	}
+	if diff := cmp.Diff([]string{"2000", "3000"}, got); diff != "" {
+		t.Errorf("Attempt spans' herald.lateness_ms (-want +got):\n%s", diff)
 	}
 }
 

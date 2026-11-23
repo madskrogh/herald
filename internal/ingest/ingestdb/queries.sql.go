@@ -574,6 +574,48 @@ func (q *Queries) ListOutboxDeliveries(ctx context.Context, messageIds []uuid.UU
 	return items, nil
 }
 
+const listTenantMessages = `-- name: ListTenantMessages :many
+SELECT id, coalesce(idempotency_key, '')::text AS idempotency_key,
+       (handed_off_at IS NOT NULL)::boolean AS handed_off, (parked_at IS NOT NULL)::boolean AS parked
+FROM ingest.messages
+WHERE tenant_id = $1
+ORDER BY id
+`
+
+type ListTenantMessagesRow struct {
+	ID             uuid.UUID
+	IdempotencyKey string
+	HandedOff      bool
+	Parked         bool
+}
+
+// Every Message of the Tenant, in ID order, with where it is: handed off,
+// parked, or in the outbox.
+func (q *Queries) ListTenantMessages(ctx context.Context, tenantID uuid.UUID) ([]ListTenantMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listTenantMessages, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTenantMessagesRow
+	for rows.Next() {
+		var i ListTenantMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.IdempotencyKey,
+			&i.HandedOff,
+			&i.Parked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockApplicationForEndpoints = `-- name: LockApplicationForEndpoints :one
 SELECT id
 FROM ingest.applications
