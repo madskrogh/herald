@@ -1,6 +1,7 @@
 package spanschema
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -51,7 +52,7 @@ func TestCheckFollowsTheVectors(t *testing.T) {
 					t.Errorf("Check found no problems, want one naming %q", v.names)
 				case !v.follows:
 					for _, p := range problems {
-						if !strings.Contains(p.Error(), v.names) {
+						if !names(p, v.span.Name, v.names) {
 							t.Errorf("Check = %v, want only problems naming %q", problems, v.names)
 						}
 					}
@@ -59,6 +60,18 @@ func TestCheckFollowsTheVectors(t *testing.T) {
 			})
 		}
 	}
+}
+
+// names reports whether problem p, with the span named span, names what:
+// in what it says of the span, or by saying the span isn't in the schema
+// when what is the span's own name. Every problem starts with the span's
+// name, so that alone names nothing.
+func names(p error, span, what string) bool {
+	msg := p.Error()
+	if what == span && msg == fmt.Sprintf("span %q is not in the schema", span) {
+		return true
+	}
+	return strings.Contains(strings.TrimPrefix(msg, fmt.Sprintf("span %q:", span)), what)
 }
 
 // spanVector is one row of a vector table of spans.

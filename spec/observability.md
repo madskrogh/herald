@@ -30,7 +30,7 @@ Why: a Batch holds Messages from many traces, so it can't have one parent; the l
 
 ### R-53 · implemented
 
-Every span Herald emits MUST be one the [span schema](span-schema.md) names, with exactly the attributes the schema gives it, each once. An attribute that doesn't apply MUST be set to its zero value, never left out.
+Every span Herald emits MUST be one the [span schema](span-schema.md) names, with exactly the attributes the schema gives it. An attribute that doesn't apply MUST be set to its zero value, never left out.
 
 Why: each span carries everything known at that point, so a question nobody planned for is a new query, not new instrumentation. A fixed set of keys makes renaming or dropping one a visible change, not a check that silently reads nothing, and a check can tell a missing attribute from an empty one.
 
@@ -90,7 +90,7 @@ Why: the trace shape is what a developer follows from one Message to every step 
 | `tenant_api.call` | herald-api | `tenant_api.call` | | no | `tenant_api.call` |
 | `handoff.batch` | herald-api | none | `handoff`, `handoff` | yes | |
 | `handoff.batch` | herald-api | none | `attempt` | no | `attempt` |
-| `handoff.batch` | herald-api | `tenant_api.call` | `handoff` | no | `handoff.batch` |
+| `handoff.batch` | herald-api | `tenant_api.call` | `handoff` | no | `tenant_api.call` |
 | `handoff` | herald-api | `tenant_api.call` | `handoff` | no | `handoff` |
 
 ### R-74 · implemented

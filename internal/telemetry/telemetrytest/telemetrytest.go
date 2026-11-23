@@ -111,22 +111,23 @@ func Check(spans []sdktrace.ReadOnlySpan) []error {
 				span.Links = append(span.Links, name)
 			}
 		}
-		got := schema.Check(span)
-		if len(got) == 0 {
-			got = emittedTypes(schema, s)
-		}
-		problems = append(problems, got...)
+		problems = append(problems, schema.Check(span)...)
+		problems = append(problems, emittedTypes(schema, s)...)
 	}
 	return problems
 }
 
-// emittedTypes returns the attributes of s, which follows the schema, that
-// were emitted as another type than the schema gives.
+// emittedTypes returns the attributes of s that the schema lists and that
+// were emitted as another type than it gives.
 func emittedTypes(schema spanschema.Schema, s sdktrace.ReadOnlySpan) []error {
 	var problems []error
 	for _, kv := range s.Attributes() {
+		a, ok := schema.Attributes[string(kv.Key)]
+		if !ok {
+			continue
+		}
 		want := attribute.STRING
-		if schema.Attributes[string(kv.Key)].Type == spanschema.Int {
+		if a.Type == spanschema.Int {
 			want = attribute.INT64
 		}
 		if got := kv.Value.Type(); got != want {

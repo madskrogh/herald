@@ -2,6 +2,7 @@ package telemetrytest_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestCheck(t *testing.T) {
 		name string
 		// emit emits spans through tracer.
 		emit func(tracer trace.Tracer)
-		// want is what the one problem names, or empty for none.
+		// want is what a problem names, or empty for none.
 		want string
 	}{
 		{
@@ -31,6 +32,17 @@ func TestCheck(t *testing.T) {
 			emit: func(tracer trace.Tracer) {
 				batch(tracer, attribute.Int("herald.batch_size", 2))
 			},
+		},
+		{
+			name: "an int emitted as a string, beside another problem",
+			emit: func(tracer trace.Tracer) {
+				_, s := tracer.Start(context.Background(), "handoff.batch", trace.WithAttributes(
+					attribute.String("herald.batch_size", "2"),
+					attribute.String("herald.outcome", "handed_off"),
+				))
+				s.End()
+			},
+			want: "herald.batch_size",
 		},
 		{
 			name: "an int emitted as a string",
@@ -76,7 +88,7 @@ func TestCheck(t *testing.T) {
 				b.End()
 				call.End()
 			},
-			want: `parent "tenant_api.call"`,
+			want: `parent "tenant_api.call", want none`,
 		},
 	}
 	for _, tt := range tests {
@@ -88,7 +100,7 @@ func TestCheck(t *testing.T) {
 			switch {
 			case tt.want == "" && len(got) != 0:
 				t.Errorf("Check = %v, want none", got)
-			case tt.want != "" && (len(got) != 1 || !strings.Contains(got[0].Error(), tt.want)):
+			case tt.want != "" && !slices.ContainsFunc(got, func(err error) bool { return strings.Contains(err.Error(), tt.want) }):
 				t.Errorf("Check = %v, want one naming %s", got, tt.want)
 			}
 		})

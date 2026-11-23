@@ -240,6 +240,7 @@ var (
 	headingRE    = regexp.MustCompile(`^#+\s+(.*?)\s*$`)
 	backtickRE   = regexp.MustCompile("`([^`]*)`")
 	backtickedRE = regexp.MustCompile("^`([^`]+)`$")
+	delimiterRE  = regexp.MustCompile(`^:?-+:?$`)
 )
 
 // parse reads a span schema in the form of spec/span-schema.md: a table of
@@ -408,7 +409,7 @@ func readTables(data []byte) (map[string][]row, error) {
 		case header == nil:
 			header = cells
 			continue
-		case strings.HasPrefix(cells[0], "---"):
+		case isDelimiter(cells):
 			continue
 		case len(cells) != len(header):
 			return nil, fmt.Errorf("line %d: %d cells, want %d", line, len(cells), len(header))
@@ -425,12 +426,38 @@ func readTables(data []byte) (map[string][]row, error) {
 	return tables, nil
 }
 
+// splitRow returns the cells of a table row. An escaped pipe, \|, is part of
+// its cell, as a pipe.
 func splitRow(text string) []string {
-	cells := strings.Split(strings.TrimSuffix(strings.TrimPrefix(text, "|"), "|"), "|")
-	for i, c := range cells {
-		cells[i] = strings.TrimSpace(c)
+	text = strings.TrimSuffix(strings.TrimPrefix(text, "|"), "|")
+	var (
+		cells []string
+		cell  strings.Builder
+	)
+	for i := 0; i < len(text); i++ {
+		switch {
+		case text[i] == '\\' && i+1 < len(text) && text[i+1] == '|':
+			cell.WriteByte('|')
+			i++
+		case text[i] == '|':
+			cells = append(cells, strings.TrimSpace(cell.String()))
+			cell.Reset()
+		default:
+			cell.WriteByte(text[i])
+		}
 	}
-	return cells
+	return append(cells, strings.TrimSpace(cell.String()))
+}
+
+// isDelimiter reports whether cells are a table's delimiter row, such as
+// |---|:--:|.
+func isDelimiter(cells []string) bool {
+	for _, c := range cells {
+		if !delimiterRE.MatchString(c) {
+			return false
+		}
+	}
+	return true
 }
 
 func backticks(cell string) []string {

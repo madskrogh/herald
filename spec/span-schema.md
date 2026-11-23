@@ -18,7 +18,7 @@ Each span is one wide span: it carries everything known at that point, so a ques
 
 ## Attributes
 
-Every value is text in the store, where checks and people read it ([ADR 0006](../docs/adr/0006-clickhouse-telemetry-store.md)). A `string` is any text. An `int` is a base-10 integer, emitted as a 64-bit integer. A `uuid` is a UUID in lowercase canonical text form, such as `0198a1b2-0000-7000-8000-0000000000aa`. `Empty` says whether the attribute may be empty text, its zero value where it doesn't apply ([R-53](observability.md#r-53--implemented)): `allowed` or `never`.
+Every value is text in the store, where checks and people read it ([ADR 0006](../docs/adr/0006-clickhouse-telemetry-store.md)). A `string` is any text. An `int` is a base-10 integer, which may have a sign, emitted as a 64-bit integer; the schema sets no range. A `uuid` is a UUID in lowercase canonical text form, such as `0198a1b2-0000-7000-8000-0000000000aa`. `Empty` says whether the attribute may be empty text, its zero value where it doesn't apply ([R-53](observability.md#r-53--implemented)): `allowed` or `never`.
 
 | Key | Type | Empty | Why |
 |---|---|---|---|
@@ -39,7 +39,7 @@ Every value is text in the store, where checks and people read it ([ADR 0006](..
 
 ## Attributes of each span
 
-A span carries exactly these attributes, each once.
+A span carries exactly these attributes.
 
 | Span | Attributes | Why |
 |---|---|---|
