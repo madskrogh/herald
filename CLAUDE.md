@@ -18,6 +18,8 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 | `make wait-ci` | Wait for the CI run on `HEAD`'s pushed commit and exit with its result |
 | `make admin ARGS='…'` | Run herald-admin against this checkout's stack, e.g. `ARGS='tenant create --name Acme'` |
 | `make e2e` | Run the end-to-end tests against this checkout's stack (start it with `make up`). `RUN=<regexp>` selects tests, e.g. `make e2e RUN=TestSpanIsStoredInClickHouse` |
+| `make scenario-compare` | Run the scenario against this checkout's stack (start it with `make up`) and compare what its Endpoints received with the committed baseline, reporting each difference by Delivery and field. Takes about five minutes, and nothing else may use the stack meanwhile |
+| `make scenario-record` | Run the scenario and record the result as the new baseline (`internal/scenario/testdata/baseline.json`), from the baseline's seed or `SEED=<n>` |
 | `make worktree-rm NAME=x` | Stop a worktree's stack, remove the worktree and its branch (after its session has exited) |
 
 Run `make ci` before every push. It is exactly what CI runs.
