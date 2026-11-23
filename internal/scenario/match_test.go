@@ -62,8 +62,8 @@ func vectorFilter(t *testing.T, cell string) []string {
 	case "(one empty pattern)":
 		return []string{""}
 	}
-	if m := bytesRE.FindStringSubmatch(cell); m != nil {
-		return []string{strings.Repeat("a", atoi(t, m[1]))}
+	if s, ok := vectorBytes(t, cell); ok {
+		return []string{s}
 	}
 	if m := countRE.FindStringSubmatch(cell); m != nil {
 		f := make([]string, atoi(t, m[1]))
@@ -86,14 +86,25 @@ func vectorEventType(t *testing.T, cell string) string {
 	if cell == "(empty)" {
 		return ""
 	}
-	if m := bytesRE.FindStringSubmatch(cell); m != nil {
-		return strings.Repeat("a", atoi(t, m[1]))
+	if s, ok := vectorBytes(t, cell); ok {
+		return s
 	}
 	if s := codeSpans(cell); len(s) == 1 {
 		return s[0]
 	}
 	t.Fatalf("can't read Event type %q", cell)
 	return ""
+}
+
+// vectorBytes reads a cell that gives only a length, such as "128 bytes"
+// or "a 129-byte pattern", as a valid token of that length.
+func vectorBytes(t *testing.T, cell string) (string, bool) {
+	t.Helper()
+	m := bytesRE.FindStringSubmatch(cell)
+	if m == nil {
+		return "", false
+	}
+	return strings.Repeat("a", atoi(t, m[1])), true
 }
 
 func atoi(t *testing.T, s string) int {
@@ -105,7 +116,8 @@ func atoi(t *testing.T, s string) int {
 	return n
 }
 
-func yes(t *testing.T, cell string) bool {
+// vectorBool reads a "yes" or "no" cell.
+func vectorBool(t *testing.T, cell string) bool {
 	t.Helper()
 	switch cell {
 	case "yes":
@@ -125,14 +137,12 @@ func TestMatchesFollowsTheSpec(t *testing.T) {
 		eventType string
 		want      bool
 	}
+	// R-4's vector gives one pattern, which is a filter of one.
 	var cases []tc
-	for _, id := range []string{"R-2", "R-3"} {
+	for id, column := range map[string]string{"R-2": "Filter", "R-3": "Filter", "R-4": "Pattern"} {
 		for _, row := range vectors(t, id) {
-			cases = append(cases, tc{vectorFilter(t, row["Filter"]), vectorEventType(t, row["Event type"]), yes(t, row["Matches"])})
+			cases = append(cases, tc{vectorFilter(t, row[column]), vectorEventType(t, row["Event type"]), vectorBool(t, row["Matches"])})
 		}
-	}
-	for _, row := range vectors(t, "R-4") {
-		cases = append(cases, tc{vectorFilter(t, row["Pattern"]), vectorEventType(t, row["Event type"]), yes(t, row["Matches"])})
 	}
 	for _, c := range cases {
 		t.Run(strings.Join(c.filter, ",")+" "+c.eventType, func(t *testing.T) {
@@ -165,8 +175,11 @@ func TestFanOutFollowsTheSpec(t *testing.T) {
 					}
 				}
 			}
-			want := row["Deliveries to"]
-			if g := strings.Join(got, ", "); g != want && (want != "none" || g != "") {
+			g := strings.Join(got, ", ")
+			if g == "" {
+				g = "none"
+			}
+			if want := row["Deliveries to"]; g != want {
 				t.Errorf("Deliveries to %q, want %q", g, want)
 			}
 		})
@@ -191,8 +204,8 @@ func TestParseFollowsTheSpec(t *testing.T) {
 		t.Run("Event type "+row["Event type"], func(t *testing.T) {
 			t.Parallel()
 			et := vectorEventType(t, row["Event type"])
-			if err, want := validEventType(et), created(t, row["Result"]); (err == nil) != want {
-				t.Errorf("validEventType(%q) = %v, want valid: %v", et, err, want)
+			if err, want := eventTypeError(et), created(t, row["Result"]); (err == nil) != want {
+				t.Errorf("eventTypeError(%q) = %v, want valid: %v", et, err, want)
 			}
 		})
 	}
@@ -200,8 +213,8 @@ func TestParseFollowsTheSpec(t *testing.T) {
 		t.Run("filter "+row["Filter"], func(t *testing.T) {
 			t.Parallel()
 			f := vectorFilter(t, row["Filter"])
-			if err, want := validFilter(f), created(t, row["Result"]); (err == nil) != want {
-				t.Errorf("validFilter(%q) = %v, want valid: %v", f, err, want)
+			if err, want := filterError(f), created(t, row["Result"]); (err == nil) != want {
+				t.Errorf("filterError(%q) = %v, want valid: %v", f, err, want)
 			}
 		})
 	}

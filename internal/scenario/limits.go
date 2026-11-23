@@ -2,9 +2,9 @@ package scenario
 
 import "time"
 
-// The limits the scenario invariants hold Herald to, each named after its
-// row in spec/limits.md, where its reason is. TestLimitsFollowTheSpec
-// compares them with the spec.
+// The limits the scenario invariants hold Herald to, and how far the
+// scenario's faults go, each with its row in spec/limits.md, where its
+// reason is. TestLimitsFollowTheSpec compares them with the spec.
 const (
 	// attemptTimeout is attempt-timeout (R-7).
 	attemptTimeout = 15 * time.Second
@@ -26,6 +26,12 @@ const (
 	maxFilterPatterns = 32
 	// retryJitter is retry-jitter, as a fraction of each delay (R-11).
 	retryJitter = 0.1
+	// natsPause is fault-nats-unavailable: how long NATS stays paused after
+	// a phase's Messages are sent (R-73).
+	natsPause = 5 * time.Second
+	// postgresCPU is fault-postgres-cpu: the share of a CPU Postgres gets
+	// while it is slowed (R-74).
+	postgresCPU = 0.01
 )
 
 // retryDelays is retry-delays: the delay before each retry, after the 1st

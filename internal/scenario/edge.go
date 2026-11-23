@@ -324,14 +324,14 @@ func (e *edge) checkPayloads() {
 func (e *edge) checkFanOut() {
 	for _, app := range e.obs.Scenario.Applications {
 		for _, ep := range app.Endpoints {
-			if err := validFilter(ep.Filter); err != nil {
+			if err := filterError(ep.Filter); err != nil {
 				e.add(ruleFanOut, ep.Name, fmt.Sprintf("the scenario's filter %q doesn't parse: %v", ep.Filter, err))
 			}
 		}
 	}
 	for id, name := range e.names {
 		m := e.messages[name]
-		if err := validEventType(m.EventType); err != nil {
+		if err := eventTypeError(m.EventType); err != nil {
 			e.add(ruleFanOut, name, fmt.Sprintf("Herald accepted Message %s with Event type %q, which doesn't parse: %v", id, m.EventType, err))
 		}
 	}
@@ -366,11 +366,11 @@ func (e *edge) matching() map[deliveryKey]bool {
 	want := map[deliveryKey]bool{}
 	for _, name := range e.names {
 		m := e.messages[name]
-		if validEventType(m.EventType) != nil {
+		if eventTypeError(m.EventType) != nil {
 			continue
 		}
 		for _, ep := range filters[m.Application] {
-			if validFilter(ep.Filter) == nil && matches(ep.Filter, m.EventType) {
+			if filterError(ep.Filter) == nil && matches(ep.Filter, m.EventType) {
 				want[deliveryKey{name, ep.Name}] = true
 			}
 		}

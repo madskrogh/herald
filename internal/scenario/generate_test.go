@@ -82,7 +82,7 @@ func TestGenerateCoversEverything(t *testing.T) {
 					sent = append(sent, m)
 					reached := 0
 					for _, ep := range application(t, s, m.Application).Endpoints {
-						if matches(t, ep.Filter, m.EventType) {
+						if scenario.Matches(ep.Filter, m.EventType) {
 							deliveries[ep.Name]++
 							inPhase[ep.Name]++
 							reached++
@@ -150,11 +150,4 @@ func application(t *testing.T, s scenario.Scenario, name string) scenario.Applic
 	}
 	t.Fatalf("no Application %q", name)
 	return scenario.Application{}
-}
-
-// matches reports whether a Message of Event type et reaches an Endpoint
-// with filter, by the harness's own matching, which follows the spec.
-func matches(t *testing.T, filter []string, et string) bool {
-	t.Helper()
-	return scenario.Matches(filter, et)
 }

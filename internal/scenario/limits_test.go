@@ -11,9 +11,9 @@ import (
 	"github.com/madskrogh/herald/internal/spec"
 )
 
-// TestLimitsFollowTheSpec compares each limit the harness holds Herald to
-// with its value in spec/limits.md, so the checks can't drift from the
-// spec.
+// TestLimitsFollowTheSpec compares each limit the harness holds Herald to,
+// and each fault's size, with its value in spec/limits.md, so the checks
+// can't drift from the spec.
 func TestLimitsFollowTheSpec(t *testing.T) {
 	t.Parallel()
 
@@ -27,28 +27,33 @@ func TestLimitsFollowTheSpec(t *testing.T) {
 		if name < 0 || value < 0 {
 			continue
 		}
-		for _, r := range tb.Rows {
+		for i, r := range tb.Rows {
+			if len(r) != len(tb.Header) {
+				t.Fatalf("limits.md:%d: row %d has %d cells, want %d", tb.Line, i+1, len(r), len(tb.Header))
+			}
 			values[strings.Trim(r[name], "`")] = r[value]
 		}
 	}
-	join := func(ds []time.Duration) string {
+	durations := func(ds ...time.Duration) string {
 		parts := make([]string, len(ds))
 		for i, d := range ds {
-			parts[i] = vectorDurationString(d)
+			parts[i] = specDuration(d)
 		}
 		return strings.Join(parts, ", ")
 	}
 	got := map[string]string{
-		"attempt-timeout":            vectorDurationString(attemptTimeout),
-		"max-attempts":               itoa(maxAttempts),
-		"retry-delays":               join(retryDelays),
-		"retry-jitter":               itoa(int(retryJitter*100)) + "% either way",
-		"max-in-flight-per-endpoint": itoa(maxInFlight),
-		"max-delay":                  vectorDurationString(maxDelay),
-		"max-delay-in-fault":         vectorDurationString(maxDelayInFault),
-		"event-type-bytes":           itoa(eventTypeBytes),
-		"filter-pattern-bytes":       itoa(filterPatternBytes),
-		"max-filter-patterns":        itoa(maxFilterPatterns),
+		"attempt-timeout":            durations(attemptTimeout),
+		"max-attempts":               strconv.Itoa(maxAttempts),
+		"retry-delays":               durations(retryDelays...),
+		"retry-jitter":               strconv.Itoa(int(retryJitter*100)) + "% either way",
+		"max-in-flight-per-endpoint": strconv.Itoa(maxInFlight),
+		"max-delay":                  durations(maxDelay),
+		"max-delay-in-fault":         durations(maxDelayInFault),
+		"event-type-bytes":           strconv.Itoa(eventTypeBytes),
+		"filter-pattern-bytes":       strconv.Itoa(filterPatternBytes),
+		"max-filter-patterns":        strconv.Itoa(maxFilterPatterns),
+		"fault-nats-unavailable":     durations(natsPause),
+		"fault-postgres-cpu":         strconv.FormatFloat(postgresCPU*100, 'g', -1, 64) + "%",
 	}
 	want := map[string]string{}
 	for name := range got {
@@ -63,17 +68,15 @@ func TestLimitsFollowTheSpec(t *testing.T) {
 	}
 }
 
-// vectorDurationString writes a whole duration as the spec does, such as
-// "15 s", "1 m" or "12 h".
-func vectorDurationString(d time.Duration) string {
+// specDuration writes a whole duration as the spec does, such as "15 s",
+// "1 m" or "12 h".
+func specDuration(d time.Duration) string {
 	switch {
 	case d%time.Hour == 0:
-		return itoa(int(d/time.Hour)) + " h"
+		return strconv.Itoa(int(d/time.Hour)) + " h"
 	case d%time.Minute == 0:
-		return itoa(int(d/time.Minute)) + " m"
+		return strconv.Itoa(int(d/time.Minute)) + " m"
 	default:
-		return itoa(int(d/time.Second)) + " s"
+		return strconv.Itoa(int(d/time.Second)) + " s"
 	}
 }
-
-func itoa(n int) string { return strconv.Itoa(n) }

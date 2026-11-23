@@ -50,10 +50,13 @@ var faultErrors = map[string][]Fault{
 	telemetry.SpanStoreDeliveries: {NATSPaused, PostgresSlowed, DispatcherRestarted},
 }
 
-// outcomeFailedPrecondition is the Tenant API call's outcome for a Message
-// sent again with an Idempotency-Key and another request, which the
-// scenario sends on purpose (R-39).
-const outcomeFailedPrecondition = "FailedPrecondition"
+// The Tenant API call, and its outcome, for a Message sent again with an
+// Idempotency-Key and another request, which the scenario sends on purpose
+// (R-39).
+const (
+	methodCreateMessage       = "/herald.tenant.v1.MessageService/CreateMessage"
+	outcomeFailedPrecondition = "FailedPrecondition"
+)
 
 // CheckSpans checks the requirements that show in a run's spans: every span
 // of each trace that has a span of the run's Tenant, and the Batches that
@@ -257,9 +260,12 @@ func (c *spanCheck) checkErrors() {
 		case msg == "":
 			c.add(ruleError, subject(s), "an error status, but no error")
 			continue
+		case s.StatusCode != statusError:
+			c.add(ruleError, subject(s), "an error, but not an error status: "+msg)
+			continue
 		}
-		if s.Name == telemetry.SpanTenantAPICall && s.Attributes[string(telemetry.Outcome)] == outcomeFailedPrecondition &&
-			conflicts > 0 {
+		if s.Name == telemetry.SpanTenantAPICall && s.Attributes[string(telemetry.RPCMethod)] == methodCreateMessage &&
+			s.Attributes[string(telemetry.Outcome)] == outcomeFailedPrecondition && conflicts > 0 {
 			conflicts--
 			continue
 		}
@@ -296,9 +302,15 @@ func (c *spanCheck) expected(s e2e.Span) bool {
 		case telemetry.OutcomeNotRecorded:
 			return fault == PostgresSlowed
 		}
+		if outcome := s.Attributes[string(telemetry.Outcome)]; outcome != telemetry.OutcomePending && outcome != telemetry.OutcomeFailed {
+			return false
+		}
 		behaviour := c.behaviours[s.Attributes[string(telemetry.EndpointID)]]
-		status, _ := strconv.Atoi(s.Attributes[string(telemetry.StatusCode)])
-		if status != 0 {
+		status, err := strconv.Atoi(s.Attributes[string(telemetry.StatusCode)])
+		switch {
+		case err != nil:
+			return false
+		case status != 0:
 			want, ok := endpointStatus[behaviour]
 			return ok && status == want
 		}

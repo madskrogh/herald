@@ -13,14 +13,8 @@ import (
 	"github.com/madskrogh/herald/internal/endpointtest"
 )
 
+// How far each fault goes is in limits.go: natsPause and postgresCPU.
 const (
-	// natsPause is how long NATS stays paused after a phase's Messages are
-	// sent, so the relay tries to hand them off, and fails, meanwhile.
-	natsPause = 5 * time.Second
-	// postgresCPU is the share of a CPU Postgres gets while it is slowed:
-	// little enough that each Delivery's first Attempt comes seconds late,
-	// so the recording shows the fault. A tenth of a CPU barely shows.
-	postgresCPU = 0.01
 	// postgresSettle is how long Postgres runs slowed before the phase sends
 	// its first Message. Sent at once, the first Message has sometimes been
 	// delivered as fast as without the fault, and sometimes not.

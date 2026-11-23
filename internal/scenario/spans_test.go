@@ -34,7 +34,7 @@ func spanRun() (scenario.Observations, []e2e.Span) {
 		return s
 	}
 	call := func(trace, id string, start int) e2e.Span {
-		return span(trace, id, "", "tenant_api.call", start, map[string]string{"herald.outcome": "OK"})
+		return span(trace, id, "", "tenant_api.call", start, map[string]string{"herald.outcome": "OK", "rpc.method": "/herald.tenant.v1.MessageService/CreateMessage"})
 	}
 	handoff := func(trace, id, parent string, start int, message string) e2e.Span {
 		return span(trace, id, parent, "handoff", start, map[string]string{"herald.message_id": message, "herald.outcome": "handed_off"})
@@ -204,6 +204,49 @@ func TestCheckSpansNamesWhatBroke(t *testing.T) {
 				c.StatusCode = "Error"
 				c.Attributes["herald.outcome"] = "FailedPrecondition"
 				c.Attributes["herald.error"] = "Idempotency-Key was used for a different request in the last 24 hours"
+				return spans
+			},
+			want: []violation{{"error", "tenant_api.call span c3"}},
+		},
+		{
+			name: "an error without an error status",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "a3").StatusCode = "Ok"
+				return spans
+			},
+			want: []violation{{"error", "attempt span a3"}},
+		},
+		{
+			name: "an Endpoint's error on an Attempt that succeeded",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "a3").Attributes["herald.outcome"] = "succeeded"
+				return spans
+			},
+			want: []violation{{"error", "attempt span a3"}},
+		},
+		{
+			name: "an error with no status code at an Endpoint that gives no response",
+			breakIt: func(obs *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				obs.Scenario.Applications[0].Endpoints[1].Behaviour = scenario.TimeOut
+				for _, id := range []string{"a3", "a4"} {
+					byID(spans, id).Attributes["herald.status_code"] = "0"
+				}
+				delete(byID(spans, "a3").Attributes, "herald.status_code")
+				return spans
+			},
+			want: []violation{{"error", "attempt span a3"}},
+		},
+		{
+			name: "a refusal of another call, when the scenario asks for a refused Message",
+			breakIt: func(obs *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				m := scenario.Message{Name: "m004", Application: "app-1", EventType: "invoice.paid", IdempotencyKey: "key-m001", Payload: `{"message":"m004"}`}
+				obs.Scenario.Phases[0].Messages = append(obs.Scenario.Phases[0].Messages, m)
+				obs.Sent["m004"] = scenario.Sent{Status: 422}
+				c := byID(spans, "c3")
+				c.StatusCode = "Error"
+				c.Attributes["rpc.method"] = "/herald.tenant.v1.EndpointService/CreateEndpoint"
+				c.Attributes["herald.outcome"] = "FailedPrecondition"
+				c.Attributes["herald.error"] = "refused"
 				return spans
 			},
 			want: []violation{{"error", "tenant_api.call span c3"}},
