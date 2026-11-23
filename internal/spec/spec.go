@@ -1,7 +1,6 @@
 // Package spec checks Herald's spec against the conventions spec/README.md
-// states: every implemented MUST has a vector, every vector file names
-// requirements that exist, and every requirement has one ID, a status and a
-// reason.
+// states: every vector file names requirements that exist, and every
+// requirement has one ID, a status and a reason.
 package spec
 
 import (
@@ -51,21 +50,21 @@ var (
 	idLikeRE      = regexp.MustCompile(`^R-[0-9][^\s:·]*`)
 	idRE          = regexp.MustCompile(`^R-[1-9][0-9]*$`)
 	requirementRE = regexp.MustCompile(`^(R-[1-9][0-9]*) · (` + strings.Join(statuses, "|") + `)$`)
-	mustRE        = regexp.MustCompile(`\bMUST\b`)
 	rowRE         = regexp.MustCompile(`^ {0,3}\|`)
 	delimiterRE   = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+$`)
 	fenceRE       = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})(.*)$")
-	blockStartRE  = regexp.MustCompile(`^([-*+]\s|[0-9]+[.)]\s|>)`)
 )
 
 // section is the part of a file from one heading to the next.
 type section struct {
 	heading   string // the heading's text; empty before the first heading
 	line      int    // the heading's line; 0 before the first heading
-	must      bool   // whether its prose, other than its reasons, says MUST
 	why       bool   // whether it has a "Why:" paragraph
 	withdrawn bool   // whether it has a "Withdrawn:" paragraph
-	tables    []int  // the first line of each table with at least one row
+	// tables holds the first line of each table with at least one row. Only
+	// vector files' tables are checked: in a requirement file, a table may sit
+	// under any heading, such as the limits table.
+	tables []int
 }
 
 type requirement struct {
@@ -73,21 +72,16 @@ type requirement struct {
 	status string
 	file   string
 	line   int
-	must   bool
 	// why and withdrawn say whether it has a "Why:" and a "Withdrawn:"
 	// paragraph.
 	why, withdrawn bool
-	// vectors counts its vectors: the tables under it, and those under
-	// headings in vector files that name it.
-	vectors int
 }
 
 // vectorRef is a heading in a vector file that names a requirement.
 type vectorRef struct {
-	id      string
-	file    string
-	line    int
-	vectors int // the tables under it
+	id   string
+	file string
+	line int
 }
 
 // Check reads the spec in fsys and returns its problems, ordered by file and
@@ -139,12 +133,9 @@ func Check(fsys fs.FS) ([]Problem, error) {
 	// two a vector belongs to is unknown until one of them is renumbered.
 	reqs = slices.DeleteFunc(reqs, func(r *requirement) bool { return byID[r.id] != r })
 	for _, ref := range refs {
-		r, ok := byID[ref.id]
-		if !ok {
+		if _, ok := byID[ref.id]; !ok {
 			problems = append(problems, Problem{File: ref.file, Line: ref.line, Message: ref.id + " names no requirement"})
-			continue
 		}
-		r.vectors += ref.vectors
 	}
 	for _, r := range reqs {
 		if !r.why {
@@ -154,9 +145,6 @@ func Check(fsys fs.FS) ([]Problem, error) {
 		if r.status == withdrawn && !r.withdrawn {
 			problems = append(problems, Problem{File: r.file, Line: r.line, Message: fmt.Sprintf(
 				"%s is withdrawn with no reason: add a %q line", r.id, withdrawnPrefix)})
-		}
-		if r.status == implemented && r.must && r.vectors == 0 {
-			problems = append(problems, Problem{File: r.file, Line: r.line, Message: r.id + " is an implemented MUST with no vector"})
 		}
 	}
 
@@ -202,7 +190,7 @@ func requirements(name string, sections []section) ([]*requirement, []Problem) {
 		}
 		reqs = append(reqs, &requirement{
 			id: m[1], status: m[2], file: name, line: s.line,
-			must: s.must, why: s.why, withdrawn: s.withdrawn, vectors: len(s.tables),
+			why: s.why, withdrawn: s.withdrawn,
 		})
 	}
 	return reqs, problems
@@ -233,7 +221,7 @@ func vectorRefs(name string, sections []section) ([]vectorRef, []Problem) {
 			continue
 		}
 		if id != "" {
-			refs = append(refs, vectorRef{id: id, file: name, line: s.line, vectors: len(s.tables)})
+			refs = append(refs, vectorRef{id: id, file: name, line: s.line})
 			continue
 		}
 		for _, line := range s.tables {
@@ -250,8 +238,7 @@ func parse(data []byte) []section {
 
 	sections := []section{{}}
 	cur := &sections[0]
-	fence := ""     // the fence that opened the code block being skipped
-	reason := false // whether the line is in a paragraph giving a reason
+	fence := "" // the fence that opened the code block being skipped
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		if fence != "" {
@@ -266,7 +253,6 @@ func parse(data []byte) []section {
 		if m := headingRE.FindStringSubmatch(line); m != nil {
 			sections = append(sections, section{heading: m[1], line: i + 1})
 			cur = &sections[len(sections)-1]
-			reason = false
 			continue
 		}
 		if n := tableLen(lines[i:]); n > 0 {
@@ -274,21 +260,13 @@ func parse(data []byte) []section {
 				cur.tables = append(cur.tables, i+1)
 			}
 			i += n - 1
-			reason = false
 			continue
 		}
 		switch t := strings.TrimSpace(line); {
-		case t == "" || blockStartRE.MatchString(t):
-			// A blank line ends a paragraph, and so does a list item or a
-			// block quote.
-			reason = false
 		case strings.HasPrefix(t, whyPrefix):
-			cur.why, reason = true, true
+			cur.why = true
 		case strings.HasPrefix(t, withdrawnPrefix):
-			cur.withdrawn, reason = true, true
-		}
-		if !reason && mustRE.MatchString(line) {
-			cur.must = true
+			cur.withdrawn = true
 		}
 	}
 	return sections

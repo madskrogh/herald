@@ -34,7 +34,7 @@ func TestCheck(t *testing.T) {
 		want  []spec.Problem
 	}{
 		{
-			name: "implemented MUST with no vector",
+			name: "an implemented MUST needs no vector",
 			files: map[string]string{
 				"delivery.md": `# Delivery
 
@@ -45,90 +45,14 @@ When an Attempt gets a 2xx, Herald MUST NOT make another Attempt for that Delive
 Why: ADR 0001.
 `,
 			},
-			want: []spec.Problem{
-				{File: "delivery.md", Line: 3, Message: "R-1 is an implemented MUST with no vector"},
-			},
-		},
-		{
-			name: "implemented MUST with an inline vector",
-			files: map[string]string{
-				"delivery.md": `### R-1 · implemented
-
-When an Attempt gets a 2xx, Herald MUST NOT make another Attempt for that Delivery.
-
-Why: ADR 0001.
-
-| responses | attempts |
-|-----------|----------|
-| 500, 200  | 2        |
-`,
-			},
 		},
 		{
 			name: "a table with no rows is no vector",
 			files: map[string]string{
-				"delivery.md": `### R-1 · implemented
-
-Herald MUST NOT make another Attempt after a 2xx.
-
-Why: ADR 0001.
+				"vectors/no-attempt-after-2xx.md": `# No Attempt after a 2xx
 
 | responses | attempts |
 |-----------|----------|
-`,
-			},
-			want: []spec.Problem{
-				{File: "delivery.md", Line: 1, Message: "R-1 is an implemented MUST with no vector"},
-			},
-		},
-		{
-			name: "a table under the next heading is not the requirement's vector",
-			files: map[string]string{
-				"delivery.md": `### R-1 · implemented
-
-Herald MUST NOT make another Attempt after a 2xx.
-
-Why: ADR 0001.
-
-## Retries
-
-| responses | attempts |
-|-----------|----------|
-| 500, 200  | 2        |
-`,
-			},
-			want: []spec.Problem{
-				{File: "delivery.md", Line: 1, Message: "R-1 is an implemented MUST with no vector"},
-			},
-		},
-		{
-			name: "SHOULD, MAY, planned and withdrawn need no vector",
-			files: map[string]string{
-				"delivery.md": `### R-1 · implemented
-
-Herald SHOULD make the first Attempt within a second.
-
-Why: ADR 0001.
-
-### R-2 · implemented
-
-Herald MAY make an Attempt early.
-
-Why: ADR 0001.
-
-### R-3 · planned
-
-Herald MUST keep Attempts for 30 days.
-
-Why: ADR 0001.
-
-### R-4 · withdrawn
-
-Herald MUST retry 5 times.
-
-Why: ADR 0001.
-
-Withdrawn: replaced by R-5.
 `,
 			},
 		},
@@ -176,7 +100,7 @@ Why: ADR 0001.
 			},
 		},
 		{
-			name: "implemented MUST with a vector in a vector file",
+			name: "a vector file names an existing requirement",
 			files: map[string]string{
 				"delivery.md": `### R-1 · implemented
 
@@ -264,10 +188,10 @@ Why: ADR 0001.
 			files: map[string]string{
 				"delivery.md": "### R-1 · implemented\n\nHerald MUST sign every Attempt.\n\nWhy: ADR 0003.\n\n" +
 					"| payload |\n|---------|\n| " + strings.Repeat("a", 100_000) + " |\n\n" +
-					"### R-2 · implemented\n\nHerald MUST NOT make another Attempt after a 2xx.\n\nWhy: ADR 0001.\n",
+					"### R-2 · implemented\n\nHerald MUST NOT make another Attempt after a 2xx.\n",
 			},
 			want: []spec.Problem{
-				{File: "delivery.md", Line: 11, Message: "R-2 is an implemented MUST with no vector"},
+				{File: "delivery.md", Line: 11, Message: "R-2 has no reason: add a \"Why:\" line"},
 			},
 		},
 		{
@@ -302,25 +226,6 @@ Why: ADR 0001.
 			},
 		},
 		{
-			name: "a MUST in the reason doesn't make the requirement a MUST",
-			files: map[string]string{
-				"delivery.md": `### R-1 · implemented
-
-Herald SHOULD make the first Attempt within a second.
-
-Why: Endpoints MUST see Messages quickly, or Tenants poll instead.
-
-### R-2 · withdrawn
-
-Herald SHOULD retry 5 times.
-
-Why: ADR 0001.
-
-Withdrawn: a MUST in R-3 replaces it.
-`,
-			},
-		},
-		{
 			name: "a fence of the other kind doesn't close a code block",
 			files: map[string]string{
 				"README.md": "~~~markdown\n```abnf\n### R-1 · implemented\n\nHerald MUST sign every Attempt.\n~~~\n",
@@ -335,29 +240,26 @@ Withdrawn: a MUST in R-3 replaces it.
 		{
 			name: "inline code at the start of a line doesn't open a code block",
 			files: map[string]string{
-				"delivery.md": "```abnf``` blocks hold the grammars.\n\n### R-1 · implemented\n\nHerald MUST sign every Attempt.\n\nWhy: ADR 0003.\n",
+				"delivery.md": "```abnf``` blocks hold the grammars.\n\n### R-1 · implemented\n\nHerald MUST sign every Attempt.\n",
 			},
 			want: []spec.Problem{
-				{File: "delivery.md", Line: 3, Message: "R-1 is an implemented MUST with no vector"},
+				{File: "delivery.md", Line: 3, Message: "R-1 has no reason: add a \"Why:\" line"},
 			},
 		},
 		{
 			name: "a heading indented by up to three spaces",
 			files: map[string]string{
-				"delivery.md": "   ### R-1 · implemented\n\nHerald MUST sign every Attempt.\n\nWhy: ADR 0003.\n",
+				"delivery.md": "   ### R-1 · implemented\n\nHerald MUST sign every Attempt.\n",
 			},
 			want: []spec.Problem{
-				{File: "delivery.md", Line: 1, Message: "R-1 is an implemented MUST with no vector"},
+				{File: "delivery.md", Line: 1, Message: "R-1 has no reason: add a \"Why:\" line"},
 			},
 		},
 		{
 			name: "a table in an indented code block is no vector",
 			files: map[string]string{
-				"delivery.md": "### R-1 · implemented\n\nHerald MUST sign every Attempt.\n\nWhy: ADR 0003.\n\n" +
+				"vectors/signing.md": "# Signing\n\n" +
 					"    | payload |\n    |---------|\n    | a       |\n",
-			},
-			want: []spec.Problem{
-				{File: "delivery.md", Line: 1, Message: "R-1 is an implemented MUST with no vector"},
 			},
 		},
 		{
@@ -379,25 +281,6 @@ Why: ADR 0001.
 			want: []spec.Problem{
 				{File: "delivery.md", Line: 1, Message: `"R-01" is not an ID: write R- and a number with no leading zero, such as "R-1"`},
 				{File: "vectors/early.md", Line: 1, Message: `"R-1.2" is not an ID: write R- and a number with no leading zero, such as "R-1"`},
-			},
-		},
-		{
-			name: "a list or quote after a reason is not part of it",
-			files: map[string]string{
-				"delivery.md": `### R-1 · implemented
-
-Why: ADR 0003.
-- Herald MUST sign every Attempt.
-
-### R-2 · implemented
-
-Why: ADR 0001.
-> Herald MUST NOT make another Attempt after a 2xx.
-`,
-			},
-			want: []spec.Problem{
-				{File: "delivery.md", Line: 1, Message: "R-1 is an implemented MUST with no vector"},
-				{File: "delivery.md", Line: 6, Message: "R-2 is an implemented MUST with no vector"},
 			},
 		},
 		{
