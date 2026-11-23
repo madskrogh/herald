@@ -54,7 +54,7 @@ Withdrawn: replaced by R-31, which retries for 3 days instead of a fixed count.
 
 ## Vectors
 
-A vector is a Markdown table of cases for one requirement: given these inputs, Herald gives these results. The checks that run vectors read the same table a person reads. A table with no rows below its header is not a vector.
+A vector is a Markdown table of cases for one requirement: given these inputs, Herald gives these results. The checks that run vectors read the same table a person reads. Every row of a table, its header and delimiter rows included, starts and ends with `|`. A table with no rows below its header is not a vector.
 
 A vector sits under the requirement it exercises, after its text:
 
@@ -102,7 +102,10 @@ event-type = token *("." token)
 - an implemented requirement with a MUST has no vector;
 - a vector file names an ID that no requirement has, or has a table under no requirement's heading;
 - two requirements have the same ID;
-- a heading starts with an ID but has no status.
+- a heading starts with an ID but has no status;
+- a requirement has no `Why:` line, or is withdrawn with no `Withdrawn:` line.
+
+A MUST in a `Why:` or `Withdrawn:` paragraph doesn't make the requirement a MUST.
 
 ## Changing the spec
 

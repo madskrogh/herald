@@ -1,11 +1,11 @@
 // Package spec checks Herald's spec against the conventions spec/README.md
 // states: every implemented MUST has a vector, every vector file names
-// requirements that exist, and every requirement has one ID and a status.
+// requirements that exist, and every requirement has one ID, a status and a
+// reason.
 package spec
 
 import (
-	"bufio"
-	"bytes"
+	"cmp"
 	"fmt"
 	"io/fs"
 	"path"
@@ -29,36 +29,56 @@ func (p Problem) String() string {
 // requirement.
 const vectorDir = "vectors"
 
+// The statuses a requirement can have.
+const (
+	implemented = "implemented"
+	planned     = "planned"
+	withdrawn   = "withdrawn"
+)
+
+var statuses = []string{implemented, planned, withdrawn}
+
+// The prefixes of the paragraphs that give a requirement's reasons.
+const (
+	whyPrefix       = "Why:"
+	withdrawnPrefix = "Withdrawn:"
+)
+
 var (
 	headingRE     = regexp.MustCompile(`^#{1,6}\s+(.*?)\s*$`)
 	idRE          = regexp.MustCompile(`^R-\d+\b`)
-	requirementRE = regexp.MustCompile(`^(R-\d+) · (implemented|planned|withdrawn)$`)
+	requirementRE = regexp.MustCompile(`^(R-\d+) · (` + strings.Join(statuses, "|") + `)$`)
 	mustRE        = regexp.MustCompile(`\bMUST\b`)
 	delimiterRE   = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+$`)
 )
 
 // section is the part of a file from one heading to the next.
 type section struct {
-	heading string // the heading's text; empty before the first heading
-	line    int    // the heading's line; 0 before the first heading
-	must    bool   // whether its prose says MUST
-	tables  []int  // the first line of each table with at least one row
+	heading   string // the heading's text; empty before the first heading
+	line      int    // the heading's line; 0 before the first heading
+	must      bool   // whether its prose, other than its reasons, says MUST
+	why       bool   // whether it has a "Why:" paragraph
+	withdrawn bool   // whether it has a "Withdrawn:" paragraph
+	tables    []int  // the first line of each table with at least one row
 }
 
 type requirement struct {
-	id      string
-	status  string
-	file    string
-	line    int
-	must    bool
+	id     string
+	status string
+	file   string
+	line   int
+	must   bool
+	// vectors counts its vectors: the tables under it, and those under
+	// headings in vector files that name it.
 	vectors int
 }
 
 // vectorRef is a heading in a vector file that names a requirement.
 type vectorRef struct {
-	id   string
-	file string
-	line int
+	id      string
+	file    string
+	line    int
+	vectors int // the tables under it
 }
 
 // Check reads the spec in fsys and returns its problems, ordered by file and
@@ -112,10 +132,10 @@ func Check(fsys fs.FS) ([]Problem, error) {
 			problems = append(problems, Problem{File: ref.file, Line: ref.line, Message: ref.id + " names no requirement"})
 			continue
 		}
-		r.vectors++
+		r.vectors += ref.vectors
 	}
 	for _, r := range reqs {
-		if r.status == "implemented" && r.must && r.vectors == 0 {
+		if r.status == implemented && r.must && r.vectors == 0 {
 			problems = append(problems, Problem{File: r.file, Line: r.line, Message: r.id + " is an implemented MUST with no vector"})
 		}
 	}
@@ -124,29 +144,50 @@ func Check(fsys fs.FS) ([]Problem, error) {
 		if c := strings.Compare(a.File, b.File); c != 0 {
 			return c
 		}
-		return a.Line - b.Line
+		return cmp.Compare(a.Line, b.Line)
 	})
 	return problems, nil
 }
 
 // requirements returns the requirements in a file of the spec. A heading
-// that starts with an ID but has no status is a problem.
+// that starts with an ID but has no status is a problem, and so is a
+// requirement without its reasons.
 func requirements(name string, sections []section) ([]*requirement, []Problem) {
 	var (
 		reqs     []*requirement
 		problems []Problem
 	)
 	for _, s := range sections {
-		if m := requirementRE.FindStringSubmatch(s.heading); m != nil {
-			reqs = append(reqs, &requirement{
-				id: m[1], status: m[2], file: name, line: s.line, must: s.must, vectors: len(s.tables),
-			})
-		} else if id := idRE.FindString(s.heading); id != "" {
+		m := requirementRE.FindStringSubmatch(s.heading)
+		if m == nil {
+			if id := idRE.FindString(s.heading); id != "" {
+				problems = append(problems, Problem{File: name, Line: s.line, Message: noStatus(id)})
+			}
+			continue
+		}
+		r := &requirement{id: m[1], status: m[2], file: name, line: s.line, must: s.must, vectors: len(s.tables)}
+		reqs = append(reqs, r)
+		if !s.why {
 			problems = append(problems, Problem{File: name, Line: s.line, Message: fmt.Sprintf(
-				"%[1]s has no status: write %[2]q, %[3]q or %[4]q", id, id+" · implemented", id+" · planned", id+" · withdrawn")})
+				"%s has no reason: add a %q line", r.id, whyPrefix)})
+		}
+		if r.status == withdrawn && !s.withdrawn {
+			problems = append(problems, Problem{File: name, Line: s.line, Message: fmt.Sprintf(
+				"%s is withdrawn with no reason: add a %q line", r.id, withdrawnPrefix)})
 		}
 	}
 	return reqs, problems
+}
+
+// noStatus says how to write the heading of requirement id, which has no
+// status.
+func noStatus(id string) string {
+	headings := make([]string, len(statuses))
+	for i, s := range statuses {
+		headings[i] = fmt.Sprintf("%q", id+" · "+s)
+	}
+	last := len(headings) - 1
+	return fmt.Sprintf("%s has no status: write %s or %s", id, strings.Join(headings[:last], ", "), headings[last])
 }
 
 // vectorRefs returns the requirements a vector file names. A table under a
@@ -157,11 +198,8 @@ func vectorRefs(name string, sections []section) ([]vectorRef, []Problem) {
 		problems []Problem
 	)
 	for _, s := range sections {
-		if len(s.tables) == 0 {
-			continue
-		}
 		if id := idRE.FindString(s.heading); id != "" {
-			refs = append(refs, vectorRef{id: id, file: name, line: s.line})
+			refs = append(refs, vectorRef{id: id, file: name, line: s.line, vectors: len(s.tables)})
 			continue
 		}
 		for _, line := range s.tables {
@@ -174,27 +212,27 @@ func vectorRefs(name string, sections []section) ([]vectorRef, []Problem) {
 // parse splits a Markdown file into sections. Fenced code blocks, such as an
 // ABNF grammar or an example, are skipped.
 func parse(data []byte) []section {
-	var lines []string
-	sc := bufio.NewScanner(bytes.NewReader(data))
-	for sc.Scan() {
-		lines = append(lines, sc.Text())
-	}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 
 	sections := []section{{}}
 	cur := &sections[0]
-	fenced := false
+	fence := ""     // the fence that opened the code block being skipped
+	reason := false // whether the line is in a paragraph giving a reason
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		if isFence(line) {
-			fenced = !fenced
+		if f := fenceOf(line); fence != "" {
+			if f == fence {
+				fence = ""
+			}
 			continue
-		}
-		if fenced {
+		} else if f != "" {
+			fence = f
 			continue
 		}
 		if m := headingRE.FindStringSubmatch(line); m != nil {
 			sections = append(sections, section{heading: m[1], line: i + 1})
 			cur = &sections[len(sections)-1]
+			reason = false
 			continue
 		}
 		if n := tableLen(lines[i:]); n > 0 {
@@ -202,9 +240,18 @@ func parse(data []byte) []section {
 				cur.tables = append(cur.tables, i+1)
 			}
 			i += n - 1
+			reason = false
 			continue
 		}
-		if mustRE.MatchString(line) {
+		switch t := strings.TrimSpace(line); {
+		case t == "":
+			reason = false
+		case strings.HasPrefix(t, whyPrefix):
+			cur.why, reason = true, true
+		case strings.HasPrefix(t, withdrawnPrefix):
+			cur.withdrawn, reason = true, true
+		}
+		if !reason && mustRE.MatchString(line) {
 			cur.must = true
 		}
 	}
@@ -228,8 +275,15 @@ func isRow(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), "|")
 }
 
-// isFence reports whether line opens or closes a fenced code block.
-func isFence(line string) bool {
+// fenceOf returns the fence ("```" or "~~~") that line starts with, or ""
+// if it starts none. A code block ends only at the kind of fence that opened
+// it.
+func fenceOf(line string) string {
 	t := strings.TrimSpace(line)
-	return strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~")
+	for _, f := range []string{"```", "~~~"} {
+		if strings.HasPrefix(t, f) {
+			return f
+		}
+	}
+	return ""
 }
