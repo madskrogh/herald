@@ -68,7 +68,7 @@ A worktree is a second working directory linked to the same repository, with its
 Worktrees isolate files, not the machine. Ports, Docker containers and the NATS queue group are shared, so each worktree gets its own:
 
 - **Compose project.** `COMPOSE_PROJECT_NAME=herald-<name>` gives each worktree its own Postgres, NATS and volumes. Sharing one NATS would let one worktree's dispatcher take another worktree's Deliveries.
-- **Ports.** The main checkout is slot 0; each worktree takes the lowest free slot 1–9, and every published port is shifted by `slot × 100`.
+- **Ports.** The main checkout is slot 0; each worktree takes the lowest free slot 1–9, and every published port is shifted by `slot × 100`. A slot is free when no other worktree's `.env` holds it and Docker publishes none of its ports, which catches a stack that outlived its worktree. To tell, the script must reach Docker and read every worktree, so picking a slot fails inside the sandbox: run the first `make up` outside it.
 
 `make up` generates `.env` on first use, so this works however the worktree was created, by a person or an agent. Integration tests use testcontainers and are isolated by construction.
 
