@@ -14,7 +14,7 @@ import (
 // apart, which is up to 22% of the baseline's time. slackMs covers the
 // delivery workers' polling and the machine. With the local stack's retry
 // scale, a change to a retry delay of an hour or more fails the comparison,
-// and shorter ones are lost in the margins (docs/design.md, Testing).
+// and shorter ones are lost in the margins (ADR 0008).
 const (
 	jitterMargin = 25 // percent
 	slackMs      = 1000

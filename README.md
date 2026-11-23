@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/madskrogh/herald/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/madskrogh/herald/actions/workflows/ci.yml?query=branch%3Amain)
 
-Herald delivers webhooks on behalf of SaaS products: signed, retried, and observable. A Tenant submits a Message once. Herald works out which of the Application's Endpoints want it, signs every Attempt with [Standard Webhooks](https://www.standardwebhooks.com/), and retries failures for about 24 hours.
+Herald delivers webhooks on behalf of SaaS products: signed, retried, and observable. A Tenant submits a Message once. Herald works out which of the Application's Endpoints want it, signs every Attempt with [Standard Webhooks](https://www.standardwebhooks.com/), and retries failures for about a day.
 
 ## Architecture
 
@@ -35,7 +35,16 @@ Two services, each with its own schema. herald-api accepts a Message and writes 
 
 ## Status
 
-Milestone M1, the core delivery path, is complete. M2, observability and behaviour comparison, is in progress. The milestones are listed in the [design doc](docs/design.md#milestones).
+Milestone M1, the core delivery path, is complete. M2, observability and behaviour comparison, is in progress. Later milestones and their issues are on [GitHub](https://github.com/madskrogh/herald/milestones).
+
+Herald is built to be run and read, not hosted. It is meant to:
+
+- deliver every Message at least once, with duplicate protection on every hop;
+- keep one misbehaving Endpoint from affecting deliveries to anyone else;
+- run locally with `docker compose`, and later on a local Kubernetes cluster;
+- depend on no particular cloud provider.
+
+It has no Tenant self-service (Tenants are created with the `herald-admin` CLI), no portal for Applications (Tenants show signing secrets and delivery history in their own products), no ordered delivery, content-based routing or payload transforms, and no releases, hosting or marketing site.
 
 ## Try it
 
@@ -143,7 +152,7 @@ Within a minute, start `make endpoint` again, with the same secret. (Miss it, an
 {"invoice": 43}
 ```
 
-Two settings make this local stack unlike a real deployment. Its retry schedule is compressed from about 24 hours to about 80 seconds, so a Delivery is retried, and given up on, while you watch. And `HERALD_ALLOW_INSECURE_ENDPOINTS` lets it deliver over plain http to private addresses such as `host.docker.internal`, which a real deployment refuses.
+Two settings make this local stack unlike a real deployment. Its retry schedule is compressed from about a day to about 80 seconds, so a Delivery is retried, and given up on, while you watch. And `HERALD_ALLOW_INSECURE_ENDPOINTS` lets it deliver over plain http to private addresses such as `host.docker.internal`, which a real deployment refuses.
 
 ### Where to look
 
@@ -179,9 +188,14 @@ docker compose exec clickhouse clickhouse-client --user herald --password herald
 
 The services' logs are JSON lines, read with `docker compose logs herald-api herald-dispatcher`. Each line about a Message carries the `trace_id` of its trace. The Delivery API, which will show a Message's Deliveries and Attempts without going to either, comes in M3.
 
+## Built with
+
+Go, with the standard library first: `net/http` with Go 1.22+ routing patterns, `log/slog`, and `net/http/pprof`. Postgres through `pgx` and sqlc, with goose migrations embedded in the binaries. NATS through `nats.go`. gRPC, grpc-gateway and `buf` for the Tenant API. OpenTelemetry traces, through the Collector into ClickHouse. Tests use the standard `testing` package, `go-cmp` and testcontainers-go.
+
 ## Read more
 
-- [Design](docs/design.md): the product spec, architecture and delivery semantics.
-- [Architecture decisions](docs/adr/): the trade-offs behind the design.
+- [Spec](spec/README.md): every rule Herald follows, with its reason and test vectors.
+- [Architecture decisions](docs/adr/): the architecture, and the trade-offs behind it.
+- [Testing](docs/testing.md): the kinds of tests, and where a new check belongs.
 - [Glossary](GLOSSARY.md): the domain language used throughout the code.
 - [Working with coding agents](docs/ai-workflow.md): Herald is also a lab for agent-assisted development. This is how it's set up.

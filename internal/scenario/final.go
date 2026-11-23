@@ -20,7 +20,7 @@ const (
 )
 
 // attemptTimeout is how long an Endpoint has to answer an Attempt with a
-// 2xx for it to succeed (docs/design.md, Delivery semantics).
+// 2xx for it to succeed (the spec's attempt-timeout, R-7).
 const attemptTimeout = 15 * time.Second
 
 // FinalState is where a run left its Messages in Postgres.

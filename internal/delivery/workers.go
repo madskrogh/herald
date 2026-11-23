@@ -25,7 +25,7 @@ import (
 
 const (
 	// attemptTimeout is how long an Endpoint has to answer an Attempt
-	// (docs/design.md, Delivery semantics). It stays well under
+	// (the spec's attempt-timeout, R-7). It stays well under
 	// leaseDuration, so a live worker records its Attempt before its lease
 	// runs out.
 	attemptTimeout = 15 * time.Second

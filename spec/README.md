@@ -2,7 +2,7 @@
 
 The spec states every decision in Herald that someone at one of its boundaries can notice: what Herald returns and sends for what it is given, what it does in each case, how long it takes, what resources it uses, what debugging data it leaves, and what operators use. Herald's code is derived from it, never the other way round ([ADR 0007](../docs/adr/0007-code-regenerated-from-the-spec.md)). If the spec and another document disagree about behaviour, the spec wins.
 
-No rules have moved here yet. Until `docs/design.md` is split between the spec and the README, `docs/design.md` stays the statement of behaviour.
+The areas are [delivery](delivery.md), the [Tenant API](tenant-api.md), [security](security.md), [observability](observability.md) and [operations](operations.md), and every value they name is in [limits](limits.md).
 
 This file states the spec's conventions. Its examples are in code blocks, which the check doesn't read.
 
@@ -17,14 +17,14 @@ This file states the spec's conventions. Its examples are in code blocks, which 
 A requirement is one rule, under a heading of its own, written with `#`s: its ID, a middle dot (`·`), and its status. The text says what Herald MUST, SHOULD or MAY do, using a conditional pattern ("When…", "If… then…", "While…") when the rule holds only in some cases. A `Why:` line gives the reason, and links the ADR where one exists.
 
 ```markdown
-### R-4 · implemented
+### R-901 · implemented
 
 When an Attempt gets a 2xx response, Herald MUST NOT make another Attempt for that Delivery.
 
 Why: a 2xx is the Endpoint's acknowledgement ([ADR 0001](../docs/adr/0001-at-least-once-delivery.md)).
 ```
 
-- **One rule each.** An exception is its own requirement, and names the requirement it limits: "Unlike R-4, …".
+- **One rule each.** An exception is its own requirement, and names the requirement it limits: "Unlike R-901, …".
 - **Keywords.** MUST, SHOULD and MAY, in capitals, as in RFC 2119. MUST NOT and SHOULD NOT count as MUST and SHOULD. Write them in capitals only when they carry that meaning.
 - **A requirement ends at the next heading.** Its text, vectors and reason come before any other heading.
 
@@ -43,13 +43,13 @@ Why: a 2xx is the Endpoint's acknowledgement ([ADR 0001](../docs/adr/0001-at-lea
 A requirement is never deleted. To remove one, change its status to `withdrawn` and add a `Withdrawn:` line with the reason, keeping its text and its vectors as they were. Its vectors are no longer run.
 
 ```markdown
-### R-7 · withdrawn
+### R-902 · withdrawn
 
 Herald MUST make at most 6 Attempts for a Delivery.
 
 Why: …
 
-Withdrawn: replaced by R-31, which retries for 3 days instead of a fixed count.
+Withdrawn: replaced by R-903, which retries for 3 days instead of a fixed count.
 ```
 
 ## Vectors
@@ -59,7 +59,7 @@ A vector is a Markdown table of cases for one requirement: given these inputs, H
 A vector sits under the requirement it exercises, after its text:
 
 ```markdown
-### R-4 · implemented
+### R-901 · implemented
 
 When an Attempt gets a 2xx response, Herald MUST NOT make another Attempt for that Delivery.
 
@@ -74,7 +74,7 @@ Why: …
 A vector too long to read beside its requirement, such as a hundred random retry schedules, goes in a file under `spec/vectors/`, under a heading that starts with the requirement's ID. Every table in a vector file sits under such a heading.
 
 ```markdown
-## R-12: random retry schedules
+## R-904: random retry schedules
 
 | failures | earliest next Attempt |
 |----------|-----------------------|

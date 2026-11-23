@@ -1,6 +1,6 @@
 // Package telemetry is Herald's tracing: the span schema every service's spans
 // follow, the trace context stored with Messages and Deliveries, and the
-// setup that exports spans to the Collector (docs/design.md, Observability).
+// setup that exports spans to the Collector (spec/observability.md).
 package telemetry
 
 import (

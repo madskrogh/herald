@@ -26,8 +26,8 @@ const (
 	ruleRetrySchedule = "retry schedule"
 )
 
-// The rules about Attempts that every build keeps (docs/design.md, Delivery
-// semantics).
+// The rules about Attempts that every build keeps (spec/delivery.md,
+// R-7 to R-12 and R-19).
 const (
 	// maxAttempts is how many Attempts a Delivery gets at most.
 	maxAttempts = 8
