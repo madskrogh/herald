@@ -1,6 +1,6 @@
 # Herald's contract, stated outside the Go code
 
-It should be possible to rewrite Herald in another language and show that the new implementation does what this one does. Today that takes reading the Go: the scenario invariants are Go functions over Go types, the scenario's traffic comes from a seed fed to Go's random number generator, the span schema is Go constants checked by an in-process test, and nothing says which Postgres tables and columns the scenario relies on. Most of the rules are prose in `docs/design.md`, mixed with architecture, rationale, milestones and deferred items, and the invariants are stated three times: there, in `docs/testing.md`, and in Go comments.
+It should be possible to rewrite Herald in another language and show that the new implementation does what this one does. Today that takes reading the Go: the scenario invariants are Go functions over Go types, the scenario's traffic comes from a seed fed to Go's random number generator, the telemetry schema is Go constants checked by an in-process test, and nothing says which Postgres tables and columns the scenario relies on. Most of the rules are prose in `docs/design.md`, mixed with architecture, rationale, milestones and deferred items, and the invariants are stated three times: there, in `docs/testing.md`, and in Go comments.
 
 So Herald's contract is stated outside the Go code, in files a person reads and reasons about, and the Go code becomes one implementation of it. A check a machine runs is derived from those files, never the other way round.
 
@@ -13,7 +13,7 @@ An implementation must match:
 - the telemetry schema: span names, attribute keys and types, the allowed `outcome` values, and the trace shape. It is stated explicitly, enforced against the spans a run produces, and expected to grow;
 - the Postgres schema, limited to the columns below.
 
-`herald-admin` is not in the boundary.
+`herald-admin` is not in the boundary for now.
 
 ### Postgres columns
 
@@ -79,13 +79,14 @@ Checks that only make sense for the Go build stay as repository checks outside t
 ## Considered Options
 
 - **The Go code as the contract** (today): rejected. A port would have to read the Go to know what to do, and could only show it matches by running Go checks over Go types.
-- **RFC-style paragraphs**: rejected on evidence. In a trial, six independent implementations of three rules (after-success, the retry schedule, Event type and filter matching) were written without the Go code, from three spec styles. Both implementations built from paragraphs missed the last sentence of the retry-schedule paragraph (as many Attempts as there are repeats may come early). They failed 2 of 26 hand-picked and 17 of 120 random cases, and neither noticed the gap. All four implementations built from numbered requirements passed every case.
+- **RFC-style paragraphs**: rejected on evidence. In a trial, six independent implementations of three rules (no Attempt after a `2xx`, the retry schedule, Event type and filter matching) were written without the Go code, from three spec styles. Both implementations built from paragraphs missed the last sentence of the retry-schedule paragraph (as many Attempts as there are repeats may come early). They failed 2 of 26 hand-picked and 17 of 120 random cases, and neither noticed the gap. All four implementations built from numbered requirements passed every case.
 - **Numbered requirements with worked examples**: not required. In the same trial, worked examples showed no extra gain, because every implementation built from numbered requirements already passed without them. The sample is small, and it can't separate one rule per item from the sentence patterns.
 
 ## Consequences
 
 - The work after this ADR is separate changes: the spec skeleton (structure, IDs, status field, and the CI link check); splitting `docs/design.md` into the spec and the README; the telemetry schema as a data file, which the Go constants are checked against and a check runs over every span of a scenario run; the Postgres column list as a data file, checked against the migrated database; the scenario invariants as requirements with vectors, which the Go checks read; and the scenario's traffic as data rather than a seed.
 - Until the spec exists, `docs/design.md` stays the statement of behaviour.
-- The checks that read the span schema come after the schema file, so they read it rather than the Go constants.
-- The scenario's Go harness reads Postgres through the services' own queries, which touch more columns than the contract lists. It has to read only the listed columns before a port can be checked by it.
+- The development workflow changes to follow "Changing the spec": today an issue, with the decisions recorded on it, is what a change is checked against. That change is made on its own.
+- The checks that read the telemetry schema come after the schema file, so they read it rather than the Go constants.
+- The scenario's Go harness reads Postgres through the services' own queries, which touch more columns than the contract lists, and one table it doesn't (`delivery.messages`). It has to read only the listed columns before a port can be checked by it.
 - Known gaps, not built now: provenance (which spec version a build passed), and checks against production, which Herald doesn't have.
