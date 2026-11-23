@@ -71,7 +71,7 @@ One rule in the spec, with a stable ID (`R-4`), a status (implemented, planned o
 _Avoid_: Clause, spec item, acceptance criterion
 
 **Test vector**:
-A table of cases for one requirement (given these inputs, Herald gives these results) that a person reads and the checks run. Usually called a vector.
+A table of cases for one requirement (given these inputs, Herald gives these results) that every build's tests must pass. Tests are written from it or read it, and add cases of their own. Usually called a vector.
 _Avoid_: Test case, fixture, example, golden file
 
 ### Testing
