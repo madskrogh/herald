@@ -50,7 +50,7 @@ Roles that need context and roles that need distance go to different agents:
 So every change surfaces its decisions into the spec, in the same PR. Four places hold this:
 
 - **The rule** (`CLAUDE.md`, Conventions): every decision someone at Herald's boundaries could notice is stated in the spec, with its reason. That covers decisions the change makes and ones found in code it touches. A value moved out of the code gets its reason; one without a reason is questioned, not copied.
-- **The order** (`tdd`): a behaviour change starts with the requirement, with a vector where a misreading is likely. Tests are written from both, cover every row of a vector and add cases of their own ([ADR 0013](adr/0013-vectors-are-input-for-tests.md)). A Go test literal for behaviour that no requirement states is a finding, because that is where decisions used to hide.
+- **The order** (`tdd`): a behaviour change starts with the requirement and any vectors, then the tests written from them ([ADR 0013](adr/0013-vectors-are-input-for-tests.md)). A Go test literal for behaviour that no requirement states is a finding, because that is where decisions used to hide.
 - **The review** (`standards-review`): the Spec axis reads the requirements the change touches as well as the issue. It flags each noticeable decision in the diff that no requirement states, and each value moved into the spec or a data file without a reason.
 - **The record** (`write-pr`): the PR lists the requirement IDs it adds, changes or withdraws, and each decision it surfaced from existing code.
 

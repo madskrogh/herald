@@ -4,7 +4,7 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 
 ## Read before changing code
 
-- [The spec](spec/README.md): Herald's numbered requirements, each with its status, its reason and, where a misreading is likely, the test vectors tests are written from ([ADR 0013](docs/adr/0013-vectors-are-input-for-tests.md)). [ADR 0007](docs/adr/0007-code-regenerated-from-the-spec.md) sets its form and how it changes, and is a rule for every change, whatever area it touches (see "Decisions go in the spec" below).
+- [The spec](spec/README.md): Herald's numbered requirements, each with its status, its reason and, where a misreading is likely, test vectors to write tests from ([ADR 0013](docs/adr/0013-vectors-are-input-for-tests.md)). [ADR 0007](docs/adr/0007-code-regenerated-from-the-spec.md) sets its form and how it changes, and is a rule for every change, whatever area it touches (see "Decisions go in the spec" below).
 - [docs/adr/](docs/adr/): settled decisions and the architecture. Don't reopen them in passing; propose a new ADR if one needs to change.
 - [README.md](README.md): what Herald is, how to run it, and the stack it is built with. Milestones are GitHub milestones.
 - [GLOSSARY.md](GLOSSARY.md): domain language. Use these terms in code, tests, comments and docs, and avoid the listed alternatives.
