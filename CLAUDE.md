@@ -4,7 +4,7 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 
 ## Read before changing code
 
-- [The spec](spec/README.md): Herald's numbered requirements, each with its status, its reason and the test vectors the checks read. [ADR 0007](docs/adr/0007-code-regenerated-from-the-spec.md) sets its form and how it changes, and is a rule for every change, whatever area it touches (see "Decisions go in the spec" below).
+- [The spec](spec/README.md): Herald's numbered requirements, each with its status, its reason and, where a misreading is likely, the test vectors tests are written from ([ADR 0013](docs/adr/0013-vectors-are-input-for-tests.md)). [ADR 0007](docs/adr/0007-code-regenerated-from-the-spec.md) sets its form and how it changes, and is a rule for every change, whatever area it touches (see "Decisions go in the spec" below).
 - [docs/adr/](docs/adr/): settled decisions and the architecture. Don't reopen them in passing; propose a new ADR if one needs to change.
 - [README.md](README.md): what Herald is, how to run it, and the stack it is built with. Milestones are GitHub milestones.
 - [GLOSSARY.md](GLOSSARY.md): domain language. Use these terms in code, tests, comments and docs, and avoid the listed alternatives.
@@ -41,7 +41,7 @@ Run `make ci` before every push. It is exactly what CI runs.
 One GitHub issue = one branch = one worktree = one PR.
 
 1. Start the session with `claude -w issue-<n>`. Read the issue with `gh issue view <n> --comments`: decisions are recorded in its comments.
-2. Build it test-first with the `tdd` skill. Agree the seams before writing tests, and settle the issue's open points with the human first (see "Asking the human"). A behaviour change follows ADR 0007's "Changing the spec": the requirement and its vectors come first, failing, and only then the tests and the code. The issue names the requirement IDs it touches; the spec text is written in the PR.
+2. Build it test-first with the `tdd` skill. Agree the seams before writing tests, and settle the issue's open points with the human first (see "Asking the human"). A behaviour change follows ADR 0007's "Changing the spec": the requirement and any vectors come first, then the tests written from them, failing, and only then the code. The issue names the requirement IDs it touches; the spec text is written in the PR.
 3. Tests green: run the `standards-review` skill against `origin/main`, and refactor on its findings.
 4. Run the built-in `/code-review` on the final diff for bugs.
 5. Run the `rejection-review` skill on every finding from steps 3 and 4 that you rejected. A disputed rejection gets fixed, unless you have an argument the reviewer didn't address: then ask the human, if it passes the gates. So does a rejection that rests on the issue's intent, even when upheld.
