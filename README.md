@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/madskrogh/herald/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/madskrogh/herald/actions/workflows/ci.yml?query=branch%3Amain)
 
-Herald delivers webhooks on behalf of SaaS products: signed, retried, and observable. A Tenant submits a Message once. Herald works out which of the Application's Endpoints want it, signs every Attempt with [Standard Webhooks](https://www.standardwebhooks.com/), and retries failures for about 24 hours.
+Herald delivers webhooks on behalf of SaaS products: signed, retried, and observable. A Tenant submits a Message once. Herald works out which of the Application's Endpoints want it, signs every Attempt with [Standard Webhooks](https://www.standardwebhooks.com/), and retries failures for about a day.
 
 ## Architecture
 
@@ -152,7 +152,7 @@ Within a minute, start `make endpoint` again, with the same secret. (Miss it, an
 {"invoice": 43}
 ```
 
-Two settings make this local stack unlike a real deployment. Its retry schedule is compressed from about 24 hours to about 80 seconds, so a Delivery is retried, and given up on, while you watch. And `HERALD_ALLOW_INSECURE_ENDPOINTS` lets it deliver over plain http to private addresses such as `host.docker.internal`, which a real deployment refuses.
+Two settings make this local stack unlike a real deployment. Its retry schedule is compressed from about a day to about 80 seconds, so a Delivery is retried, and given up on, while you watch. And `HERALD_ALLOW_INSECURE_ENDPOINTS` lets it deliver over plain http to private addresses such as `host.docker.internal`, which a real deployment refuses.
 
 ### Where to look
 
@@ -190,7 +190,7 @@ The services' logs are JSON lines, read with `docker compose logs herald-api her
 
 ## Built with
 
-Go, with the standard library first: `net/http` and `log/slog`. Postgres through `pgx` and sqlc, with goose migrations embedded in the binaries. NATS through `nats.go`. gRPC, grpc-gateway and `buf` for the Tenant API. OpenTelemetry traces, through the Collector into ClickHouse. Tests use the standard `testing` package, `go-cmp` and testcontainers-go.
+Go, with the standard library first: `net/http` with Go 1.22+ routing patterns, `log/slog`, and `net/http/pprof`. Postgres through `pgx` and sqlc, with goose migrations embedded in the binaries. NATS through `nats.go`. gRPC, grpc-gateway and `buf` for the Tenant API. OpenTelemetry traces, through the Collector into ClickHouse. Tests use the standard `testing` package, `go-cmp` and testcontainers-go.
 
 ## Read more
 

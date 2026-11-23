@@ -73,9 +73,9 @@ Why: the cap bounds the size of one response. A client that asks for more still 
 
 ### R-63 · implemented
 
-A list call with a negative `page_size`, or a `page_token` Herald didn't issue, MUST fail with `INVALID_ARGUMENT` / `400`.
+A list call with a negative `page_size`, or a `page_token` that isn't in the form Herald issues them, MUST fail with `INVALID_ARGUMENT` / `400`.
 
-Why: neither can be read as a page the client meant, and guessing would return results it didn't ask for.
+Why: neither can be read as a page the client meant, and guessing would return results it didn't ask for. A token in the right form that Herald didn't issue only starts the page at another point among the Tenant's own results, so it needs no check.
 
 | `page_size` | `page_token` | Result |
 |---|---|---|
@@ -362,3 +362,14 @@ Why: a key holds one Message, however the calls race. A Tenant that retries befo
 |---|---|
 | ten at once, with the same request, `k` unused | one Message, returned to all ten |
 | ten at once, five with one request and five with another, `k` unused | one Message, returned to the five whose request it is; the other five `FAILED_PRECONDITION` / `422` |
+
+### R-70 · implemented
+
+Herald MUST judge whether `idempotency-window` has passed by the same clock that gave the key's Message its creation time.
+
+Why: comparing a time from one clock with a time from another would shift the window by the skew between them, so a retry just inside the window could create a second Message. Herald also needs no background job to expire keys: a key's age is judged when it is next used.
+
+| Message created with key `k`, by the clock that judges | Next call with `k`, by that clock | Result |
+|---|---|---|
+| 12:00 | 11:59 the next day | the earlier Message (R-38) |
+| 12:00 | 12:00 the next day | a new Message (R-40) |
