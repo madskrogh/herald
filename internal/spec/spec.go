@@ -55,6 +55,7 @@ var (
 	rowRE         = regexp.MustCompile(`^ {0,3}\|`)
 	delimiterRE   = regexp.MustCompile(`^\|(\s*:?-+:?\s*\|)+$`)
 	fenceRE       = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})(.*)$")
+	blockStartRE  = regexp.MustCompile(`^([-*+]\s|[0-9]+[.)]\s|>)`)
 )
 
 // section is the part of a file from one heading to the next.
@@ -277,7 +278,9 @@ func parse(data []byte) []section {
 			continue
 		}
 		switch t := strings.TrimSpace(line); {
-		case t == "":
+		case t == "" || blockStartRE.MatchString(t):
+			// A blank line ends a paragraph, and so does a list item or a
+			// block quote.
 			reason = false
 		case strings.HasPrefix(t, whyPrefix):
 			cur.why, reason = true, true

@@ -382,6 +382,25 @@ Why: ADR 0001.
 			},
 		},
 		{
+			name: "a list or quote after a reason is not part of it",
+			files: map[string]string{
+				"delivery.md": `### R-1 · implemented
+
+Why: ADR 0003.
+- Herald MUST sign every Attempt.
+
+### R-2 · implemented
+
+Why: ADR 0001.
+> Herald MUST NOT make another Attempt after a 2xx.
+`,
+			},
+			want: []spec.Problem{
+				{File: "delivery.md", Line: 1, Message: "R-1 is an implemented MUST with no vector"},
+				{File: "delivery.md", Line: 6, Message: "R-2 is an implemented MUST with no vector"},
+			},
+		},
+		{
 			name: "a duplicate ID gets no other problems",
 			files: map[string]string{
 				"api.md": `### R-1 · planned
