@@ -8,7 +8,7 @@ How Attempts are signed, which addresses Herald connects to, and the setting tha
 
 Every Attempt MUST be signed following Standard Webhooks: a `webhook-id` header ([R-6](delivery.md)); a `webhook-timestamp` header, the time the Attempt is made in Unix seconds; and a `webhook-signature` header holding, for each of the Endpoint's signing secrets, `v1,` and the base64 HMAC-SHA256 of `<webhook-id>.<webhook-timestamp>.<body>`, keyed with the base64-decoded part of the secret after `whsec_`.
 
-Why: receivers verify with existing Standard Webhooks libraries in any language, so Herald ships no receiver library, and the timestamp lets them reject a replayed request ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)).
+Why: whoever runs an Endpoint verifies with existing Standard Webhooks libraries in any language, so Herald ships no library of its own, and the timestamp lets the Endpoint reject a replayed request ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)).
 
 | Signing secret | `webhook-id` | `webhook-timestamp` | Body | `webhook-signature` |
 |---|---|---|---|---|
@@ -20,7 +20,7 @@ Why: receivers verify with existing Standard Webhooks libraries in any language,
 
 When an Endpoint has several signing secrets, `webhook-signature` MUST hold one signature for each, separated by single spaces.
 
-Why: during a rotation, a receiver that knows only the old secret or only the new one can still verify; Standard Webhooks allows several signatures in one header ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)).
+Why: during a rotation, an Endpoint that knows only the old secret or only the new one can still verify; Standard Webhooks allows several signatures in one header ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)).
 
 | Signing secrets | `webhook-id` | `webhook-timestamp` | Body | `webhook-signature` |
 |---|---|---|---|---|
@@ -36,7 +36,7 @@ Why: a Delivery already in flight may still carry only the old secret, and the o
 
 Herald MUST sign each Attempt with every signing secret of the Endpoint that hasn't expired, and MUST NOT sign with one that has.
 
-Why: a receiver mid-rotation verifies with either secret (R-43), and an expired secret is one the Tenant has told its receiver to drop ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)).
+Why: an Endpoint mid-rotation verifies with either secret (R-43), and an expired secret is one the Endpoint has been told to drop ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)).
 
 ### R-46 · planned
 
@@ -60,7 +60,7 @@ Why: a public host name can resolve to a private address later (DNS rebinding), 
 
 ### R-47 · implemented
 
-herald-dispatcher MUST NOT connect to an address that isn't globally reachable: loopback, private, link-local, unspecified, multicast, shared, reserved, documentation and benchmarking addresses, and IPv6 addresses outside `2000::/3`. It MUST check the address it actually dials, after DNS resolution, and for an IPv6 address that embeds an IPv4 one (IPv4-mapped, NAT64 or 6to4), the embedded address.
+herald-dispatcher MUST NOT connect to an address that isn't globally reachable: loopback, private, link-local, unspecified, multicast, shared, reserved, documentation and benchmarking addresses, and IPv6 addresses outside `2000::/3`. It judges the address it actually dials, after DNS resolution; and an IPv6 address that embeds an IPv4 one (IPv4-mapped, NAT64 `64:ff9b::/96` or 6to4 `2002::/16`) by the embedded IPv4 address alone.
 
 Why: an Endpoint URL is a Tenant's input. Without this, an Endpoint such as `https://169.254.169.254/` would make herald-dispatcher a proxy into Herald's own network.
 
@@ -94,7 +94,7 @@ Why: an Endpoint URL is a Tenant's input. Without this, an Endpoint such as `htt
 
 ### R-48 · implemented
 
-When R-47 refuses a connection, the Attempt MUST fail, with an error that says the Endpoint's host resolved to an address Herald doesn't connect to and which kind, without naming the address. It is retried like any other failed Attempt.
+When R-47 refuses a connection, the Attempt MUST fail, with an error that says the Endpoint's host resolved to an address Herald doesn't connect to, and of which kind (`loopback`, `private`, `link-local`, `unspecified`, `multicast` or `special-purpose`, for every other kind R-47 names), without naming the address. It is retried like any other failed Attempt.
 
 Why: the Tenant can see why its Endpoint gets nothing, while the address, one inside Herald's network, stays hidden. A host can resolve to a public address again later, so the retry schedule still applies.
 
@@ -102,6 +102,7 @@ Why: the Tenant can see why its Endpoint gets nothing, while the address, one in
 |---|---|---|
 | `10.0.0.1` | failed, retried | `not connected: the Endpoint's host resolved to a private address, and Herald connects only to public addresses` |
 | `127.0.0.1` | failed, retried | `not connected: the Endpoint's host resolved to a loopback address, and Herald connects only to public addresses` |
+| `192.0.2.1` | failed, retried | `not connected: the Endpoint's host resolved to a special-purpose address, and Herald connects only to public addresses` |
 
 ### R-49 · implemented
 
@@ -116,16 +117,45 @@ Why: a proxy would hide the address herald-dispatcher reaches, so R-47 couldn't 
 
 ## Local development
 
+
+The local stack's and the tests' Endpoints are on private addresses without TLS, so one setting, `HERALD_ALLOW_INSECURE_ENDPOINTS`, relaxes the rules above for them. Production never sets it.
+
 ### R-50 · implemented
 
-When `HERALD_ALLOW_INSECURE_ENDPOINTS` is true, herald-api MUST accept `http` Endpoint URLs as well as `https` ones, and herald-dispatcher MUST connect to addresses R-47 refuses. When it is false or not set, both rules hold. A value that isn't a boolean MUST stop the service from starting.
+Unlike R-30, when `HERALD_ALLOW_INSECURE_ENDPOINTS` is true, herald-api MUST accept an `http` Endpoint URL as well as an `https` one.
 
-Why: the local stack's and the tests' Endpoints are on private addresses without TLS. Both services read the setting the same way, so herald-api never accepts an Endpoint herald-dispatcher then refuses. Production never sets it.
+Why: the local stack's and the tests' Endpoints don't serve TLS.
 
-| `HERALD_ALLOW_INSECURE_ENDPOINTS` | Create `http://example.com/hook` | Attempt to `10.0.0.1` |
+| `HERALD_ALLOW_INSECURE_ENDPOINTS` | Create `http://example.com/hook` |
+|---|---|
+| not set | `INVALID_ARGUMENT` / `400` |
+| `false` | `INVALID_ARGUMENT` / `400` |
+| `true` | created |
+| `1` | created |
+
+### R-68 · implemented
+
+Unlike R-47, when `HERALD_ALLOW_INSECURE_ENDPOINTS` is true, herald-dispatcher MUST connect to any address, whether it is public or not.
+
+Why: the local stack's and the tests' Endpoints are on private addresses.
+
+| `HERALD_ALLOW_INSECURE_ENDPOINTS` | Attempt to `10.0.0.1` |
+|---|---|
+| not set | refused |
+| `false` | refused |
+| `true` | made |
+| `1` | made |
+
+### R-69 · implemented
+
+herald-api and herald-dispatcher MUST read `HERALD_ALLOW_INSECURE_ENDPOINTS` the same way, as a boolean, and MUST NOT start when it is set to anything else.
+
+Why: if the two read it differently, herald-api could accept an Endpoint that herald-dispatcher then refuses to deliver to. A value that is neither true nor false is a mistake, and guessing which was meant could expose production.
+
+| `HERALD_ALLOW_INSECURE_ENDPOINTS` | herald-api | herald-dispatcher |
 |---|---|---|
-| not set | `INVALID_ARGUMENT` / `400` | refused |
-| `false` | `INVALID_ARGUMENT` / `400` | refused |
-| `true` | created | made |
-| `1` | created | made |
-| `yes` | the service doesn't start | the service doesn't start |
+| `true` | starts, relaxed | starts, relaxed |
+| `TRUE` | starts, relaxed | starts, relaxed |
+| `0` | starts, strict | starts, strict |
+| `yes` | doesn't start | doesn't start |
+| `on` | doesn't start | doesn't start |

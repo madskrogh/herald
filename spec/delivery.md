@@ -57,7 +57,7 @@ Why: an Endpoint can take several unrelated Event types without a pattern that a
 
 A pattern MUST match an Event type token by token: a token matches the same token, `*` matches any one token, and a final `>` matches one or more tokens. Without a `>`, a pattern MUST NOT match an Event type with a different number of tokens.
 
-Why: wildcards let an Endpoint take a family of Event types, such as every `invoice` event, without listing each one, including ones the Tenant adds later. The syntax is NATS's, an existing convention for dot-separated names.
+Why: wildcards let an Endpoint take a family of Event types, such as every one that starts with `invoice`, without listing each one, including ones the Tenant adds later. The syntax is NATS's, an existing convention for dot-separated names.
 
 | Pattern | Event type | Matches |
 |---|---|---|
@@ -79,9 +79,9 @@ Why: wildcards let an Endpoint take a family of Event types, such as every `invo
 
 ### R-5 · implemented
 
-An Attempt MUST be an HTTP `POST` to the Endpoint's URL, with the Message's payload as its body, byte for byte as the Tenant submitted it, and `Content-Type: application/json`.
+An Attempt MUST be an HTTP `POST` to the Endpoint's URL, with the Message's payload as its body, byte for byte as the Tenant submitted it, `Content-Type: application/json` and `User-Agent: Herald`.
 
-Why: the Endpoint sees exactly what the Tenant sent. Parsing the payload and writing it again would change it: numbers would become 64-bit floats, so integers above 2^53 would silently change.
+Why: the Endpoint sees exactly what the Tenant sent. Parsing the payload and writing it again would change it: numbers would become 64-bit floats, so integers above 2^53 would silently change. The `User-Agent` names the sender in the Endpoint's own logs.
 
 | Payload submitted | Body received |
 |---|---|
@@ -106,7 +106,7 @@ Why: delivery is at-least-once, so an Endpoint may receive a Message more than o
 
 An Attempt MUST succeed when the Endpoint answers with a `2xx` status within `attempt-timeout` of the Attempt's start, and fail otherwise: on any other status, on a timeout, and on a connection or TLS error.
 
-Why: a `2xx` is the Endpoint's acknowledgement that it has the webhook ([ADR 0001](../docs/adr/0001-at-least-once-delivery.md)). Anything else may mean it doesn't, so Herald retries. The timeout is long enough for a slow handler that does its work before answering, and caps how long one Endpoint holds a worker.
+Why: a `2xx` is the Endpoint's acknowledgement that it has the Message ([ADR 0001](../docs/adr/0001-at-least-once-delivery.md)). Anything else may mean it doesn't, so Herald retries. An Endpoint that doesn't answer in time is treated as one that failed, so Herald never waits on it indefinitely.
 
 | Response | Within `attempt-timeout` | Attempt |
 |---|---|---|
@@ -147,7 +147,7 @@ Why: a `2xx` is the Endpoint's acknowledgement ([ADR 0001](../docs/adr/0001-at-l
 
 A Delivery's first Attempt MUST be due as soon as the Delivery is stored.
 
-Why: most Endpoints are up, and a Tenant expects its webhook to arrive promptly.
+Why: most Endpoints are up, and a Tenant expects its Message to reach them promptly.
 
 | Event | Attempt 1 due |
 |---|---|
@@ -157,7 +157,7 @@ Why: most Endpoints are up, and a Tenant expects its webhook to arrive promptly.
 
 When Attempt n of a Delivery fails and n is less than `max-attempts`, Herald MUST make Attempt n+1 once a delay has passed since Attempt n ended. That delay MUST be the n-th of `retry-delays`, varied by at most `retry-jitter` either way.
 
-Why: the early delays are short, so a brief failure recovers in seconds; the later ones are long, so an Endpoint that is down for up to a day still gets its webhooks. The jitter keeps Deliveries that failed together from all retrying at the same moment.
+Why: a failed Attempt may succeed once the Endpoint recovers, so Herald retries on a schedule rather than at once or never ([ADR 0001](../docs/adr/0001-at-least-once-delivery.md)). `retry-delays` and `retry-jitter` give the reasons for their values.
 
 | Failed Attempt | Next Attempt | Delay | Shortest | Longest |
 |---|---|---|---|---|
@@ -173,7 +173,7 @@ Why: the early delays are short, so a brief failure recovers in seconds; the lat
 
 When Attempt `max-attempts` of a Delivery fails, Herald MUST set the Delivery's state to `failed`, and MUST NOT make another Attempt for it.
 
-Why: after about a day of failures, the Endpoint is unlikely to recover on its own, and the Tenant needs a final answer.
+Why: once the retry schedule has run out, the Endpoint is unlikely to recover on its own, and the Tenant needs a final answer.
 
 | Responses | Attempts made | State |
 |---|---|---|
@@ -198,7 +198,7 @@ Why: a Tenant (through the Delivery API, M3) and an operator read one of three s
 
 Unlike R-13, when a Tenant replays a Delivery, whether it succeeded or failed, Herald MUST start a fresh retry schedule for it, with the same `webhook-id`.
 
-Why: a Tenant can send a webhook again once an Endpoint is fixed, or when its receiver lost one. The same `webhook-id` lets the Endpoint drop it if it already has it ([ADR 0001](../docs/adr/0001-at-least-once-delivery.md)).
+Why: a Tenant can send a Message to an Endpoint again once the Endpoint is fixed, or when it lost one. The same `webhook-id` lets the Endpoint drop it if it already has it ([ADR 0001](../docs/adr/0001-at-least-once-delivery.md)).
 
 ### R-15 · planned
 
@@ -208,19 +208,19 @@ Why: a replay may come after a rotation has expired the secrets the Delivery was
 
 ### R-16 · implemented
 
-Herald MUST keep every Attempt it records for a Delivery, with its number (counted from 1), its status code (`0` when there was no response), its latency, its error, and the start of the response body, up to `response-body-kept`.
+Herald MUST keep every Attempt it records for a Delivery, with its number (counted from 1), its status code (`0` when there was no response), its latency, the start of the response body, up to `response-body-kept`, and, when there was no response, the error that prevented one.
 
-Why: the Attempt history is how a Tenant (through the Delivery API, M3) and a developer find out why a Delivery failed. The start of a body is enough for an error message, and the cap bounds the storage each Attempt takes.
+Why: the Attempt history is how a Tenant (through the Delivery API, M3) and a developer find out why a Delivery failed. With a response, its status and body say why; without one, only the error does.
 
-| Endpoint's answer | Status code kept | Body kept |
-|---|---|---|
-| `500` with a 10 KiB body | `500` | its first 4 KiB |
-| `200` with an empty body | `200` | empty |
-| connection refused | `0` | none, and the error says the connection was refused |
+| Endpoint's answer | Status code kept | Body kept | Error kept |
+|---|---|---|---|
+| `500` with a 10 KiB body | `500` | its first 4 KiB | none |
+| `200` with an empty body | `200` | empty | none |
+| connection refused | `0` | none | says the connection was refused |
 
 ### R-17 · implemented
 
-When Herald can't tell whether an Attempt was made and recorded, because a dispatcher stopped or lost its database during it, it MAY make that Attempt again, earlier than R-11 allows.
+Unlike R-11, when Herald can't tell whether an Attempt was made and recorded, because a dispatcher stopped or lost its database during it, it MAY make that Attempt again, before the retry schedule allows.
 
 Why: delivery is at-least-once ([ADR 0001](../docs/adr/0001-at-least-once-delivery.md)). Repeating an Attempt that may have happened is how Herald avoids losing one that didn't.
 
@@ -228,7 +228,7 @@ Why: delivery is at-least-once ([ADR 0001](../docs/adr/0001-at-least-once-delive
 
 Herald MUST delete each Delivery, with its Attempts, once it is older than `retention`.
 
-Why: a month of history is enough to inspect and replay Deliveries, and it bounds the storage Herald needs.
+Why: storage grows with every Delivery, so history has to end; `retention` says when.
 
 ## Isolation
 
@@ -236,7 +236,7 @@ Why: a month of history is enough to inspect and replay Deliveries, and it bound
 
 Herald MUST NOT have more than `max-in-flight-per-endpoint` Attempts in flight to one Endpoint at any moment, across all of its dispatchers.
 
-Why: it limits the load Herald puts on a slow Endpoint, and how many of a dispatcher's workers one Endpoint can take.
+Why: without a cap, a slow Endpoint with many Deliveries due would draw Attempts until it held every worker, and Herald would pile load on an Endpoint that is already struggling.
 
 | Endpoint | Deliveries due at once | Most Attempts in flight |
 |---|---|---|
@@ -253,3 +253,29 @@ Why: one misbehaving Endpoint must not affect deliveries to anyone else.
 | Endpoint A | Endpoint B | Attempt to B |
 |---|---|---|
 | 10 Deliveries due, each answered after `attempt-timeout` | 1 Delivery due, answered at once | made while A's Attempts are in flight |
+
+### R-61 · implemented
+
+Herald MAY make Attempts to an Endpoint in any order, whatever order their Messages were accepted in.
+
+Why: delivering in order would let one failing Message hold back every Message behind it to the same Endpoint. Ordered delivery is #123.
+
+## Parked Messages
+
+### R-59 · implemented
+
+Unlike R-1, Herald MUST park a Message, and make no Delivery for it, when a dispatcher refuses the Message on its own while it stores other Messages handed off with it, or when the Message is too large to hand off at all. A parked Message leaves the Outbox, so the Messages behind it are handed off, and it keeps the time it was parked and the dispatcher's error.
+
+Why: a Message no dispatcher will ever store would otherwise block every Message behind it in the Outbox. Refusing it alone, while others are stored, shows the Message is at fault rather than the dispatcher; when a dispatcher stores nothing, it may be failing as a whole, and every Message waits for it to recover. The time and error let an operator find a parked Message and why it was parked.
+
+| Messages handed off together | Dispatcher | Result |
+|---|---|---|
+| M1, M2, M3 | refuses M2, alone or with others; stores the rest | M1 and M3 handed off; M2 parked, with the dispatcher's error |
+| M1, M2 | refuses everything | both stay in the Outbox, and are handed off once the dispatcher stores them |
+| M1, larger than any handoff may be | not asked | M1 parked, with an error saying it is too large |
+
+### R-60 · planned
+
+When an operator clears a parked Message's parking time and error, the Message MUST return to the Outbox, and be handed off like any other.
+
+Why: once the cause is fixed, the Message can still be delivered; parking holds it aside, it doesn't drop it.

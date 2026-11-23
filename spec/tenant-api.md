@@ -46,41 +46,70 @@ Why: an answer that differs would tell a Tenant which IDs exist under other Tena
 
 ### R-24 · implemented
 
-A list call MUST return at most `page_size` results, in a stable order, with a `next_page_token` that returns the next page, or an empty one on the last page. A `page_size` above `max-page-size` MUST be treated as `max-page-size`, and a negative one MUST fail with `INVALID_ARGUMENT` / `400`.
+A list call MUST return at most `page_size` results, in a stable order, with a `next_page_token` that returns the next page, or an empty one on the last page.
 
-Why: lists are paginated from the start, since adding pagination later would silently truncate clients that don't page. The cap bounds the size of one response.
+Why: lists are paginated from the start, since adding pagination later would silently truncate clients that don't page.
 
 | Results | `page_size` | Pages returned |
 |---|---|---|
 | 3 | 2 | 2, then 1 with an empty `next_page_token` |
 | 2 | 2 | 2, with an empty `next_page_token` |
-| 150 | 500 | 100, then 50 |
-| 3 | -1 | `INVALID_ARGUMENT` / `400` |
 
 | `page_token` | Result |
 |---|---|
 | empty | the first page |
 | the last page's `next_page_token` | the next page |
-| `not-a-token` | `INVALID_ARGUMENT` / `400` |
+
+### R-62 · implemented
+
+When a list call's `page_size` is above `max-page-size`, Herald MUST treat it as `max-page-size`.
+
+Why: the cap bounds the size of one response. A client that asks for more still gets every result, a page at a time, so it needs no error.
+
+| Results | `page_size` | Pages returned |
+|---|---|---|
+| 150 | 500 | 100, then 50 |
+| 150 | 100 | 100, then 50 |
+
+### R-63 · implemented
+
+A list call with a negative `page_size`, or a `page_token` Herald didn't issue, MUST fail with `INVALID_ARGUMENT` / `400`.
+
+Why: neither can be read as a page the client meant, and guessing would return results it didn't ask for.
+
+| `page_size` | `page_token` | Result |
+|---|---|---|
+| -1 | empty | `INVALID_ARGUMENT` / `400` |
+| 10 | `not-a-token` | `INVALID_ARGUMENT` / `400` |
 
 ### R-25 · implemented
 
 When `page_size` is 0 or not set, Herald MAY choose the page size, up to `max-page-size`.
 
-Why: any default serves a client that doesn't choose. Herald's is 50.
+Why: any default serves a client that doesn't choose.
 
 ### R-26 · implemented
 
-Every field MUST have one name across gRPC, REST bodies, REST query parameters, REST paths and the docs: the proto field name, in snake_case. Over REST, a body field the API doesn't know MUST fail the call with `INVALID_ARGUMENT` / `400`.
+Every field MUST have one name across gRPC, REST bodies, REST query parameters, REST paths and the docs: the proto field name, in snake_case.
 
-Why: a Tenant writes each field one way, whatever the protocol. Refusing an unknown field means a misspelled one fails, rather than being dropped: a misspelled `filter` would leave an Endpoint's filter empty, accepting every Event type ([R-2](delivery.md)).
+Why: a Tenant writes each field one way, whatever the protocol.
 
-| Over REST | Result |
+| Over REST | Name |
 |---|---|
-| body `{"application_id": "…"}` | the field is read |
-| body `{"filtr": ["invoice.*"]}` on create Endpoint | `INVALID_ARGUMENT` / `400` |
-| query `?page_size=10` | the field is read |
+| body field for the Application's ID | `application_id` |
 | response field for the Application's ID | `application_id` |
+| query parameter for the page size | `page_size` |
+
+### R-64 · implemented
+
+Over REST, a call whose body holds a field the API doesn't know MUST fail with `INVALID_ARGUMENT` / `400`.
+
+Why: a misspelled field then fails, rather than being dropped. A misspelled `filter` would leave an Endpoint's filter empty, accepting every Event type ([R-2](delivery.md)).
+
+| Body of a create Endpoint call | Result |
+|---|---|
+| `{"url": "https://example.com/hook", "filter": ["invoice.*"]}` | created |
+| `{"url": "https://example.com/hook", "filtr": ["invoice.*"]}` | `INVALID_ARGUMENT` / `400` |
 
 ### R-27 · implemented
 
@@ -100,15 +129,25 @@ Why: Tenants depend on more than the wire encoding. A rename that keeps the enco
 
 ### R-28 · implemented
 
-A request body over REST MUST be at most `max-request-body`. A larger body MUST fail with `413`, before the call is authenticated.
+A request body over REST MUST be at most `max-request-body`, and a larger body MUST fail with `413`.
 
-Why: the largest valid body is a create Message call, whose payload travels as a JSON string in which each byte may be escaped as six; a body larger than that is never valid. Checking before authentication bounds what a caller without a key can make Herald read.
+Why: a body larger than the largest valid call can never be valid, so Herald stops reading it.
+
+| Body | Result |
+|---|---|
+| a create Message call with a 256 KiB payload, every byte escaped as `\u00XX` | the call goes ahead |
+| 1600 KiB + 1 byte | `413` |
+
+### R-65 · implemented
+
+Over REST, Herald MUST check a request body against `max-request-body` before it authenticates the call.
+
+Why: it bounds what a caller without a valid API key can make Herald read.
 
 | Body | API key | Result |
 |---|---|---|
-| a create Message call with a 256 KiB payload, every byte escaped as `\u00XX` | valid | the call goes ahead |
-| 1600 KiB + 1 byte | valid | `413` |
-| 1600 KiB + 1 byte | none | `413` |
+| 1600 KiB + 1 byte | none | `413`, not `401` |
+| 1600 KiB + 1 byte | not one Herald issued | `413`, not `401` |
 
 ## Applications
 
@@ -133,7 +172,7 @@ Why: a blank name identifies nothing; the cap bounds what Herald stores for a na
 
 An Endpoint's URL MUST be an absolute `https` URL with a host, at most `endpoint-url-bytes`, with a port from 1 to 65535 if it has one, and without user information, a fragment, or unescaped whitespace. Otherwise creating the Endpoint MUST fail with `INVALID_ARGUMENT` / `400`.
 
-Why: signing proves who sent a payload, but over plain `http` anyone on the path can read it, or answer `200` in the Endpoint's place. User information would be stored in plain, and a fragment is never sent, so the URL registered wouldn't be the URL requested. 2048 bytes is the length most clients and servers accept.
+Why: signing proves who sent a payload, but over plain `http` anyone on the path can read it, or answer `200` in the Endpoint's place. User information would be stored in plain, and a fragment is never sent, so the URL registered wouldn't be the URL requested.
 
 | URL | Result |
 |---|---|
@@ -177,7 +216,7 @@ Why: a filter is matched against every Message to its Application while the Tena
 
 An Application MUST NOT have more than `max-endpoints-per-application` Endpoints. Creating one more MUST fail with `FAILED_PRECONDITION` / `422`, even when several are created at once.
 
-Why: a Message's Deliveries travel to the dispatchers together, in one message that must stay under the NATS maximum message size (1 MB by default), and each Delivery carries its Endpoint's URL and signing secrets. With a 256 KiB payload, about 350 Deliveries would fill 1 MB, so a Message to more Endpoints could never be handed off; 100 leaves a margin.
+Why: a Message's Deliveries travel to the dispatchers together, in one message that must stay under the NATS maximum message size, and each carries its Endpoint's URL and signing secrets. Past some number of Endpoints, a Message could never be handed off; `max-endpoints-per-application` keeps every Message well under it. Concurrent creates lock the Application, so they can't exceed the cap between them.
 
 | Endpoints the Application has | Created | Result |
 |---|---|---|
@@ -187,9 +226,9 @@ Why: a Message's Deliveries travel to the dispatchers together, in one message t
 
 ### R-33 · implemented
 
-The response that creates an Endpoint MUST return its signing secret, new and its own: `whsec_` and the base64 of 24 random bytes. Every other response MUST leave it out.
+The response that creates an Endpoint MUST return its signing secret, new and its own: `whsec_` and the base64 of `signing-secret-bytes` random bytes. Every other response MUST leave it out.
 
-Why: each Endpoint has its own secret, so a leaked one exposes one Endpoint ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)). 24 bytes is the smallest key Standard Webhooks allows. Returning it once means a Tenant's later calls never carry it.
+Why: each Endpoint has its own secret, so a leaked one exposes one Endpoint ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)). Returning it once means a Tenant's later calls never carry it.
 
 | Call | Response holds a signing secret |
 |---|---|
@@ -236,7 +275,7 @@ Why: Endpoints filter on Event types, so they follow the grammar filters are wri
 
 A Message's payload MUST be one JSON value, carried as text in a string field. A payload over `max-payload` MUST fail with `RESOURCE_EXHAUSTED` / `413`, and one that isn't a JSON value with `INVALID_ARGUMENT` / `400`.
 
-Why: Herald delivers the payload's bytes unchanged ([R-5](delivery.md)), which a parsed `google.protobuf.Value` couldn't do. A webhook is a notification, not a way to move bulk data, so the cap leaves room for any notification.
+Why: Herald delivers the payload's bytes unchanged ([R-5](delivery.md)), which a parsed `google.protobuf.Value` couldn't do. The cap bounds what one Message costs Herald to store and send.
 
 | Payload | Result |
 |---|---|
@@ -252,7 +291,7 @@ Why: Herald delivers the payload's bytes unchanged ([R-5](delivery.md)), which a
 
 A create Message call MAY carry one Idempotency-Key, as the `Idempotency-Key` header over REST or the `idempotency-key` metadata over gRPC. It MUST be 1 to `idempotency-key-bytes` bytes of printable ASCII (`%x20-7E`), and a call with an invalid key or more than one MUST fail with `INVALID_ARGUMENT` / `400`.
 
-Why: printable ASCII is what HTTP allows in the header. A key with other bytes can't be dropped silently, since the call would then go ahead without a key, and a retry would create a second Message. The cap keeps a key within what the database's unique index holds, with headroom.
+Why: printable ASCII is what HTTP allows in the header. A key with other bytes is refused rather than ignored, since the call would otherwise go ahead without a key, and a retry would create a second Message. A key must fit in the database's unique index, so it has a cap.
 
 | Idempotency-Key | Result |
 |---|---|
@@ -265,11 +304,23 @@ Why: printable ASCII is what HTTP allows in the header. A key with other bytes c
 | a tab | `INVALID_ARGUMENT` / `400` |
 | two keys, `a` and `b` | `INVALID_ARGUMENT` / `400` |
 
+### R-66 · implemented
+
+Over REST, a call of any operation with an `Idempotency-Key` header that R-37 doesn't allow MUST fail with `INVALID_ARGUMENT` / `400`, before the call is authenticated.
+
+Why: otherwise a header value that isn't printable ASCII would be dropped on its way in, the call would go ahead as if it had no key, and a retry would create a second Message.
+
+| Call over REST | `Idempotency-Key` | API key | Result |
+|---|---|---|---|
+| create Message | `café` | valid | `INVALID_ARGUMENT` / `400` |
+| list Applications | `café` | valid | `INVALID_ARGUMENT` / `400` |
+| create Message | `café` | none | `INVALID_ARGUMENT` / `400`, not `401` |
+
 ### R-38 · implemented
 
 When a create Message call carries an Idempotency-Key that one of the Tenant's Messages was created with less than `idempotency-window` before, and repeats that Message's request (the same Application, the same Event type, and the same payload, byte for byte), Herald MUST return that Message and create nothing.
 
-Why: a Tenant that doesn't know whether its call succeeded can retry it safely. A client retries a failed request within hours, not days, so a day covers it. Payloads are compared as bytes, since that is how they are stored and delivered.
+Why: a Tenant that doesn't know whether its call succeeded can retry it safely. Payloads are compared as bytes, since that is how they are stored and delivered.
 
 | Earlier call with key `k` | Later call with key `k` | Result |
 |---|---|---|
@@ -292,13 +343,22 @@ Why: returning the earlier Message would drop the new one without telling the Te
 
 ### R-40 · implemented
 
-When a create Message call carries an Idempotency-Key whose Message was created `idempotency-window` or more before, Herald MUST treat it as a new key and create the Message. When several calls with the same new key arrive at once, Herald MUST create one Message, and answer each as R-38 and R-39 say.
+When a create Message call carries an Idempotency-Key whose Message was created `idempotency-window` or more before, Herald MUST treat it as a new key and create the Message.
 
-Why: a key holds one Message for the window, and only one, however the calls race.
+Why: a key holds a Message only for the window, so a Tenant can reuse keys without keeping them unique forever.
 
 | Calls with key `k` | Result |
 |---|---|
 | one, 24 h after a Message was created with `k` | a new Message, which now holds `k` |
 | one, 25 h after a Message was created with `k`, with a different request | a new Message, which now holds `k` |
+
+### R-67 · implemented
+
+When several create Message calls with the same Idempotency-Key, unused or past `idempotency-window`, arrive at once, Herald MUST create one Message, and answer every other call as R-38 and R-39 say.
+
+Why: a key holds one Message, however the calls race. A Tenant that retries before its first call has answered must still get one Message.
+
+| Calls with key `k` | Result |
+|---|---|
 | ten at once, with the same request, `k` unused | one Message, returned to all ten |
 | ten at once, five with one request and five with another, `k` unused | one Message, returned to the five whose request it is; the other five `FAILED_PRECONDITION` / `422` |

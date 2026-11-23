@@ -167,8 +167,8 @@ func TestWorkersFailADeliveryAfter8Attempts(t *testing.T) {
 	tw.in.send(t, tw.workerBatch(t, rcv.URL()))
 
 	// When each Attempt starts: each follows the one before by the retry
-	// schedule's delay (spec R-10, R-11: immediately, 5 s, 1 m, 10 m, 1 h,
-	// 3 h, 6 h, 12 h).
+	// schedule's delay (spec R-10, R-11 and retry-delays: immediately, 5 s,
+	// 1 m, 10 m, 1 h, 3 h, 6 h, 12 h).
 	starts := []time.Time{
 		now,
 		now.Add(5 * time.Second),

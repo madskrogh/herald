@@ -6,7 +6,7 @@ What operators rely on when they run Herald. More of this boundary, such as hera
 
 ### R-58 · implemented
 
-A herald-api and a herald-dispatcher one release apart MUST be able to hand Messages off to each other. A change to the handoff package `herald.handoff.v1` MUST keep its wire encoding compatible.
+A change to the handoff package `herald.handoff.v1` MUST keep its wire encoding compatible with the version before it, so a herald-api and a herald-dispatcher one release apart hand Messages off to each other.
 
 Why: the two services are rolled out one after the other, so for a while each runs beside the other's previous version ([ADR 0002](../docs/adr/0002-two-services-outbox-nats-handoff.md)). The handoff is internal and never served to Tenants, so only its encoding matters, not its names.
 

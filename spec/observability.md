@@ -75,7 +75,7 @@ Why: a log line then finds its span, and the span its log lines, so a developer 
 
 | Logged | Fields |
 |---|---|
-| an Attempt | `time`, `level`, `msg`, `service`, `delivery_id`, `message_id`, `endpoint_id`, `attempt`, `status_code`, `latency_ms`, `state`, `trace_id`, `span_id`, and `attempt_error` when it failed |
+| an Attempt | `time`, `level`, `msg`, `service`, `delivery_id`, `message_id`, `endpoint_id`, `attempt`, `status_code`, `latency_ms`, `state`, `trace_id`, `span_id`, and `attempt_error` when the Attempt got no response |
 | a line with no current span | no `trace_id` or `span_id` |
 
 ## Profiles
@@ -84,7 +84,7 @@ Why: a log line then finds its span, and the span its log lines, so a developer 
 
 When `HERALD_PPROF_ADDR` is set, each service MUST serve Go's `net/http/pprof` profiles under `/debug/pprof/` on that address, and on no other. When it isn't set, the service MUST NOT serve them.
 
-Why: profiles explain a difference in behaviour or back a claim about performance. They reveal a service's internals, so they are served only on an internal address, never on a Tenant-facing one.
+Why: a developer needs profiles from a running service, but they reveal its internals, so they are served only on an internal address, never on a Tenant-facing one.
 
 | `HERALD_PPROF_ADDR` | `/debug/pprof/` on that address | `/debug/pprof/` on the Tenant API's port |
 |---|---|---|
