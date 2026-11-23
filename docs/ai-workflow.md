@@ -24,10 +24,10 @@ Herald is built with Claude Code as a pair programmer. This document describes t
 
 One GitHub issue = one branch = one worktree = one agent session = one PR.
 
-1. **Spec.** The task is a GitHub issue, small enough for one PR.
+1. **Issue.** The task is a GitHub issue, small enough for one PR. It states the problem and the change in plain words, and names the requirement IDs it touches; the spec text itself is written in the PR.
 2. **Start.** `claude -w issue-12` starts a session in worktree `issue-12` on branch `worktree-issue-12`, created from `origin/main`. Naming the worktree after its issue lets a later session find it and resume the work. The agent reads the issue with its comments, where earlier decisions are recorded.
-3. **Build test-first** with the `tdd` skill: agree the seams to test and settle the issue's open points with the human first, then red → green in vertical slices. Each decision is recorded as a comment on the issue.
-4. **Design review.** With tests green, `standards-review` checks the diff on two axes: does it follow the documented standards (plus a baseline of code smells), and does it match the issue? The agent refactors on its findings, with the tests as a safety net.
+3. **Build test-first** with the `tdd` skill: agree the seams to test and settle the issue's open points with the human first, then red → green in vertical slices. A behaviour change starts in the spec: the requirement and its vectors, failing, then the tests and the code. Each decision is recorded as a comment on the issue.
+4. **Design review.** With tests green, `standards-review` checks the diff on two axes: does it follow the documented standards (plus a baseline of code smells), and does it match the issue and the requirements it touches? The second axis also flags every decision in the diff that no requirement states (see "Decisions go in the spec"). The agent refactors on its findings, with the tests as a safety net.
 5. **Bug review.** The built-in `/code-review` runs on the final diff. It comes after the refactor so it reviews the code that ships.
 6. **Rejection review.** The `rejection-review` skill gives every finding the author rejected to a fresh-context reviewer, which upholds or disputes the stated reason. A disputed rejection is fixed, unless the author has an argument the reviewer didn't address: then the human is asked before the PR opens. So is a rejection that rests on the issue's intent ("not needed yet", a non-goal), even when upheld, if the stakes are real: a reviewer can check the issue's wording, not what the person who wrote it meant. One with low stakes stays in the Review notes, marked "settled by reading the issue". Each answer is recorded as a comment on the issue.
 7. **Gate.** `make ci`, then push and open a PR. The `write-pr` skill fills in `.github/pull_request_template.md` for a reviewer who works like a coach: they hold the context and ask the questions, so the description points them where to look rather than arguing for the change. It opens with a plain explanation. It links the issue, where any decisions the human made were recorded, then lists the files to read closely. A **Verification** section says what the author ran, with results, and what they didn't check and why; it is never left out, so "not checked" is stated rather than implied. Verification is collapsed, with the number of unchecked items in its summary line so a gap shows while it is closed. Mechanics, evidence and the **Review notes** fold into collapsed sections. The Review notes have a row for every review that ran, with its model, effort and setup commit, even when it found nothing, and every finding with its severity and how it was resolved. A PR that fixes a problem shipped by an earlier one says `Regression from #<n>`. After each push, the agent waits for CI with `make wait-ci` instead of polling: a poll costs a model turn per check and fills the context with output that says nothing until the result. A hand-written wait tends to watch the wrong run, or none, because the run doesn't exist yet right after a push; the target handles both. On a failure it reads only the failing job's log excerpt.
@@ -42,6 +42,37 @@ Roles that need context and roles that need distance go to different agents:
 - **Writing and fixing need context**, so the session that wrote the code also addresses the findings, as an author addresses review comments.
 - **Reviewing needs distance.** Every review starts with a fresh context and sees the diff, the issue and the documented standards, never the author's reasoning: `standards-review` spawns its sub-agents that way, and `/code-review` runs as a forked skill, which doesn't see the conversation either.
 - **Judging a rejection needs distance too.** A wrong fix is caught by tests and later reviews; a wrong rejection is caught by nothing when the author is the only judge. On the PR for issue #2, two of five rejections from the first review were overturned, and only because the bug review happened to raise them again. The rejection review makes that second look deliberate instead of lucky.
+
+## Decisions go in the spec
+
+[ADR 0007](adr/0007-code-regenerated-from-the-spec.md) sets the goal that all of Herald's code could be regenerated from the spec, the shape files, `GLOSSARY.md` and the ADRs. A decision that exists only in the code is lost in a regeneration, and nobody can review it as a decision: a diff shows that a constant changed, not whether the old value was intended. The scenario's limits on handoff lag and on how late a Delivery's first Attempt may come are such decisions: values with no stated reason.
+
+So every change surfaces its decisions into the spec, in the same PR. Four places hold this:
+
+- **The rule** (`CLAUDE.md`, Conventions): every decision someone at Herald's boundaries could notice is stated in the spec, with its reason. That covers decisions the change makes and ones found in code it touches. A value moved out of the code gets its reason; one without a reason is questioned, not copied.
+- **The order** (`tdd`): a behaviour change starts with the requirement and its vectors, failing, and the tests read the vectors. A Go test literal for behaviour that no requirement states is a finding, because that is where decisions used to hide.
+- **The review** (`standards-review`): the Spec axis reads the requirements the change touches as well as the issue. It flags each noticeable decision in the diff that no requirement states, and each value moved into the spec or a data file without a reason.
+- **The record** (`write-pr`): the PR lists the requirement IDs it adds, changes or withdraws, and each decision it surfaced from existing code.
+
+The issue stays what a change is checked against: it says what to change and records the human's decisions. The spec says what Herald must do, and the word "spec" means only the spec.
+
+These catch decisions that look like decisions: a constant, a limit, a format. They miss implicit ones: the order two things happen in, a default nobody chose, how a failure is reported. The regeneration audit is for those.
+
+## The regeneration audit
+
+The audit runs ADR 0007's own test: regenerate Herald from the spec and see what differs. Every difference is either a defect in the regenerated build, or a decision the spec doesn't state.
+
+It runs at the end of each milestone, and after a large change to the spec. Not on every PR: a full regeneration costs too much for that. The first runs once the spec covers today's behaviour, after `docs/design.md` is split.
+
+To run it:
+
+1. **Export the inputs.** Pick the commit to audit. Copy only the inputs into a new directory outside any Herald checkout, with `git archive <commit> <paths> | tar -x -C <dir>`: the spec; the shape files, which are the Tenant API's protos (`api/`), the OpenAPI spec (`docs/openapi/`), the golden responses (`internal/tenantapi/testdata/*.golden`), the handoff proto (`proto/`), and the telemetry schema and Postgres column list once each is a file (until then the column list is ADR 0007's table); `GLOSSARY.md` and `docs/adr/`. Run `git init` there, so neither the code nor its history comes along.
+2. **Generate.** Start a fresh Claude Code session in that directory, with permission rules that deny reading any Herald checkout and its git directory. Try one such read first, to confirm it is refused. Ask the session to build Herald from the inputs alone, with a `compose.yaml` that uses Herald's service names (fault injection restarts services by name) and takes its ports from the variables a checkout's `.env` sets. Until the spec states how Herald is deployed, the prompt says both.
+3. **Check.** In a new Herald worktree at the audited commit, replace `compose.yaml` with the regenerated build's, its build contexts pointing at the regenerated directory. Then run `make up`, `make e2e` and `make scenario-compare`. The harness comes from the checkout, and the stack it runs against is the regenerated build. `scenario-compare` checks the scenario invariants and compares the regenerated build's edge recording with the committed baseline, which is the current build's.
+4. **Classify.** Each failing test, broken invariant and difference in the recording is either a defect in the regenerated build or a decision the spec doesn't state. File each missing decision as an issue that names where the two builds differ.
+5. **Record.** Write the audit up on its own issue: the commit it ran against; the model, effort, Claude Code version and prompt that generated the build; and every difference with its classification. Across audits, the number of missing decisions shows whether the reviews are catching decisions earlier.
+
+Until the end-to-end tests and the scenario harness stop importing Herald's own code (ADR 0007, Consequences), they decide what to expect with the current build's filter matching, retry schedule, telemetry constants and stores. Until then, the audit judges the regenerated build partly by the current code's logic: a difference there can be the test's coupling, and a match can hide a gap.
 
 ## Branches and merging
 
@@ -58,6 +89,7 @@ Roles that need context and roles that need distance go to different agents:
 | Every `.go` file edit | `goimports -w` (PostToolUse hook) | Cheap, local to one file, always safe |
 | Before every push | `make ci` | The full gate, run locally so problems never reach the PR |
 | Every PR | CI runs `make ci`, plus Docker image builds | The source of truth; `make ci` keeps local and CI identical |
+| End of each milestone, and after a large change to the spec | The regeneration audit | Finds the decisions the reviews didn't recognise; too costly for every PR |
 
 Package-wide checks such as `go vet` don't run on every edit: mid-refactor, half-finished code fails them on purpose, and feeding that back to the agent makes it patch code it is about to rewrite.
 

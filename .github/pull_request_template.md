@@ -8,6 +8,17 @@ Closes #
 
 <!-- If this PR fixes a problem an earlier PR shipped, replace this comment with: Regression from #<n> -->
 
+## Requirements
+
+<!--
+Never left out. Each requirement ID this PR adds, changes or withdraws, and what changed. Then each
+decision surfaced from existing code: the value or behaviour, where it was, the requirement that now
+states it. "None" if the PR touches no requirement. Until the spec exists, name the `docs/design.md` section instead of an ID.
+-->
+
+- _ID_: _added, changed or withdrawn, and what_
+- Surfaced: _value or behaviour_ from `_file_`, now _ID_
+
 ## Read closely
 
 <!-- Files where a mistake is costly, and what makes it costly. Don't explain the code. -->
