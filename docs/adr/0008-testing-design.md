@@ -27,7 +27,7 @@ The other tests check what Herald should do, for the cases someone wrote down. T
 
 What doesn't depend on the machine, the edge recording and counts such as Attempts by outcome, is compared with committed baselines. A difference fails the comparison unless the change updates the baseline, so an intended change shows up as a diff the reviewer approves, and a change that should alter nothing must leave the baselines alone.
 
-Timing depends on the machine. A baseline recorded elsewhere would need margins too wide to catch a regression, so timing is compared with a run of the `main` build on the same runner at the same time, each statistic within a margin.
+Timing depends on the machine. The edge recording's time since a Delivery's first Attempt is compared with the baseline only within a margin wide enough for any machine, so it catches a large change, such as a retry delay of hours, and nothing finer. A baseline recorded elsewhere would need margins too wide to catch a regression in the rest, so the telemetry statistics' timing is compared with a run of the `main` build on the same runner at the same time, each statistic within a margin.
 
 A recording keeps whatever the recorded build did, bugs included. It shows change, not correctness.
 
@@ -43,7 +43,7 @@ The scenario scaled up, with several replicas of each service, on demand. They s
 
 - **A scripted scenario, recorded at both edges and run again against a later build**: replaced. A fixed set of Tenant calls with a response script per Endpoint covers one script's cases. Generated traffic, misbehaving Endpoints and faults cover more of what real use would.
 - **Telemetry as the only witness**: rejected. Spans are reported by the code under test, so a change to its instrumentation could change what the checks read. The edge recording can't be changed that way.
-- **Timing against a committed baseline**: rejected, for the margins it would need (above).
+- **Timing statistics against a committed baseline**: rejected, for the margins it would need (above).
 - **Load tests on every change**: rejected, for noisy runners (above).
 
 ## Consequences

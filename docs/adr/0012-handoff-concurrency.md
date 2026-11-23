@@ -6,11 +6,11 @@ Nothing has shown that handoff throughput limits Herald, and the load test is wh
 
 ## Considered Options
 
-- **Several relays per process, behind a setting**: deferred until the load test shows handoff lag growing because the relays can't keep up ([#124](https://github.com/madskrogh/herald/issues/124)). The connection pool must grow with the number of relays, and there must be at least as many dispatchers as relays across all replicas.
+- **Several relays per process, behind a setting**: deferred until the load test shows handoff lag growing because the relays can't keep up ([#124](https://github.com/madskrogh/herald/issues/124)). The connection pool must grow with the number of relays, and the extra relays add throughput only while there are as many dispatchers as relays across all replicas.
 - **A limit that adapts to reply latency**: deferred, for the same reason.
 
 ## Consequences
 
 - Kind, in [ADR 0007](0007-code-regenerated-from-the-spec.md)'s terms: architecture.
-- Handoff throughput grows with herald-api replicas, not with dispatchers.
+- Handoff throughput is bounded by the number of herald-api replicas: it grows with dispatchers only up to that number.
 - Handoff lag under load belongs in the spec as a latency requirement. Running more relays per process is a new ADR, which replaces this one.
