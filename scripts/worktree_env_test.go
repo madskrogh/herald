@@ -38,8 +38,9 @@ func newRepo(t *testing.T) *repo {
 
 func (r *repo) git(dir string, args ...string) {
 	r.t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(r.t.Context(), "git", args...)
 	cmd.Dir = dir
+	cmd.Env = r.env()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		r.t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
@@ -79,11 +80,28 @@ func (r *repo) fakeDocker(src string) {
 // run runs worktree-env.sh in dir and returns its error and output.
 func (r *repo) run(dir string) (string, error) {
 	r.t.Helper()
-	cmd := exec.Command("bash", r.script)
+	cmd := exec.CommandContext(r.t.Context(), "bash", r.script)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PATH="+r.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Env = r.env()
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// env is the environment git and the script run in: the fake docker first on
+// PATH, and no git configuration or GIT_* variables from outside the test,
+// which could point git at another repository or run hooks.
+func (r *repo) env() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "PATH=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env,
+		"PATH="+r.bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_NOSYSTEM=1",
+	)
 }
 
 // slot runs worktree-env.sh in dir and returns the slot it wrote to .env.
@@ -212,7 +230,7 @@ func TestNewSlotFails(t *testing.T) {
 	}{
 		{
 			name:    "when Docker can't be asked",
-			arrange: func(t *testing.T, r *repo) { r.dockerFails() },
+			arrange: func(_ *testing.T, r *repo) { r.dockerFails() },
 			wantOut: "is Docker running?",
 		},
 		{
@@ -227,7 +245,25 @@ func TestNewSlotFails(t *testing.T) {
 				if err := os.Chmod(other, 0); err != nil {
 					t.Fatal(err)
 				}
-				t.Cleanup(func() { os.Chmod(other, 0o755) })
+				t.Cleanup(func() {
+					if err := os.Chmod(other, 0o755); err != nil {
+						t.Error(err)
+					}
+				})
+			},
+			wantOut: "can't read",
+		},
+		{
+			name: "when another worktree's .env can't be read",
+			arrange: func(t *testing.T, r *repo) {
+				if os.Geteuid() == 0 {
+					t.Skip("root reads a file whatever its mode")
+				}
+				other := r.addWorktree("other")
+				r.slot(other)
+				if err := os.Chmod(filepath.Join(other, ".env"), 0); err != nil {
+					t.Fatal(err)
+				}
 			},
 			wantOut: "can't read",
 		},

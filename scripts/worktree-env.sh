@@ -69,11 +69,11 @@ elif [[ "$top" == "$main" ]]; then
   slot=0
   project=herald
 else
-  # A worktree that exists but can't be read would hide its slot. A removed
-  # worktree that git still lists doesn't exist, and holds no slot.
+  # A worktree, or a .env, that exists but can't be read would hide its slot.
+  # A removed worktree that git still lists doesn't exist, and holds no slot.
   used=
   while IFS= read -r wt; do
-    if [[ -e "$wt" && ! (-r "$wt" && -x "$wt") ]]; then
+    if [[ (-e "$wt" && ! (-r "$wt" && -x "$wt")) || (-e "$wt/.env" && ! -r "$wt/.env") ]]; then
       echo "worktree-env: can't read $wt to see which slot it holds; run this where every worktree can be read" >&2
       exit 1
     fi
