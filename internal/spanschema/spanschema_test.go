@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	internalspec "github.com/madskrogh/herald/internal/spec"
 	"github.com/madskrogh/herald/spec"
 )
 
@@ -18,31 +19,31 @@ func TestCheckFollowsTheVectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	data, err := spec.Files.ReadFile("observability.md")
-	if err != nil {
-		t.Fatalf("read observability.md: %v", err)
-	}
-	tables, err := readTables(data)
-	if err != nil {
-		t.Fatalf("read observability.md: %v", err)
-	}
 	for _, req := range []struct {
-		heading string
-		check   func(Span) []error
+		id    string
+		check func(Span) []error
 	}{
-		{"R-53 · implemented", schema.CheckAttributes},
-		{"R-79 · implemented", schema.CheckAttributes},
-		{"R-80 · implemented", schema.CheckAttributes},
+		{"R-53", schema.CheckAttributes},
+		{"R-79", schema.CheckAttributes},
+		{"R-80", schema.CheckAttributes},
 		// Its vectors give the trace shape, not the attributes.
-		{"R-81 · implemented", schema.CheckTrace},
+		{"R-81", schema.CheckTrace},
 	} {
-		rows := tables[req.heading]
-		if len(rows) == 0 {
-			t.Fatalf("no vector under %q", req.heading)
+		tables, err := internalspec.Vectors(spec.Files, req.id)
+		if err != nil {
+			t.Fatal(err)
 		}
-		for _, r := range rows {
+		var vectorRows []row
+		for _, tb := range tables {
+			rs, err := rows(tb)
+			if err != nil {
+				t.Fatalf("vector of %s: %v", req.id, err)
+			}
+			vectorRows = append(vectorRows, rs...)
+		}
+		for _, r := range vectorRows {
 			v := vector(r)
-			t.Run(req.heading+"/line "+strconv.Itoa(r.line), func(t *testing.T) {
+			t.Run(req.id+"/line "+strconv.Itoa(r.Line), func(t *testing.T) {
 				t.Parallel()
 				problems := req.check(v.span)
 				switch {
@@ -89,20 +90,20 @@ type spanVector struct {
 // a root.
 func vector(r row) spanVector {
 	v := spanVector{
-		follows: r.cells["Follows the schema"] == "yes",
-		names:   strings.Trim(r.cells["Names"], "`"),
+		follows: r.Cells["Follows the schema"] == "yes",
+		names:   strings.Trim(r.Cells["Names"], "`"),
 		span: Span{
-			Name:       strings.Trim(r.cells["Span"], "`"),
-			Service:    r.cells["Service"],
+			Name:       strings.Trim(r.Cells["Span"], "`"),
+			Service:    r.Cells["Service"],
 			Attributes: map[string]string{},
-			Links:      backticks(r.cells["Links to"]),
+			Links:      backticks(r.Cells["Links to"]),
 		},
 	}
-	for _, kv := range backticks(r.cells["Attributes"]) {
+	for _, kv := range backticks(r.Cells["Attributes"]) {
 		k, val, _ := strings.Cut(kv, "=")
 		v.span.Attributes[k] = val
 	}
-	if parent := r.cells["Parent"]; parent == "none" {
+	if parent := r.Cells["Parent"]; parent == "none" {
 		v.span.Root = true
 	} else {
 		v.span.Parent = strings.Trim(parent, "`")

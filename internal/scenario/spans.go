@@ -11,7 +11,6 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/e2e"
 )
 
@@ -211,7 +210,7 @@ func (c *spanCheck) checkTraces() {
 	if len(c.names) == 0 {
 		c.nothingToCheck(ruleTrace, "accepted Messages")
 	}
-	deliveries := map[uuid.UUID][]delivery.Delivery{}
+	deliveries := map[uuid.UUID][]e2e.Delivery{}
 	for _, d := range c.obs.Deliveries {
 		deliveries[d.MessageID] = append(deliveries[d.MessageID], d)
 	}
@@ -224,7 +223,7 @@ func (c *spanCheck) checkTraces() {
 
 // missingFromTrace says what the trace of the Message with the given ID
 // lacks, or returns empty if it has everything.
-func (c *spanCheck) missingFromTrace(messageID string, deliveries []delivery.Delivery) string {
+func (c *spanCheck) missingFromTrace(messageID string, deliveries []e2e.Delivery) string {
 	handoff, ok := c.handedOff(messageID)
 	if !ok {
 		return "no handoff span that handed the Message off"

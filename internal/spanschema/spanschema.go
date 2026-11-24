@@ -6,16 +6,14 @@
 package spanschema
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"uuid"
 
+	internalspec "github.com/madskrogh/herald/internal/spec"
 	"github.com/madskrogh/herald/spec"
 )
 
@@ -94,11 +92,11 @@ const outcomeKey = "herald.outcome"
 
 // load parses the schema file once.
 var load = sync.OnceValues(func() (Schema, error) {
-	data, err := spec.Files.ReadFile(file)
+	tables, err := internalspec.FileTables(spec.Files, file)
 	if err != nil {
 		return Schema{}, fmt.Errorf("read the span schema: %w", err)
 	}
-	s, err := parse(data)
+	s, err := parse(tables)
 	if err != nil {
 		return Schema{}, fmt.Errorf("span schema %s: %w", file, err)
 	}
@@ -236,27 +234,25 @@ var (
 	types   = []Type{String, Int, UUID}
 )
 
-var (
-	headingRE    = regexp.MustCompile(`^#+\s+(.*?)\s*$`)
-	backtickRE   = regexp.MustCompile("`([^`]*)`")
-	backtickedRE = regexp.MustCompile("^`([^`]+)`$")
-	delimiterRE  = regexp.MustCompile(`^:?-+:?$`)
-)
+var backtickRE = regexp.MustCompile("`([^`]*)`")
 
-// parse reads a span schema in the form of spec/span-schema.md: a table of
-// spans, of attributes, of each span's attributes and of outcomes, each
-// under its own "##" heading.
-func parse(data []byte) (Schema, error) {
-	tables, err := readTables(data)
-	if err != nil {
-		return Schema{}, err
-	}
-	s := Schema{Spans: map[string]SpanSchema{}, Attributes: map[string]Attribute{}}
+// parse reads a span schema from the tables of a file in the form of
+// spec/span-schema.md: a table of spans, of attributes, of each span's
+// attributes and of outcomes, each under its own "##" heading.
+func parse(fileTables []internalspec.Table) (Schema, error) {
+	tables := map[string][]row{}
 	for _, name := range []string{sectionSpans, sectionAttributes, sectionSpanAttrs, sectionOutcomes} {
-		if len(tables[name]) == 0 {
+		t, ok := internalspec.TableUnder(fileTables, name)
+		if !ok || len(t.Rows) == 0 {
 			return Schema{}, fmt.Errorf("no table under %q", "## "+name)
 		}
+		rs, err := rows(t)
+		if err != nil {
+			return Schema{}, err
+		}
+		tables[name] = rs
 	}
+	s := Schema{Spans: map[string]SpanSchema{}, Attributes: map[string]Attribute{}}
 	for _, r := range tables[sectionSpans] {
 		name, err := r.backticked("Span")
 		if err != nil {
@@ -265,11 +261,11 @@ func parse(data []byte) (Schema, error) {
 		if _, ok := s.Spans[name]; ok {
 			return Schema{}, r.errorf("span %q listed twice", name)
 		}
-		root := Root(r.cells["Root"])
+		root := Root(r.Cells["Root"])
 		if !slices.Contains(roots, root) {
 			return Schema{}, r.errorf("Root %q is not one of %q", root, roots)
 		}
-		parents := backticks(r.cells["Parent"])
+		parents := backticks(r.Cells["Parent"])
 		switch {
 		case root == RootNever && len(parents) == 0:
 			return Schema{}, r.errorf("span %q has no parent and may not be a root", name)
@@ -277,10 +273,10 @@ func parse(data []byte) (Schema, error) {
 			return Schema{}, r.errorf("span %q is always a root, but has parents", name)
 		}
 		s.Spans[name] = SpanSchema{
-			Service: r.cells["Service"],
+			Service: r.Cells["Service"],
 			Parents: parents,
 			Root:    root,
-			Links:   backticks(r.cells["Links to"]),
+			Links:   backticks(r.Cells["Links to"]),
 		}
 	}
 	for _, r := range tables[sectionAttributes] {
@@ -291,13 +287,13 @@ func parse(data []byte) (Schema, error) {
 		if _, ok := s.Attributes[key]; ok {
 			return Schema{}, r.errorf("attribute %q listed twice", key)
 		}
-		t := Type(r.cells["Type"])
+		t := Type(r.Cells["Type"])
 		if !slices.Contains(types, t) {
 			return Schema{}, r.errorf("attribute %q: type %q is not one of %q", key, t, types)
 		}
-		empty, ok := empties[r.cells["Empty"]]
+		empty, ok := empties[r.Cells["Empty"]]
 		if !ok {
-			return Schema{}, r.errorf("attribute %q: Empty %q is not allowed or never", key, r.cells["Empty"])
+			return Schema{}, r.errorf("attribute %q: Empty %q is not allowed or never", key, r.Cells["Empty"])
 		}
 		s.Attributes[key] = Attribute{Type: t, MayBeEmpty: empty}
 	}
@@ -313,7 +309,7 @@ func parse(data []byte) (Schema, error) {
 		if len(span.Attributes) > 0 {
 			return Schema{}, r.errorf("span %q's attributes listed twice", name)
 		}
-		for _, k := range backticks(r.cells["Attributes"]) {
+		for _, k := range backticks(r.Cells["Attributes"]) {
 			if _, ok := s.Attributes[k]; !ok {
 				return Schema{}, r.errorf("span %q: attribute %q is not under %q", name, k, "## "+sectionAttributes)
 			}
@@ -359,105 +355,34 @@ func parse(data []byte) (Schema, error) {
 	return s, nil
 }
 
-// row is a row of a table, its cells by column.
-type row struct {
-	line  int
-	cells map[string]string
-}
+// row is a row of one of the schema's tables.
+type row internalspec.Record
 
 func (r row) errorf(format string, args ...any) error {
-	return fmt.Errorf("line %d: %s", r.line, fmt.Sprintf(format, args...))
+	return fmt.Errorf("line %d: %s", r.Line, fmt.Sprintf(format, args...))
 }
 
 // backticked returns what the row's column holds in backticks, the whole
 // cell: a span name, a key or a value.
 func (r row) backticked(column string) (string, error) {
-	m := backtickedRE.FindStringSubmatch(r.cells[column])
-	if m == nil {
-		return "", r.errorf("%s %q is not one name in backticks", column, r.cells[column])
+	v, ok := internalspec.Backticked(r.Cells[column])
+	if !ok {
+		return "", r.errorf("%s %q is not one name in backticks", column, r.Cells[column])
 	}
-	return m[1], nil
+	return v, nil
 }
 
-// readTables returns the rows of the first table under each heading, by the
-// heading's text.
-func readTables(data []byte) (map[string][]row, error) {
-	tables := map[string][]row{}
-	var (
-		section string
-		header  []string
-		done    bool // whether the section's table has ended
-	)
-	sc := bufio.NewScanner(bytes.NewReader(data))
-	for line := 1; sc.Scan(); line++ {
-		text := strings.TrimSpace(sc.Text())
-		if m := headingRE.FindStringSubmatch(text); m != nil {
-			section, header, done = m[1], nil, false
-			continue
-		}
-		if !strings.HasPrefix(text, "|") {
-			if header != nil {
-				done = true
-			}
-			continue
-		}
-		if section == "" || done {
-			continue
-		}
-		cells := splitRow(text)
-		switch {
-		case header == nil:
-			header = cells
-			continue
-		case isDelimiter(cells):
-			continue
-		case len(cells) != len(header):
-			return nil, fmt.Errorf("line %d: %d cells, want %d", line, len(cells), len(header))
-		}
-		r := row{line: line, cells: map[string]string{}}
-		for i, h := range header {
-			r.cells[h] = cells[i]
-		}
-		tables[section] = append(tables[section], r)
+// rows returns the rows of t, their cells by column.
+func rows(t internalspec.Table) ([]row, error) {
+	records, err := t.Records()
+	if err != nil {
+		return nil, err
 	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("read tables: %w", err)
+	out := make([]row, len(records))
+	for i, r := range records {
+		out[i] = row(r)
 	}
-	return tables, nil
-}
-
-// splitRow returns the cells of a table row. An escaped pipe, \|, is part of
-// its cell, as a pipe.
-func splitRow(text string) []string {
-	text = strings.TrimSuffix(strings.TrimPrefix(text, "|"), "|")
-	var (
-		cells []string
-		cell  strings.Builder
-	)
-	for i := 0; i < len(text); i++ {
-		switch {
-		case text[i] == '\\' && i+1 < len(text) && text[i+1] == '|':
-			cell.WriteByte('|')
-			i++
-		case text[i] == '|':
-			cells = append(cells, strings.TrimSpace(cell.String()))
-			cell.Reset()
-		default:
-			cell.WriteByte(text[i])
-		}
-	}
-	return append(cells, strings.TrimSpace(cell.String()))
-}
-
-// isDelimiter reports whether cells are a table's delimiter row, such as
-// |---|:--:|.
-func isDelimiter(cells []string) bool {
-	for _, c := range cells {
-		if !delimiterRE.MatchString(c) {
-			return false
-		}
-	}
-	return true
+	return out, nil
 }
 
 func backticks(cell string) []string {

@@ -2,7 +2,7 @@
 
 The spec states every decision in Herald that someone at one of its boundaries can notice: what Herald returns and sends for what it is given, what it does in each case, how long it takes, what resources it uses, what debugging data it leaves, and what operators use. Herald's code is derived from it, never the other way round ([ADR 0007](../docs/adr/0007-code-regenerated-from-the-spec.md)). If the spec and another document disagree about behaviour, the spec wins.
 
-The areas are [delivery](delivery.md), the [Tenant API](tenant-api.md), [security](security.md), [observability](observability.md), [latency](latency.md), [resource use](resources.md) and [operations](operations.md), and every value they name is in [limits](limits.md). The spans Herald emits are in the [span schema](span-schema.md).
+The areas are [delivery](delivery.md), the [Tenant API](tenant-api.md), [security](security.md), [observability](observability.md), [latency](latency.md), [resource use](resources.md), [operations](operations.md) and [what Herald stores](storage.md), and every value they name is in [limits](limits.md). The spans Herald emits are in the [span schema](span-schema.md), and the Postgres columns the scenario relies on in the [column list](postgres-columns.md).
 
 This file states the spec's conventions. Its examples are in code blocks, which the check doesn't read.
 
@@ -11,6 +11,7 @@ This file states the spec's conventions. Its examples are in code blocks, which 
 - `spec/*.md`: requirements, one file per area of Herald, such as `delivery.md` or `tenant-api.md`.
 - `spec/limits.md`: the limits table.
 - `spec/span-schema.md`: the span schema, a shape file: the spans Herald emits, their attributes and types, the values of `herald.outcome`, and the trace shape. Each entry gives its reason, and the checks read its tables.
+- `spec/postgres-columns.md`: the Postgres column list, a shape file: the columns the scenario writes and reads, their types, whether they may be NULL, who sets them, and what replaces each. Each entry gives its reason; the migrated database is checked against it, and the scenario's harness reads only its columns.
 - `spec/spec.go`: embeds the spec's Markdown files, so the checks read them from any package.
 - `spec/vectors/*.md`: vector files, for vectors too long to sit under their requirement.
 

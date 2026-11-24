@@ -140,7 +140,7 @@ func newEdge(obs Observations) *edge {
 	// Endpoint, to place TLS handshakes, which carry no webhook-id.
 	heraldByEndpoint := map[string][]deliveryKey{}
 	for _, d := range obs.Deliveries {
-		k := deliveryKey{e.names[d.MessageID], obs.EndpointIDs[d.Endpoint.ID]}
+		k := deliveryKey{e.names[d.MessageID], obs.EndpointIDs[d.EndpointID]}
 		e.stored[k] = true
 		e.delivery(k).recorded = obs.Recorded[d.ID]
 		heraldByEndpoint[k.endpoint] = append(heraldByEndpoint[k.endpoint], k)

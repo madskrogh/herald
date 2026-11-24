@@ -221,11 +221,11 @@ func (r *runner) wait(ctx context.Context, messages []Message) error {
 			return fmt.Errorf("message %s: %w", m.Name, err)
 		}
 		for _, d := range deliveries {
-			attempts, err := r.stack.Attempts(ctx, d.ID)
+			recorded, err := r.stack.RecordedAttempts(ctx, d.ID)
 			if err != nil {
 				return fmt.Errorf("message %s: %w", m.Name, err)
 			}
-			r.obs.Recorded[d.ID] = len(attempts)
+			r.obs.Recorded[d.ID] = recorded
 		}
 		r.obs.Deliveries = append(r.obs.Deliveries, deliveries...)
 	}
