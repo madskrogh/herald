@@ -234,10 +234,7 @@ var (
 	types   = []Type{String, Int, UUID}
 )
 
-var (
-	backtickRE   = regexp.MustCompile("`([^`]*)`")
-	backtickedRE = regexp.MustCompile("^`([^`]+)`$")
-)
+var backtickRE = regexp.MustCompile("`([^`]*)`")
 
 // parse reads a span schema from the tables of a file in the form of
 // spec/span-schema.md: a table of spans, of attributes, of each span's
@@ -261,11 +258,11 @@ func parse(fileTables []internalspec.Table) (Schema, error) {
 		if _, ok := s.Spans[name]; ok {
 			return Schema{}, r.errorf("span %q listed twice", name)
 		}
-		root := Root(r.cells["Root"])
+		root := Root(r.Cells["Root"])
 		if !slices.Contains(roots, root) {
 			return Schema{}, r.errorf("Root %q is not one of %q", root, roots)
 		}
-		parents := backticks(r.cells["Parent"])
+		parents := backticks(r.Cells["Parent"])
 		switch {
 		case root == RootNever && len(parents) == 0:
 			return Schema{}, r.errorf("span %q has no parent and may not be a root", name)
@@ -273,10 +270,10 @@ func parse(fileTables []internalspec.Table) (Schema, error) {
 			return Schema{}, r.errorf("span %q is always a root, but has parents", name)
 		}
 		s.Spans[name] = SpanSchema{
-			Service: r.cells["Service"],
+			Service: r.Cells["Service"],
 			Parents: parents,
 			Root:    root,
-			Links:   backticks(r.cells["Links to"]),
+			Links:   backticks(r.Cells["Links to"]),
 		}
 	}
 	for _, r := range tables[sectionAttributes] {
@@ -287,13 +284,13 @@ func parse(fileTables []internalspec.Table) (Schema, error) {
 		if _, ok := s.Attributes[key]; ok {
 			return Schema{}, r.errorf("attribute %q listed twice", key)
 		}
-		t := Type(r.cells["Type"])
+		t := Type(r.Cells["Type"])
 		if !slices.Contains(types, t) {
 			return Schema{}, r.errorf("attribute %q: type %q is not one of %q", key, t, types)
 		}
-		empty, ok := empties[r.cells["Empty"]]
+		empty, ok := empties[r.Cells["Empty"]]
 		if !ok {
-			return Schema{}, r.errorf("attribute %q: Empty %q is not allowed or never", key, r.cells["Empty"])
+			return Schema{}, r.errorf("attribute %q: Empty %q is not allowed or never", key, r.Cells["Empty"])
 		}
 		s.Attributes[key] = Attribute{Type: t, MayBeEmpty: empty}
 	}
@@ -309,7 +306,7 @@ func parse(fileTables []internalspec.Table) (Schema, error) {
 		if len(span.Attributes) > 0 {
 			return Schema{}, r.errorf("span %q's attributes listed twice", name)
 		}
-		for _, k := range backticks(r.cells["Attributes"]) {
+		for _, k := range backticks(r.Cells["Attributes"]) {
 			if _, ok := s.Attributes[k]; !ok {
 				return Schema{}, r.errorf("span %q: attribute %q is not under %q", name, k, "## "+sectionAttributes)
 			}
@@ -355,24 +352,21 @@ func parse(fileTables []internalspec.Table) (Schema, error) {
 	return s, nil
 }
 
-// row is a row of a table, its cells by column.
-type row struct {
-	line  int
-	cells map[string]string
-}
+// row is a row of one of the schema's tables.
+type row internalspec.Record
 
 func (r row) errorf(format string, args ...any) error {
-	return fmt.Errorf("line %d: %s", r.line, fmt.Sprintf(format, args...))
+	return fmt.Errorf("line %d: %s", r.Line, fmt.Sprintf(format, args...))
 }
 
 // backticked returns what the row's column holds in backticks, the whole
 // cell: a span name, a key or a value.
 func (r row) backticked(column string) (string, error) {
-	m := backtickedRE.FindStringSubmatch(r.cells[column])
-	if m == nil {
-		return "", r.errorf("%s %q is not one name in backticks", column, r.cells[column])
+	v, ok := internalspec.Backticked(r.Cells[column])
+	if !ok {
+		return "", r.errorf("%s %q is not one name in backticks", column, r.Cells[column])
 	}
-	return m[1], nil
+	return v, nil
 }
 
 // rowsByHeading returns the rows of the first table under each heading, by
@@ -392,19 +386,15 @@ func rowsByHeading(tables []internalspec.Table) (map[string][]row, error) {
 	return byHeading, nil
 }
 
-// rows returns the rows of t, their cells by column. A row with more or
-// fewer cells than the header is an error.
+// rows returns the rows of t, their cells by column.
 func rows(t internalspec.Table) ([]row, error) {
-	out := make([]row, 0, len(t.Rows))
-	for i, cells := range t.Rows {
-		r := row{line: t.RowLine(i), cells: map[string]string{}}
-		if len(cells) != len(t.Header) {
-			return nil, r.errorf("%d cells, want %d", len(cells), len(t.Header))
-		}
-		for j, h := range t.Header {
-			r.cells[h] = cells[j]
-		}
-		out = append(out, r)
+	records, err := t.Records()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]row, len(records))
+	for i, r := range records {
+		out[i] = row(r)
 	}
 	return out, nil
 }

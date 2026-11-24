@@ -68,3 +68,69 @@ Text.
 		t.Errorf("FileTables (-want +got):\n%s", diff)
 	}
 }
+
+func TestTableRecords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		table   spec.Table
+		want    []spec.Record
+		wantErr string
+	}{
+		{
+			name:  "cells by column, with their lines",
+			table: spec.Table{Line: 10, Header: []string{"Span", "Why"}, Rows: [][]string{{"`attempt`", "One Attempt."}, {"`handoff`", ""}}},
+			want: []spec.Record{
+				{Line: 12, Cells: map[string]string{"Span": "`attempt`", "Why": "One Attempt."}},
+				{Line: 13, Cells: map[string]string{"Span": "`handoff`", "Why": ""}},
+			},
+		},
+		{
+			name:    "a row with fewer cells than the header",
+			table:   spec.Table{Line: 10, Header: []string{"Span", "Why"}, Rows: [][]string{{"`attempt`", "One Attempt."}, {"`handoff`"}}},
+			wantErr: "line 13: 1 cells, want 2",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := tt.table.Records()
+			var gotErr string
+			if err != nil {
+				gotErr = err.Error()
+			}
+			if gotErr != tt.wantErr {
+				t.Fatalf("Records error = %q, want %q", gotErr, tt.wantErr)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("Records (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestBackticked(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		cell string
+		want string
+		ok   bool
+	}{
+		{cell: "`ingest.tenants`", want: "ingest.tenants", ok: true},
+		{cell: "ingest.tenants"},
+		{cell: "`a`, `b`"},
+		{cell: "``"},
+		{cell: "`a` and more"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.cell, func(t *testing.T) {
+			t.Parallel()
+			got, ok := spec.Backticked(tt.cell)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("Backticked(%q) = %q, %v, want %q, %v", tt.cell, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}

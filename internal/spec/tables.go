@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -26,6 +27,43 @@ type Table struct {
 func (t Table) RowLine(i int) int {
 	// A table's rows are consecutive lines, below its header and delimiter.
 	return t.Line + 2 + i
+}
+
+// Record is a row of a table, its cells by the header's names, with the line
+// it is on.
+type Record struct {
+	Line  int
+	Cells map[string]string
+}
+
+// Records returns the rows of t as Records. A row with more or fewer cells
+// than the header is an error, naming its line. A shape file's reader uses
+// it to read each row by column.
+func (t Table) Records() ([]Record, error) {
+	records := make([]Record, 0, len(t.Rows))
+	for i, cells := range t.Rows {
+		r := Record{Line: t.RowLine(i), Cells: make(map[string]string, len(t.Header))}
+		if len(cells) != len(t.Header) {
+			return nil, fmt.Errorf("line %d: %d cells, want %d", r.Line, len(cells), len(t.Header))
+		}
+		for j, h := range t.Header {
+			r.Cells[h] = cells[j]
+		}
+		records = append(records, r)
+	}
+	return records, nil
+}
+
+var backtickedRE = regexp.MustCompile("^`([^`]+)`$")
+
+// Backticked returns what cell holds in backticks when that is the whole
+// cell, a single name such as `ingest.tenants`, and whether it is.
+func Backticked(cell string) (string, bool) {
+	m := backtickedRE.FindStringSubmatch(cell)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
 }
 
 // Column returns the index of the header cell named name, or -1. Tests use

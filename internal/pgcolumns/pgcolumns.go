@@ -7,7 +7,6 @@ package pgcolumns
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -68,8 +67,6 @@ var nulls = map[string]bool{"allowed": true, "never": false}
 
 var setBys = []SetBy{SetByScenario, SetByDatabase, SetByHerald}
 
-var backtickedRE = regexp.MustCompile("^`([^`]+)`$")
-
 // load parses the list once.
 var load = sync.OnceValues(func() ([]Column, error) {
 	tables, err := internalspec.FileTables(spec.Files, file)
@@ -96,34 +93,32 @@ func parse(tables []internalspec.Table) ([]Column, error) {
 		return nil, fmt.Errorf("no table under %q", "## "+section)
 	}
 	t := tables[i]
-	columns := map[string]int{}
 	for _, name := range []string{"Table", "Column", "Type", "Null", "Set by", "Why"} {
-		if columns[name] = t.Column(name); columns[name] < 0 {
+		if t.Column(name) < 0 {
 			return nil, fmt.Errorf("line %d: no %q column", t.Line, name)
 		}
 	}
+	records, err := t.Records()
+	if err != nil {
+		return nil, err
+	}
 	var list []Column
 	seen := map[string]bool{}
-	for r, cells := range t.Rows {
+	for _, r := range records {
 		errorf := func(format string, args ...any) error {
-			return fmt.Errorf("line %d: %s", t.RowLine(r), fmt.Sprintf(format, args...))
+			return fmt.Errorf("line %d: %s", r.Line, fmt.Sprintf(format, args...))
 		}
-		if len(cells) != len(t.Header) {
-			return nil, errorf("%d cells, want %d", len(cells), len(t.Header))
+		cell := func(name string) string { return r.Cells[name] }
+		table, ok := internalspec.Backticked(cell("Table"))
+		if !ok {
+			return nil, errorf("Table %q is not one name in backticks", cell("Table"))
 		}
-		cell := func(name string) string { return cells[columns[name]] }
-		var c Column
-		for _, f := range []struct {
-			column string
-			to     *string
-		}{{"Table", &c.Table}, {"Column", &c.Name}} {
-			m := backtickedRE.FindStringSubmatch(cell(f.column))
-			if m == nil {
-				return nil, errorf("%s %q is not one name in backticks", f.column, cell(f.column))
-			}
-			*f.to = m[1]
+		column, ok := internalspec.Backticked(cell("Column"))
+		if !ok {
+			return nil, errorf("Column %q is not one name in backticks", cell("Column"))
 		}
-		name := c.Table + "." + c.Name
+		c := Column{Table: table, Name: column}
+		name := c.fullName()
 		if seen[name] {
 			return nil, errorf("%s listed twice", name)
 		}
@@ -186,15 +181,14 @@ func Read(ctx context.Context, db pgcolumnsdb.DBTX, schemas []string) ([]Stored,
 func Check(list []Column, stored []Stored) []error {
 	byName := map[string]Stored{}
 	for _, s := range stored {
-		byName[s.Table+"."+s.Name] = s
+		byName[s.fullName()] = s
 	}
-	listed := map[string]bool{}
+	listed := listedNames(list)
 	// written holds the tables the scenario writes rows of.
 	written := map[string]bool{}
 	var problems []error
 	for _, c := range list {
-		name := c.Table + "." + c.Name
-		listed[name] = true
+		name := c.fullName()
 		if c.SetBy == SetByScenario {
 			written[c.Table] = true
 		}
@@ -214,10 +208,37 @@ func Check(list []Column, stored []Stored) []error {
 		}
 	}
 	for _, s := range stored {
-		name := s.Table + "." + s.Name
-		if written[s.Table] && !listed[name] && !s.Nullable && !s.HasDefault {
-			problems = append(problems, fmt.Errorf("%s is NOT NULL with no default, so the scenario can't write a row of %s", name, s.Table))
+		if written[s.Table] && !listed[s.fullName()] && !s.Nullable && !s.HasDefault {
+			problems = append(problems, fmt.Errorf("%s is NOT NULL with no default, so the scenario can't write a row of %s", s.fullName(), s.Table))
 		}
 	}
 	return problems
 }
+
+// Unlisted returns the columns stored that the list doesn't name, in the
+// order stored. Herald's database may have them; the harness's schema may
+// not, so that it reads only what the list names.
+func Unlisted(list []Column, stored []Stored) []Stored {
+	listed := listedNames(list)
+	var out []Stored
+	for _, s := range stored {
+		if !listed[s.fullName()] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func listedNames(list []Column) map[string]bool {
+	listed := make(map[string]bool, len(list))
+	for _, c := range list {
+		listed[c.fullName()] = true
+	}
+	return listed
+}
+
+// fullName returns the column's name with its table's, such as
+// ingest.tenants.id.
+func (c Column) fullName() string { return c.Table + "." + c.Name }
+
+func (s Stored) fullName() string { return s.Table + "." + s.Name }

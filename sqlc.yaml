@@ -49,7 +49,7 @@ sql:
         out: internal/pgcolumns/pgcolumnsdb
         sql_package: pgx/v5
   - engine: postgresql
-    schema: internal/e2e/postgres/schema.sql
+    schema: internal/e2e/postgres/schema
     queries: internal/e2e/postgres/queries.sql
     gen:
       go:

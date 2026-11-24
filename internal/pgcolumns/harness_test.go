@@ -1,20 +1,22 @@
 package pgcolumns_test
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/madskrogh/herald/internal/migrate"
 	"github.com/madskrogh/herald/internal/pgcolumns"
 	"github.com/madskrogh/herald/internal/pgtest"
 )
 
-// harnessSchema is the schema the harness's queries are compiled against
+// harnessSchema holds the schema the harness's queries are compiled against
 // (internal/e2e/postgres). sqlc refuses a query that reads a column it
 // doesn't have, so the harness reads only the columns the list names as
 // long as this schema has no others.
-const harnessSchema = "../e2e/postgres/schema.sql"
+const harnessSchema = "../e2e/postgres/schema"
 
 // TestHarnessReadsOnlyTheList checks that the harness's schema has exactly
 // the list's columns, of their types: none it doesn't name, and every one
@@ -26,20 +28,18 @@ func TestHarnessReadsOnlyTheList(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	ddl, err := os.ReadFile(harnessSchema)
-	if err != nil {
-		t.Fatal(err)
+	dbURL := pgtest.NewDatabase(t)
+	// goose's version table goes in a schema of its own, which the check
+	// doesn't read.
+	schema := migrate.Schema{Name: "harness", Create: "CREATE SCHEMA IF NOT EXISTS harness"}
+	if err := migrate.Run(ctx, dbURL, schema, os.DirFS(harnessSchema), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatalf("create the harness's schema: %v", err)
 	}
-	pool, err := pgxpool.New(ctx, pgtest.NewDatabase(t))
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	// The schema file is fixed DDL, run as the migrations are; nothing in it
-	// comes from Go.
-	if _, err := pool.Exec(ctx, string(ddl)); err != nil {
-		t.Fatalf("create the harness's schema: %v", err)
-	}
 
 	list, err := pgcolumns.Load()
 	if err != nil {
@@ -55,13 +55,7 @@ func TestHarnessReadsOnlyTheList(t *testing.T) {
 	for _, p := range pgcolumns.Check(list, stored) {
 		t.Errorf("harness schema: %v", p)
 	}
-	listed := map[string]bool{}
-	for _, c := range list {
-		listed[c.Table+"."+c.Name] = true
-	}
-	for _, s := range stored {
-		if !listed[s.Table+"."+s.Name] {
-			t.Errorf("harness schema: %s.%s is not in the list", s.Table, s.Name)
-		}
+	for _, s := range pgcolumns.Unlisted(list, stored) {
+		t.Errorf("harness schema: %s.%s is not in the list", s.Table, s.Name)
 	}
 }

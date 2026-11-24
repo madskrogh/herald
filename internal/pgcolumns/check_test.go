@@ -95,6 +95,17 @@ func TestCheck(t *testing.T) {
 			},
 		},
 	}
+	t.Run("Unlisted names the columns the list doesn't", func(t *testing.T) {
+		t.Parallel()
+		var got []string
+		for _, s := range pgcolumns.Unlisted(list, matching()) {
+			got = append(got, s.Table+"."+s.Name)
+		}
+		want := []string{"ingest.tenants.created_at", "ingest.messages.payload"}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("Unlisted (-want +got):\n%s", diff)
+		}
+	})
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
