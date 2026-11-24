@@ -81,9 +81,9 @@ type DeliveryRecord struct {
 	Endpoint  string    `json:"endpoint"`
 	Behaviour Behaviour `json:"behaviour"`
 	// Fault is the fault in effect while the Message was sent.
-	Fault    Fault           `json:"fault,omitempty"`
-	State    e2e.DeliveryState  `json:"state"`
-	Attempts []AttemptRecord `json:"attempts"`
+	Fault    Fault             `json:"fault,omitempty"`
+	State    e2e.DeliveryState `json:"state"`
+	Attempts []AttemptRecord   `json:"attempts"`
 }
 
 // AttemptRecord is one Attempt an Endpoint received.
