@@ -7,11 +7,15 @@ import (
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
-// TestTrafficCoversEverything holds the committed traffic file, which a
-// person edits, to the rules the generator's traffic meets.
+// TestTrafficCoversEverything holds the traffic file the baseline names,
+// which a person edits, to the rules the generator's traffic meets.
 func TestTrafficCoversEverything(t *testing.T) {
 	t.Parallel()
-	s, _, err := scenario.ReadTraffic(filepath.Dir(baselineFile), trafficFile)
+	baseline, err := readBaseline()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _, err := scenario.ReadTraffic(filepath.Dir(baselineFile), baseline.Traffic.File)
 	if err != nil {
 		t.Fatal(err)
 	}

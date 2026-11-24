@@ -59,7 +59,7 @@ func TestScenario(t *testing.T) {
 
 	baseline, err := readBaseline()
 	switch {
-	case errors.Is(err, fs.ErrNotExist) && *update:
+	case (errors.Is(err, fs.ErrNotExist) || errors.Is(err, errNoTrafficFile)) && *update:
 		baseline.Traffic.File = trafficFile
 	case err != nil:
 		t.Fatal(err)
@@ -130,5 +130,12 @@ func readBaseline() (scenario.Recording, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return r, fmt.Errorf("%s: %w", baselineFile, err)
 	}
+	if r.Traffic.File == "" {
+		return r, fmt.Errorf("%s: %w", baselineFile, errNoTrafficFile)
+	}
 	return r, nil
 }
+
+// errNoTrafficFile is a baseline naming no traffic file, such as one
+// recorded from a seed. Recording a new one replaces it.
+var errNoTrafficFile = errors.New("names no traffic file: record a new baseline with make scenario-record")

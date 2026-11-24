@@ -3,11 +3,15 @@ package scenario
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -15,19 +19,19 @@ import (
 // runs, written so a person can read and edit it. A payload isn't written
 // out byte by byte. The file names the Message the payload belongs to and
 // its length, and the payload is a JSON object naming that Message, padded
-// with x's to that length:
+// to that length with data made from its name (payloadData):
 //
 //	{"payload": {"message": "m012", "bytes": 40}}
-//	{"message":"m012","data":"xxxxxxxxxxxx"}
+//	{"message":"m012","data":"cbd70178c33d"}
 //
 // A Message that repeats another's request names the other's payload, and
 // sends it byte for byte.
 
 // ReadTraffic reads the traffic file named file in dir, and returns its
 // traffic and what names the file as read. It fails on a file that holds
-// anything but traffic: an unknown field, two Endpoints or Messages with one
-// name, a Message for an Application the file doesn't have, or a payload of
-// a Message it doesn't have, or shorter than its frame.
+// anything but traffic (an unknown field, or more after it), a payload
+// shorter than its frame, and traffic the scenario can't run as written
+// (Scenario.check).
 func ReadTraffic(dir, file string) (Scenario, TrafficFile, error) {
 	path := filepath.Join(dir, file)
 	data, err := os.ReadFile(path)
@@ -39,6 +43,9 @@ func ReadTraffic(dir, file string) (Scenario, TrafficFile, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&s); err != nil {
 		return Scenario{}, TrafficFile{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if dec.More() {
+		return Scenario{}, TrafficFile{}, fmt.Errorf("%s: more after the traffic", path)
 	}
 	if err := s.check(); err != nil {
 		return Scenario{}, TrafficFile{}, fmt.Errorf("%s: %w", path, err)
@@ -82,18 +89,33 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// check returns an error for a Message whose Application or payload names
-// something s doesn't have.
+// behaviours and faults are the values a traffic file may give them. The
+// scenario runs any other value as Succeed, or as no fault.
+var (
+	behaviours = []Behaviour{Succeed, Fail, Slow, TimeOut, Reset, Malformed, Oversized, Redirect, TLSError, Flap}
+	faults     = []Fault{"", DispatcherRestarted, NATSPaused, PostgresSlowed}
+)
+
+// check returns an error for traffic the scenario can't run as written: a
+// name used twice, an unknown behaviour or fault, a Message whose
+// Application or payload names something s doesn't have, or a held Endpoint
+// that can't hold an Attempt when the dispatcher restarts.
 func (s Scenario) check() error {
-	apps := map[string]bool{}
-	endpoints := map[string]bool{}
+	apps := map[string]Application{}
+	endpoints := map[string]Endpoint{}
 	for _, app := range s.Applications {
-		apps[app.Name] = true
+		if _, ok := apps[app.Name]; ok {
+			return fmt.Errorf("two Applications named %s", app.Name)
+		}
+		apps[app.Name] = app
 		for _, ep := range app.Endpoints {
-			if endpoints[ep.Name] {
+			if _, ok := endpoints[ep.Name]; ok {
 				return fmt.Errorf("two Endpoints named %s", ep.Name)
 			}
-			endpoints[ep.Name] = true
+			if !slices.Contains(behaviours, ep.Behaviour) {
+				return fmt.Errorf("Endpoint %s: unknown behaviour %q", ep.Name, ep.Behaviour)
+			}
+			endpoints[ep.Name] = ep
 		}
 	}
 	messages := map[string]bool{}
@@ -105,17 +127,54 @@ func (s Scenario) check() error {
 			messages[m.Name] = true
 		}
 	}
-	for _, phase := range s.Phases {
+	for i, phase := range s.Phases {
+		if !slices.Contains(faults, phase.Fault) {
+			return fmt.Errorf("phase %d: unknown fault %q", i+1, phase.Fault)
+		}
 		for _, m := range phase.Messages {
-			if !apps[m.Application] {
+			if _, ok := apps[m.Application]; !ok {
 				return fmt.Errorf("message %s: no Application %q", m.Name, m.Application)
 			}
 			if owner := payloadMessage(m.Payload); !messages[owner] {
 				return fmt.Errorf("message %s: payload of no Message %q", m.Name, owner)
 			}
 		}
+		if err := phase.checkHeld(apps, endpoints); err != nil {
+			return fmt.Errorf("phase %d: %w", i+1, err)
+		}
 	}
 	return nil
+}
+
+// checkHeld returns an error unless the phase holds an Endpoint exactly
+// when its fault is DispatcherRestarted, and that Endpoint leaves its first
+// Attempt unanswered and gets a Delivery of one of the phase's Messages.
+// Otherwise the restart cuts no Attempt off, or the run waits for an
+// Attempt that never comes.
+func (p Phase) checkHeld(apps map[string]Application, endpoints map[string]Endpoint) error {
+	switch {
+	case p.Fault != DispatcherRestarted && p.HeldEndpoint != "":
+		return fmt.Errorf("held Endpoint with fault %q", p.Fault)
+	case p.Fault != DispatcherRestarted:
+		return nil
+	case p.HeldEndpoint == "":
+		return errors.New("dispatcher restarted with no held Endpoint")
+	}
+	ep, ok := endpoints[p.HeldEndpoint]
+	switch {
+	case !ok:
+		return fmt.Errorf("no Endpoint %q to hold", p.HeldEndpoint)
+	case ep.Behaviour != TimeOut:
+		return fmt.Errorf("held Endpoint %s behaves as %q, not %q", ep.Name, ep.Behaviour, TimeOut)
+	}
+	for _, m := range p.Messages {
+		if slices.ContainsFunc(apps[m.Application].Endpoints, func(e Endpoint) bool {
+			return e.Name == ep.Name && matches(e.Filter, m.EventType)
+		}) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no Message reaches held Endpoint %s", ep.Name)
 }
 
 // trafficPayload is how the traffic file writes a payload.
@@ -161,7 +220,22 @@ func payload(owner string, n int) (string, error) {
 	if n < frame {
 		return "", fmt.Errorf("payload of %d bytes, shorter than the %d of its frame", n, frame)
 	}
-	return start + strings.Repeat("x", n-frame) + end, nil
+	return start + payloadData(owner, n-frame) + end, nil
+}
+
+// payloadData returns n bytes of a payload's data for the Message named
+// owner: the SHA-256 of "<owner> 0" in hex, then of "<owner> 1", and so on,
+// cut to n. Any language can make it, and it differs from one Message to the
+// next and along each payload, so a body that mixes up two payloads, or
+// parts of one, doesn't pass for either.
+func payloadData(owner string, n int) string {
+	var b strings.Builder
+	b.Grow(n + sha256.Size*2)
+	for i := 0; b.Len() < n; i++ {
+		sum := sha256.Sum256([]byte(owner + " " + strconv.Itoa(i)))
+		b.WriteString(hex.EncodeToString(sum[:]))
+	}
+	return b.String()[:n]
 }
 
 // payloadMessage returns the name of the Message that payload p belongs to,

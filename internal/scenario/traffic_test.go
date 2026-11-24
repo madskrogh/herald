@@ -38,7 +38,7 @@ func TestReadTraffic(t *testing.T) {
       {"name": "m002", "application": "app-1", "event_type": "refund.created", "payload": {"message": "m001", "bytes": 32}, "idempotency_key": "key-m001"}
     ]},
     {"fault": "dispatcher restarted", "held_endpoint": "app-2/ep-1", "messages": [
-      {"name": "m003", "application": "app-2", "event_type": "invoice.paid", "payload": {"message": "m003", "bytes": 28}}
+      {"name": "m003", "application": "app-2", "event_type": "invoice.paid", "payload": {"message": "m003", "bytes": 94}}
     ]}
   ]
 }`)
@@ -57,13 +57,14 @@ func TestReadTraffic(t *testing.T) {
 		},
 		Phases: []scenario.Phase{
 			{Messages: []scenario.Message{
-				// 32 bytes: the 28 of the payload's frame, and 4 of data.
-				{Name: "m001", Application: "app-1", EventType: "refund.created", Payload: `{"message":"m001","data":"xxxx"}`, IdempotencyKey: "key-m001"},
+				// 32 bytes: the 28 of the payload's frame, and 4 of data, the start of
+				// the SHA-256 of "m001 0" in hex (shasum -a 256).
+				{Name: "m001", Application: "app-1", EventType: "refund.created", Payload: `{"message":"m001","data":"e993"}`, IdempotencyKey: "key-m001"},
 				// The same request as m001, payload included.
-				{Name: "m002", Application: "app-1", EventType: "refund.created", Payload: `{"message":"m001","data":"xxxx"}`, IdempotencyKey: "key-m001"},
+				{Name: "m002", Application: "app-1", EventType: "refund.created", Payload: `{"message":"m001","data":"e993"}`, IdempotencyKey: "key-m001"},
 			}},
 			{Fault: scenario.DispatcherRestarted, HeldEndpoint: "app-2/ep-1", Messages: []scenario.Message{
-				{Name: "m003", Application: "app-2", EventType: "invoice.paid", Payload: `{"message":"m003","data":""}`},
+				{Name: "m003", Application: "app-2", EventType: "invoice.paid", Payload: `{"message":"m003","data":"` + /* SHA-256 of "m003 0", then of "m003 1" */ "6fd66034fb1bf245af0719b8681dea2be11e3d130b28c042b0ada819f8ac4493" + "93" + `"}`},
 			}},
 		},
 	}
@@ -94,6 +95,16 @@ func TestReadTrafficRefuses(t *testing.T) {
 		return `{"applications": [{"name": "app-1", "endpoints": [{"name": "app-1/ep-1", "behaviour": "succeed"}]}],
   "phases": [{"messages": [{"name": "m001", ` + fields + `}]}]}`
 	}
+	// phases returns a traffic file with the given Applications and phases,
+	// as JSON.
+	phases := func(apps, phases string) string {
+		return `{"applications": ` + apps + `, "phases": ` + phases + `}`
+	}
+	const (
+		oneEndpoint = `[{"name": "app-1", "endpoints": [{"name": "app-1/ep-1", "behaviour": "succeed"}]}]`
+		timesOut    = `[{"name": "app-1", "endpoints": [{"name": "app-1/ep-1", "behaviour": "time out"}]}]`
+		m001        = `{"name": "m001", "application": "app-1", "event_type": "invoice.paid", "payload": {"message": "m001", "bytes": 28}}`
+	)
 	tests := []struct {
 		name string
 		data string
@@ -142,6 +153,53 @@ func TestReadTrafficRefuses(t *testing.T) {
 			name: "payload shorter than its frame",
 			data: message(`"application": "app-1", "event_type": "invoice.paid", "payload": {"message": "m001", "bytes": 27}`),
 			want: "m001: payload of 27 bytes, shorter than the 28 of its frame",
+		},
+		{
+			name: "something after the traffic",
+			data: message(`"application": "app-1", "event_type": "invoice.paid", "payload": {"message": "m001", "bytes": 28}`) + `{"phases": []}`,
+			want: "more after the traffic",
+		},
+		{
+			name: "two Applications with one name",
+			data: phases(`[{"name": "app-1", "endpoints": [{"name": "app-1/ep-1", "behaviour": "succeed"}]},
+    {"name": "app-1", "endpoints": [{"name": "app-1/ep-2", "behaviour": "succeed"}]}]`, `[{"messages": [`+m001+`]}]`),
+			want: "two Applications named app-1",
+		},
+		{
+			name: "unknown behaviour",
+			data: phases(`[{"name": "app-1", "endpoints": [{"name": "app-1/ep-1", "behaviour": "timeout"}]}]`, `[{"messages": [`+m001+`]}]`),
+			want: `Endpoint app-1/ep-1: unknown behaviour "timeout"`,
+		},
+		{
+			name: "unknown fault",
+			data: phases(oneEndpoint, `[{"fault": "nats pause", "messages": [`+m001+`]}]`),
+			want: `phase 1: unknown fault "nats pause"`,
+		},
+		{
+			name: "dispatcher restarted, holding no Endpoint",
+			data: phases(timesOut, `[{"fault": "dispatcher restarted", "messages": [`+m001+`]}]`),
+			want: "phase 1: dispatcher restarted with no held Endpoint",
+		},
+		{
+			name: "held Endpoint unknown",
+			data: phases(timesOut, `[{"fault": "dispatcher restarted", "held_endpoint": "app-1/ep-9", "messages": [`+m001+`]}]`),
+			want: `phase 1: no Endpoint "app-1/ep-9" to hold`,
+		},
+		{
+			name: "held Endpoint answers at once",
+			data: phases(oneEndpoint, `[{"fault": "dispatcher restarted", "held_endpoint": "app-1/ep-1", "messages": [`+m001+`]}]`),
+			want: `phase 1: held Endpoint app-1/ep-1 behaves as "succeed", not "time out"`,
+		},
+		{
+			name: "held Endpoint gets no Delivery",
+			data: phases(`[{"name": "app-1", "endpoints": [{"name": "app-1/ep-1", "filter": ["refund.*"], "behaviour": "time out"}]}]`,
+				`[{"fault": "dispatcher restarted", "held_endpoint": "app-1/ep-1", "messages": [`+m001+`]}]`),
+			want: "phase 1: no Message reaches held Endpoint app-1/ep-1",
+		},
+		{
+			name: "held Endpoint without the fault",
+			data: phases(timesOut, `[{"fault": "nats paused", "held_endpoint": "app-1/ep-1", "messages": [`+m001+`]}]`),
+			want: `phase 1: held Endpoint with fault "nats paused"`,
 		},
 	}
 	for _, tt := range tests {
