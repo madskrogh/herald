@@ -49,6 +49,6 @@ The scenario scaled up, with several replicas of each service, on demand. They s
 ## Consequences
 
 - Kind, in [ADR 0007](0007-code-regenerated-from-the-spec.md)'s terms: architecture. Regenerated checks keep these kinds of tests, the two witnesses, and what each is compared with. The tools, how faults are injected, and how the recording is normalised are their own choice. The invariants' rules, and the margins and limits they hold Herald to, belong in the spec.
-- Every PR is to run the end-to-end tests, the comparison and the invariants, which adds the full stack and two scenario runs (the candidate, and `main` for timing) to its CI time. The telemetry statistics, the `main` run and running all of it on every PR come with #81.
+- Every PR is to run the end-to-end tests, the comparison and the invariants, which adds the full stack and two scenario runs (the candidate, and `main` for timing) to its CI time. The telemetry statistics, the `main` run and running all of it on every PR came with #81 (`docs/testing.md`).
 - A run needs the stack to itself: its faults restart and pause services that any other test on the same stack would be using.
 - A reviewer reads a baseline diff as a behaviour change to approve, not as noise.
