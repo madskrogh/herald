@@ -120,12 +120,14 @@ type AttemptRecord struct {
 // that stopped working shows up in the comparison rather than passing
 // unnoticed (decided on #112).
 //
-// With Postgres at fault-postgres-cpu, the first Attempts of the Messages
-// sent to it came 2.2 to 7.5 s late across five runs, the slowest run's
-// first Attempts a few times later than the fastest's, so 3 s let a run with
-// all of them under it fail the comparison (#157). Without a fault they come
-// well within a second. 1.5 s is beyond that and under the least the fault
-// held a Delivery back in any of the runs.
+// With Postgres at fault-postgres-cpu, how late the first Attempts of the
+// phase's three Messages come varies from run to run. In five runs the
+// latest of them came 3.9 to 7.5 s late, and the earliest 2.2 s. A phase is
+// late when any one of them is, and a run with all three under 3 s failed
+// the comparison (#157). In the dispatcher restart, which isn't recorded as
+// late, the first Attempts came at most 0.7 s late in three runs. 1.5 s is
+// above that and below what Postgres at that share held back in the five
+// runs. A paused NATS holds Messages for natsPause, which is longer.
 const lateAfter = 1500 * time.Millisecond
 
 // NewRecording normalises obs, observed running the traffic in traffic. It
