@@ -2,7 +2,6 @@ package scenario_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -67,14 +66,7 @@ func TestScenario(t *testing.T) {
 	}
 	// The baseline's traffic file, as it is now: if it changed since the
 	// baseline was recorded, the comparison says so.
-	traffic := baseline.Traffic
-	path := filepath.Join(filepath.Dir(baselineFile), traffic.File)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	traffic.SHA256 = fmt.Sprintf("%x", sha256.Sum256(data))
-	s, err := scenario.ReadTraffic(path)
+	s, traffic, err := scenario.ReadTraffic(filepath.Dir(baselineFile), baseline.Traffic.File)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,11 +87,10 @@ func TestScenario(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	got, err := scenario.NewRecording(obs)
+	got, err := scenario.NewRecording(traffic, obs)
 	if err != nil {
 		t.Fatalf("NewRecording: %v", err)
 	}
-	got.Traffic = traffic
 	// Checked once the run is compared or recorded, whichever this is.
 	defer func() {
 		violations, err := scenario.CheckInvariants(ctx, stack, obs, idle)
@@ -122,7 +113,7 @@ func TestScenario(t *testing.T) {
 		if err := os.WriteFile(baselineFile, append(data, '\n'), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("recorded %s from %s", baselineFile, path)
+		t.Logf("recorded %s from %s", baselineFile, traffic.File)
 		return
 	}
 	for _, d := range scenario.Compare(baseline, got) {

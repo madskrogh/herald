@@ -2,8 +2,7 @@ package scenario_test
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -26,18 +25,11 @@ func TestGenerateIsRepeatable(t *testing.T) {
 func TestGenerateWritesTraffic(t *testing.T) {
 	t.Parallel()
 	want := scenario.Generate(7)
-	path := filepath.Join(t.TempDir(), "traffic.json")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := scenario.WriteTraffic(f, want); err != nil {
+	var data strings.Builder
+	if err := scenario.WriteTraffic(&data, want); err != nil {
 		t.Fatalf("WriteTraffic: %v", err)
 	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-	got, err := scenario.ReadTraffic(path)
+	got, _, err := scenario.ReadTraffic(writeTraffic(t, data.String()), "traffic.json")
 	if err != nil {
 		t.Fatalf("ReadTraffic: %v", err)
 	}

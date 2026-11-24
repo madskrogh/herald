@@ -94,7 +94,8 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	run.Attempts[5].SignatureErr = errors.New("no matching signature")
 	run.Attempts[6].SignatureErr = errors.New("no matching signature")
 
-	got, err := scenario.NewRecording(run)
+	traffic := scenario.TrafficFile{File: "traffic.json", SHA256: "a1a1"}
+	got, err := scenario.NewRecording(traffic, run)
 	if err != nil {
 		t.Fatalf("NewRecording: %v", err)
 	}
@@ -110,7 +111,8 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	}
 	ms := func(n int64) *int64 { return &n }
 	want := scenario.Recording{
-		Faults: []scenario.FaultRecord{{Fault: scenario.NATSPaused, Late: true}},
+		Traffic: scenario.TrafficFile{File: "traffic.json", SHA256: "a1a1"},
+		Faults:  []scenario.FaultRecord{{Fault: scenario.NATSPaused, Late: true}},
 		Messages: []scenario.MessageRecord{
 			{Name: "m001", Outcome: "accepted"},
 			{Name: "m002", Outcome: "same as m001"},

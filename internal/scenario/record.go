@@ -57,14 +57,6 @@ type Recording struct {
 	Deliveries []DeliveryRecord `json:"deliveries"`
 }
 
-// TrafficFile names a traffic file, as it was when a run read it.
-type TrafficFile struct {
-	// File is its path, from the baseline's directory.
-	File string `json:"file"`
-	// SHA256 is the SHA-256 of its contents, in hex.
-	SHA256 string `json:"sha256"`
-}
-
 // FaultRecord is how a fault held back the Messages sent under it.
 type FaultRecord struct {
 	Fault Fault `json:"fault"`
@@ -127,10 +119,11 @@ type AttemptRecord struct {
 // unnoticed (decided on #112).
 const lateAfter = 3 * time.Second
 
-// NewRecording normalises obs. It fails on an Attempt it can't place: one
-// whose webhook-id is no Message's ID, or that has no Delivery.
-func NewRecording(obs Observations) (Recording, error) {
-	rec := Recording{}
+// NewRecording normalises obs, observed running the traffic in traffic. It
+// fails on an Attempt it can't place: one whose webhook-id is no Message's
+// ID, or that has no Delivery.
+func NewRecording(traffic TrafficFile, obs Observations) (Recording, error) {
+	rec := Recording{Traffic: traffic}
 	messages := map[string]Message{}
 	faults := map[string]Fault{}
 	sentAt := map[string]time.Time{}

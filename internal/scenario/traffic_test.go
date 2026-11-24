@@ -11,19 +11,20 @@ import (
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
-// writeTraffic writes a traffic file holding data, and returns its path.
+// writeTraffic writes traffic.json holding data, and returns its directory.
 func writeTraffic(t *testing.T, data string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "traffic.json")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "traffic.json")
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return dir
 }
 
 func TestReadTraffic(t *testing.T) {
 	t.Parallel()
-	path := writeTraffic(t, `{
+	dir := writeTraffic(t, `{
   "applications": [
     {"name": "app-1", "endpoints": [
       {"name": "app-1/ep-1", "behaviour": "succeed"},
@@ -42,7 +43,7 @@ func TestReadTraffic(t *testing.T) {
   ]
 }`)
 
-	got, err := scenario.ReadTraffic(path)
+	got, _, err := scenario.ReadTraffic(dir, "traffic.json")
 	if err != nil {
 		t.Fatalf("ReadTraffic: %v", err)
 	}
@@ -66,6 +67,20 @@ func TestReadTraffic(t *testing.T) {
 			}},
 		},
 	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ReadTraffic (-want +got):\n%s", diff)
+	}
+}
+
+func TestReadTrafficNamesTheFile(t *testing.T) {
+	t.Parallel()
+	dir := writeTraffic(t, `{"applications": [], "phases": []}`+"\n")
+	_, got, err := scenario.ReadTraffic(dir, "traffic.json")
+	if err != nil {
+		t.Fatalf("ReadTraffic: %v", err)
+	}
+	// The SHA-256 of the file's bytes, from shasum -a 256.
+	want := scenario.TrafficFile{File: "traffic.json", SHA256: "377f9e987675baf53462520eac8be6066658394ca9a20f4b6904855769cb26c5"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("ReadTraffic (-want +got):\n%s", diff)
 	}
@@ -132,7 +147,7 @@ func TestReadTrafficRefuses(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := scenario.ReadTraffic(writeTraffic(t, tt.data))
+			_, _, err := scenario.ReadTraffic(writeTraffic(t, tt.data), "traffic.json")
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("ReadTraffic = %v, want an error containing %q", err, tt.want)
 			}

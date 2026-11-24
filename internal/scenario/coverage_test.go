@@ -1,6 +1,7 @@
 package scenario_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/madskrogh/herald/internal/scenario"
@@ -10,7 +11,7 @@ import (
 // person edits, to the rules the generator's traffic meets.
 func TestTrafficCoversEverything(t *testing.T) {
 	t.Parallel()
-	s, err := scenario.ReadTraffic("testdata/traffic.json")
+	s, _, err := scenario.ReadTraffic(filepath.Dir(baselineFile), trafficFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,9 +32,9 @@ func checkCoverage(t *testing.T, s scenario.Scenario) {
 	}
 	wantFaults := []scenario.Fault{scenario.DispatcherRestarted, scenario.NATSPaused, scenario.PostgresSlowed}
 	// Endpoints whose Deliveries take more than one Attempt, or whose
-	// Attempts take seconds. With more Deliveries in a phase than the 4
-	// Attempts an Endpoint may have in flight, one Delivery's Attempts would
-	// wait for another's, and their timing would vary from run to run.
+	// Attempts take seconds. With more Deliveries in a phase than the
+	// Attempts an Endpoint may have in flight (R-19), one Delivery's Attempts
+	// would wait for another's, and their timing would vary from run to run.
 	bounded := map[scenario.Behaviour]bool{
 		scenario.Fail: true, scenario.Reset: true, scenario.Malformed: true, scenario.Flap: true,
 		scenario.Slow: true, scenario.TimeOut: true, scenario.Redirect: true, scenario.TLSError: true,
@@ -84,7 +85,7 @@ func checkCoverage(t *testing.T, s scenario.Scenario) {
 		}
 		for name, n := range inPhase {
 			ep := endpoints[name]
-			if bounded[ep.Behaviour] && n > 4 {
+			if bounded[ep.Behaviour] && n > scenario.MaxInFlight {
 				t.Errorf("Endpoint %s (%s) gets %d Deliveries in phase %d, more than it may have in flight", name, ep.Behaviour, n, i+1)
 			}
 			if phase.Fault == scenario.PostgresSlowed && !sameEveryTime[ep.Behaviour] {

@@ -2,10 +2,12 @@ package scenario
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -21,25 +23,35 @@ import (
 // A Message that repeats another's request names the other's payload, and
 // sends it byte for byte.
 
-// ReadTraffic reads the traffic file at path. It fails on a file that holds
-// anything but traffic: an unknown field, a Message for an Application the
-// file doesn't have, or a payload of a Message it doesn't have, or shorter
-// than its frame.
-func ReadTraffic(path string) (Scenario, error) {
+// ReadTraffic reads the traffic file named file in dir, and returns its
+// traffic and what names the file as read. It fails on a file that holds
+// anything but traffic: an unknown field, two Endpoints or Messages with one
+// name, a Message for an Application the file doesn't have, or a payload of
+// a Message it doesn't have, or shorter than its frame.
+func ReadTraffic(dir, file string) (Scenario, TrafficFile, error) {
+	path := filepath.Join(dir, file)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Scenario{}, err
+		return Scenario{}, TrafficFile{}, err
 	}
 	var s Scenario
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&s); err != nil {
-		return Scenario{}, fmt.Errorf("%s: %w", path, err)
+		return Scenario{}, TrafficFile{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := s.check(); err != nil {
-		return Scenario{}, fmt.Errorf("%s: %w", path, err)
+		return Scenario{}, TrafficFile{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return s, nil
+	return s, TrafficFile{File: file, SHA256: fmt.Sprintf("%x", sha256.Sum256(data))}, nil
+}
+
+// TrafficFile names a traffic file, as it was when a run read it.
+type TrafficFile struct {
+	// File is its name, in the baseline's directory.
+	File string `json:"file"`
+	// SHA256 is the SHA-256 of its contents, in hex.
+	SHA256 string `json:"sha256"`
 }
 
 // WriteTraffic writes s to w as a traffic file.
@@ -55,13 +67,17 @@ func WriteTraffic(w io.Writer, s Scenario) error {
 
 // MarshalJSON writes m as the traffic file writes it.
 func (m Message) MarshalJSON() ([]byte, error) {
-	of := payloadMessage(m.Payload)
-	if p, err := payload(of, len(m.Payload)); err != nil || p != m.Payload {
+	owner := payloadMessage(m.Payload)
+	p, err := payload(owner, len(m.Payload))
+	if err != nil {
+		return nil, fmt.Errorf("message %s: %w", m.Name, err)
+	}
+	if p != m.Payload {
 		return nil, fmt.Errorf("message %s: payload isn't one a traffic file can hold", m.Name)
 	}
 	return json.Marshal(trafficMessage{
 		Name: m.Name, Application: m.Application, EventType: m.EventType,
-		Payload:        trafficPayload{Message: of, Bytes: len(m.Payload)},
+		Payload:        trafficPayload{Message: owner, Bytes: len(m.Payload)},
 		IdempotencyKey: m.IdempotencyKey,
 	})
 }
@@ -92,10 +108,10 @@ func (s Scenario) check() error {
 	for _, phase := range s.Phases {
 		for _, m := range phase.Messages {
 			if !apps[m.Application] {
-				return fmt.Errorf("%s: no Application %q", m.Name, m.Application)
+				return fmt.Errorf("message %s: no Application %q", m.Name, m.Application)
 			}
-			if of := payloadMessage(m.Payload); !messages[of] {
-				return fmt.Errorf("%s: payload of no Message %q", m.Name, of)
+			if owner := payloadMessage(m.Payload); !messages[owner] {
+				return fmt.Errorf("message %s: payload of no Message %q", m.Name, owner)
 			}
 		}
 	}
@@ -123,19 +139,19 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&tm); err != nil {
-		return fmt.Errorf("message %s: %w", tm.Name, err)
+		return fmt.Errorf("message: %w", err)
 	}
 	p, err := payload(tm.Payload.Message, tm.Payload.Bytes)
 	if err != nil {
-		return fmt.Errorf("%s: %w", tm.Name, err)
+		return fmt.Errorf("message %s: %w", tm.Name, err)
 	}
 	*m = Message{Name: tm.Name, Application: tm.Application, EventType: tm.EventType, Payload: p, IdempotencyKey: tm.IdempotencyKey}
 	return nil
 }
 
-// payload returns the payload of the Message named of, n bytes long.
-func payload(of string, n int) (string, error) {
-	name, err := json.Marshal(of)
+// payload returns the payload of the Message named owner, n bytes long.
+func payload(owner string, n int) (string, error) {
+	name, err := json.Marshal(owner)
 	if err != nil {
 		return "", err
 	}
