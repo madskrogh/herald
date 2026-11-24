@@ -27,7 +27,7 @@ Why: Herald keeps no cache, so anything a service still holds once the traffic h
 
 ### R-86 · planned
 
-While the scenario runs, and at any other time, a service process MUST NOT hold more than `max-db-connections` connections to Postgres at once, measured as Postgres counts the connections from that process's address.
+While the scenario runs, and at any other time, a service process MUST NOT hold more than `max-db-connections` connections to Postgres at once, counted as the open connections from the process to Postgres.
 
 Why: every replica of both services draws on Postgres's one connection limit, so each needs a cap an operator can plan for. Nothing requires idle connections to close after the scenario: a leaked connection shows as the cap being reached (decided in #114).
 
@@ -39,7 +39,7 @@ Why: each Attempt in flight holds a connection to an Endpoint, so the cap bounds
 
 ### R-88 · planned
 
-herald-dispatcher MAY keep a connection to an Endpoint open between Attempts, but MUST NOT keep more of them open to one Endpoint than `max-in-flight-per-endpoint`, How long it keeps an idle one open MAY be any time.
+herald-dispatcher MAY keep a connection to an Endpoint open between Attempts, but one dispatcher MUST NOT keep more of them open to one Endpoint than `max-in-flight-per-endpoint`. How long it keeps an idle one open MAY be any time.
 
 Why: reusing a connection saves the Endpoint a TLS handshake per Attempt, and an Endpoint never has more Attempts in flight than that cap (R-19), so more idle connections would only hold its resources.
 

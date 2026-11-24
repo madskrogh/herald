@@ -64,7 +64,7 @@ Why: an outage of Postgres or NATS should end for Tenants soon after it ends for
 
 ### R-91 · planned
 
-When Postgres isn't slowed, every Tenant API call MUST return within `max-api-latency`, measured by the Tenant from sending the call to receiving the response. This holds with no fault, while NATS is unavailable, and while a dispatcher restarts.
+When Postgres is reachable and isn't slowed, every Tenant API call MUST return within `max-api-latency`, measured by the Tenant from sending the call to receiving the response. This holds with no fault, while NATS is unavailable, and while a dispatcher restarts. No requirement states how long a call takes while Postgres is unreachable.
 
 Why: a Tenant calls the Tenant API while handling its own users' requests, so a slow call slows the Tenant's product. Accepting a Message needs only Postgres ([ADR 0002](../docs/adr/0002-two-services-outbox-nats-handoff.md)), so NATS and the dispatchers can't slow it (decided in #114).
 

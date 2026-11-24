@@ -22,7 +22,7 @@ Each service reads its settings from the environment, and nothing else. The sett
 
 ### R-93 · planned
 
-When a setting a service requires isn't set, the service MUST NOT start, and MUST exit with a non-zero status and an error, on standard error, that names the setting. `HERALD_DATABASE_URL`, `HERALD_KEYRING` and `HERALD_NATS_URL` are required to run herald-api or herald-dispatcher, and only `HERALD_DATABASE_URL` to run their `migrate` command (R-98).
+When a setting a service requires isn't set, the service MUST NOT start, and MUST exit with a non-zero status and an error, on standard error, that names the setting. `HERALD_DATABASE_URL`, `HERALD_KEYRING` and `HERALD_NATS_URL` are required to run herald-api or herald-dispatcher, and only `HERALD_DATABASE_URL` to run their `migrate` command (R-98). A setting set to a value its own requirement doesn't allow stops the service in the same way: R-54, R-69, R-77 and R-95.
 
 Why: a service started without its database, keys or NATS can't do its work, and naming the missing setting is the quickest way to the fix. The `migrate` command touches only the database, so a deploy can run it before the services' other settings exist.
 
@@ -62,7 +62,7 @@ Why: rotating the key without stopping Herald (R-46) then takes two deploys: fir
 
 ### R-97 · planned
 
-When `HERALD_ALLOW_INSECURE_ENDPOINTS` is true, each service MUST log a warning, as it starts, that insecure Endpoints are allowed for local development only.
+When `HERALD_ALLOW_INSECURE_ENDPOINTS` is true, as R-69 reads it, each service MUST log a warning, as it starts, that insecure Endpoints are allowed for local development only.
 
 Why: the setting lets Herald deliver over plain http to private addresses, including the network it runs in ([security.md](security.md)). As for R-78, the warning keeps it from reaching production unnoticed.
 
@@ -163,7 +163,7 @@ Why: a service that rides out an outage (R-101) must not hide it; the error line
 
 When a service receives `SIGTERM` or `SIGINT`, it MUST stop taking new work, let the work in progress finish, and exit within `max-shutdown`: with status 0 when all of it finished, and otherwise, having cut off what hadn't, with a non-zero status.
 
-Why: Docker and Kubernetes stop a container with `SIGTERM` and kill it `max-shutdown` later, so a service still finishing then is killed mid-shutdown. herald-api lets calls in progress finish, and leaves the Messages its relay hadn't handed off in the Outbox for the next relay; herald-dispatcher stores and replies to the Batches it received, and lets its Attempts in flight finish (R-99).
+Why: Docker and Kubernetes stop a container with `SIGTERM` and kill it 10 s later, so a service still finishing then is killed mid-shutdown. herald-api lets calls in progress finish, and leaves the Messages its relay hadn't handed off in the Outbox for the next relay; herald-dispatcher stores and replies to the Batches it received, and lets its Attempts in flight finish (R-99).
 
 ### R-99 · planned
 
