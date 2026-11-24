@@ -47,7 +47,9 @@ type Sent struct {
 }
 
 // Recording is a run's Observations normalised: what doesn't vary between
-// runs of the same build. It is what the baseline holds.
+// runs of the same build. It is what the baseline holds: the output of the
+// traffic file it names, recorded and never written by hand
+// (docs/testing.md, "The traffic file and the baseline").
 type Recording struct {
 	// Traffic is the traffic file the run ran.
 	Traffic TrafficFile `json:"traffic"`

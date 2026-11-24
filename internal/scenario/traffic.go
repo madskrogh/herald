@@ -16,7 +16,9 @@ import (
 )
 
 // The traffic file is the scenario's traffic as data: what the scenario
-// runs, written so a person can read and edit it. A payload isn't written
+// runs, the input whose output the baseline records (docs/testing.md, "The
+// traffic file and the baseline"). It is written by a person or captured
+// from real traffic, in a form a person can read. A payload isn't written
 // out byte by byte. The file names the Message the payload belongs to and
 // its length, and the payload is a JSON object naming that Message, padded
 // to that length with data made from its name (payloadData):

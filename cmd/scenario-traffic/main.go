@@ -1,7 +1,8 @@
 // Command scenario-traffic prints synthetic traffic, drawn from a seed, as a
-// traffic file. It is a utility for making test data: the scenario runs only
-// its committed traffic file, which a person edits by hand, and this
-// command never writes it. Run it with `make scenario-traffic SEED=<n>`.
+// traffic file: a draft to start from. The scenario runs only its committed
+// traffic file, which is written by a person or captured from real traffic,
+// and this command never writes it. Run it with
+// `make scenario-traffic SEED=<n>`.
 package main
 
 import (

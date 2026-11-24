@@ -149,9 +149,9 @@ scenario-compare: .env
 scenario-record: .env
 	@$(SCENARIO) -args -update
 
-# Prints synthetic traffic drawn from SEED, as a traffic file, for a person to
-# review. The scenario runs only the committed traffic file, which is edited
-# by hand; this never writes it.
+# Prints synthetic traffic drawn from SEED, as a traffic file: a draft to start
+# from. The scenario runs only the committed traffic file, which is written by
+# a person or captured from real traffic; this never writes it.
 # Usage: make scenario-traffic SEED=<n>
 scenario-traffic:
 	@test -n '$(SEED)' || { echo "scenario-traffic: set SEED"; exit 1; }

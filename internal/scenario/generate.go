@@ -64,9 +64,11 @@ const (
 //
 // It is a utility for making test data, and the scenario never calls it: the
 // scenario runs only the committed traffic file (ReadTraffic). Its output,
-// written with WriteTraffic, is a draft for a person to review. Changes to
-// the scenario's traffic are made by hand, in the committed file, so cases
-// added there for a bug aren't lost to a regenerated file (decided on #113).
+// written with WriteTraffic, is a draft for a person to start from. The
+// committed file is written by a person or captured from real traffic, and
+// changed in place, never regenerated, so cases added there for a bug aren't
+// lost (decided on #113; docs/testing.md, "The traffic file and the
+// baseline").
 func Generate(seed uint64) Scenario {
 	g := &generator{r: rand.New(rand.NewPCG(seed, 0))}
 	var s Scenario

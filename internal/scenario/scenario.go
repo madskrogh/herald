@@ -1,6 +1,8 @@
-// Package scenario runs the committed traffic against a Herald stack and records
-// what its Endpoints receive, so that a later build can be compared with a
-// committed baseline. The scenario stands in for production traffic, and the
+// Package scenario runs the committed traffic file against a Herald stack and
+// records what its Endpoints receive, so that a later build can be compared
+// with the committed baseline: the traffic file is the input, and the
+// baseline the output it names (docs/testing.md, "The traffic file and the
+// baseline"). The scenario stands in for production traffic, and the
 // recording is taken outside Herald, at the Endpoints, so a change to
 // Herald's instrumentation can't change it (ADR 0008).
 package scenario

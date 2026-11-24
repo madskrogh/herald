@@ -8,7 +8,8 @@ import (
 )
 
 // TestTrafficCoversEverything holds the traffic file the baseline names,
-// which a person edits, to the rules the generator's traffic meets.
+// however it was written or captured, to the rules the generator's traffic
+// meets.
 func TestTrafficCoversEverything(t *testing.T) {
 	t.Parallel()
 	baseline, err := readBaseline()

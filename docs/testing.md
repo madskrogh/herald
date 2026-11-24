@@ -37,11 +37,19 @@ Herald has six kinds of tests. They differ in what they run against and in what 
 
 ## Behaviour comparison
 
-- **Check:** what the scenario's fake Endpoints receive (the edge recording), and counts and timing from the spans. The scenario runs the committed traffic file, `internal/scenario/testdata/traffic.json`: Applications, Endpoints with their filters and how each answers, misbehaving as real ones do, and Messages sent in phases with faults in the stack. The traffic is edited by hand. A unit test holds the file to the rules the comparison depends on: every Endpoint behaviour and fault, repeated and conflicting Idempotency-Keys, and no more Deliveries to a slow or retrying Endpoint in a phase than keep its timing steady. `make scenario-traffic SEED=<n>` prints synthetic traffic, drawn from a seed, as a draft to copy from; nothing runs it. The baseline names the traffic file and its SHA-256, so a traffic change without a new baseline fails the comparison.
+- **Check:** what the scenario's fake Endpoints receive (the edge recording), and counts and timing from the spans, when the scenario runs the committed traffic file (below).
 - **Compare against:** a committed baseline for what doesn't depend on the machine, and a run of the `main` build on the same runner for timing. A recording keeps whatever the recorded build did, bugs included.
 - **Catch:** any change in behaviour, intended or not, for the inputs in the traffic file. An intended change shows up as a baseline diff the reviewer approves.
 - **Can't catch:** a bug the baseline already holds, or inputs the traffic file doesn't have. It says that behaviour changed, not that it is right.
 - **Run:** `make scenario-compare`; `make scenario-record` records a new baseline from the traffic file the baseline names. CI runs it on every PR once #81 lands.
+
+### The traffic file and the baseline
+
+The comparison rests on two committed files, an input and an output.
+
+- **The traffic file** (`internal/scenario/testdata/traffic.json`) is the input: what the scenario sends. Applications, Endpoints with their filters and how each answers, misbehaving as real ones do, and Messages sent in phases with faults in the stack. It says nothing about how Herald behaves. It may be written by a person, or captured from real traffic, such as production. `make scenario-traffic SEED=<n>` prints synthetic traffic, drawn from a seed, as a draft to start from; the scenario never runs it, and it never writes the committed file. A unit test holds whatever file is committed to the rules the comparison depends on: every Endpoint behaviour and fault, repeated and conflicting Idempotency-Keys, and no more Deliveries to a slow or retrying Endpoint in a phase than keep its timing steady.
+- **The baseline** (`internal/scenario/testdata/baseline.json`) is the output: what the Endpoints received when that traffic ran. What the Tenant API answered to each Message, and each Delivery's Attempts in order, with their headers, body, signature and rough timing, and how it ended. It is recorded, never written by hand: by `make scenario-record`, which runs the traffic against a build, or captured together with the traffic, from the same real traffic.
+- **How they are tied.** The baseline names its traffic file and that file's SHA-256 as they were when it was recorded. The comparison runs the traffic file the baseline names, and a traffic file changed since fails it with that difference first. So a change to the traffic comes with a new baseline in the same PR, and a baseline diff with no traffic change is a change in Herald's behaviour, for the reviewer to approve.
 
 ## Scenario invariants
 
