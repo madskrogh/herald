@@ -57,12 +57,12 @@ How far each timing statistic may be from what it is compared with, either way: 
 | Statistic | Margin | Reason |
 |---|---|---|
 | time since a Delivery's first Attempt | 25% + 1000 ms | The edge recording, against the committed baseline. The retry schedule's jitter moves each delay by up to 10% either way, in the baseline's run as well as this one, so the two can be 20% of the schedule apart, up to 22% of the baseline's time; the constant covers the delivery workers' polling and the machine. With the local stack's retry scale, a change to a retry delay of an hour or more fails the comparison, and shorter ones are lost in the margin (ADR 0008). |
-| handoff lag p50 | 50% + 50 ms | Against the base's run. TBD from CI runs. |
-| handoff lag p95 | 50% + 50 ms | TBD from CI runs. |
-| Attempt latency p50 | 50% + 50 ms | TBD from CI runs. |
-| Attempt latency p95 | 50% + 50 ms | TBD from CI runs. |
-| retry lateness p50 | 50% + 50 ms | TBD from CI runs. |
-| retry lateness p95 | 50% + 50 ms | TBD from CI runs. |
+| handoff lag p50 | 10% + 50 ms | Against the base's run, as every row below. Five CI runs of the same build (#154) were 234–267 ms and the two runs at most 23 ms apart. Lag is set by the relay's 500 ms polling, so a slower or less frequent relay moves it by hundreds of milliseconds, beyond the margin's 75 or so. |
+| handoff lag p95 | 10% + 50 ms | The same runs were 460–489 ms and at most 29 ms apart: the margin is about three times that. |
+| Attempt latency p50 | 25% + 20 ms | The fake Endpoints answer at once, so it is 1 ms on CI, the same in both runs. The constant is for the runner, and is the smallest slowdown of every Attempt it catches. |
+| Attempt latency p95 | 25% + 20 ms | The same runs were 5–9 ms and at most 2 ms apart. |
+| retry lateness p50 | 10% + 25 ms | The same runs were 438–446 ms and at most 5 ms apart. Lateness is set by the delivery workers' 500 ms polling, so a change to it moves lateness by more than the margin's 70 or so. |
+| retry lateness p95 | 10% + 25 ms | The same runs were 500–508 ms and at most 5 ms apart. |
 
 When the timing comparison fails, its report says which statistic moved, and holds the diff of CPU, allocation, heap, goroutine and blocking profiles taken from both builds while they ran (`scripts/profile.sh`), to show where the time went. The profiles and execution traces are uploaded with the services' logs.
 

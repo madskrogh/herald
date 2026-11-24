@@ -14,10 +14,10 @@ var edgeMargin = Margin{Percent: 25, Ms: 1000}
 
 // TimingMargins are the timing comparison's margins, by what they compare.
 var TimingMargins = map[TimingKey]Margin{
-	{statHandoffLag, P50}:     {Percent: 50, Ms: 50},
-	{statHandoffLag, P95}:     {Percent: 50, Ms: 50},
-	{statAttemptLatency, P50}: {Percent: 50, Ms: 50},
-	{statAttemptLatency, P95}: {Percent: 50, Ms: 50},
-	{statRetryLateness, P50}:  {Percent: 50, Ms: 50},
-	{statRetryLateness, P95}:  {Percent: 50, Ms: 50},
+	{statHandoffLag, P50}:     {Percent: 10, Ms: 50},
+	{statHandoffLag, P95}:     {Percent: 10, Ms: 50},
+	{statAttemptLatency, P50}: {Percent: 25, Ms: 20},
+	{statAttemptLatency, P95}: {Percent: 25, Ms: 20},
+	{statRetryLateness, P50}:  {Percent: 10, Ms: 25},
+	{statRetryLateness, P95}:  {Percent: 10, Ms: 25},
 }
