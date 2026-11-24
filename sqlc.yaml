@@ -40,3 +40,11 @@ sql:
             go_type:
               import: time
               type: Time
+  - engine: postgresql
+    schema: internal/pgcolumns/schema.sql
+    queries: internal/pgcolumns/queries.sql
+    gen:
+      go:
+        package: pgcolumnsdb
+        out: internal/pgcolumns/pgcolumnsdb
+        sql_package: pgx/v5
