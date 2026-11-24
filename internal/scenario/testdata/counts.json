@@ -1,0 +1,17 @@
+{
+  "traffic": {
+    "file": "traffic.json",
+    "sha256": "3ef40b443890bd50eab6c364f1eeb43aae480cec7e854cf0933d8eee549b27b7"
+  },
+  "counts": {
+    "attempt failed": 3,
+    "attempt pending": 40,
+    "attempt succeeded": 95,
+    "handoff handed_off": 82,
+    "store_deliveries stored": 82,
+    "tenant_api.call /herald.tenant.v1.ApplicationService/CreateApplication OK": 9,
+    "tenant_api.call /herald.tenant.v1.EndpointService/CreateEndpoint OK": 16,
+    "tenant_api.call /herald.tenant.v1.MessageService/CreateMessage FailedPrecondition": 1,
+    "tenant_api.call /herald.tenant.v1.MessageService/CreateMessage OK": 96
+  }
+}

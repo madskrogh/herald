@@ -6,9 +6,9 @@ Herald has six kinds of tests. They differ in what they run against and in what 
 |---|---|---|---|
 | Unit | the code, in process | the expected result | `make test`, every PR |
 | Integration | real Postgres and NATS in containers | the expected result | `make test`, every PR |
-| End-to-end | the compose stack | the expected result | `make e2e`, on `main`; on every PR once #81 lands |
-| Behaviour comparison | the compose stack, under the scenario | a committed baseline, or a `main` run | `make scenario-compare`; on every PR once #81 lands |
-| Scenario invariants | the compose stack, after the scenario | a rule that holds on any build | after every scenario run; on every PR once #81 lands |
+| End-to-end | the compose stack | the expected result | `make e2e`, every PR |
+| Behaviour comparison | the compose stack, under the scenario | a committed baseline, or a `main` run | `make scenario-compare` and `make scenario-timing`, every PR |
+| Scenario invariants | the compose stack, after the scenario | a rule that holds on any build | after every scenario run, every PR |
 | Load test | the stack scaled up, under the scenario scaled up | nothing: it measures | `make loadtest`, on demand (#82) |
 
 ## Unit tests
@@ -33,7 +33,7 @@ Herald has six kinds of tests. They differ in what they run against and in what 
 - **Compare against:** the expected result for one hand-picked case per test: retries, duplicate protection, isolation between Endpoints, one Message's trace.
 - **Catch:** a rule broken in the whole system, for the case the test picks.
 - **Can't catch:** the cases nobody picked, faults in the stack, or a change in behaviour no test asserts on.
-- **Run:** `make e2e` against a stack started with `make up`, and in CI on `main`, and on every PR once #81 lands.
+- **Run:** `make e2e` against a stack started with `make up`, and in CI on every PR and on `main`.
 
 ## Behaviour comparison
 
@@ -41,7 +41,30 @@ Herald has six kinds of tests. They differ in what they run against and in what 
 - **Compare against:** a committed baseline for what doesn't depend on the machine, and a run of the `main` build on the same runner for timing. A recording keeps whatever the recorded build did, bugs included.
 - **Catch:** any change in behaviour, intended or not, for the inputs in the traffic file. An intended change shows up as a baseline diff the reviewer approves.
 - **Can't catch:** a bug the baseline already holds, or inputs the traffic file doesn't have. It says that behaviour changed, not that it is right.
-- **Run:** `make scenario-compare`; `make scenario-record` records a new baseline from the traffic file the baseline names. CI runs it on every PR once #81 lands.
+- **Run:** `make scenario-compare` compares with the committed baselines; `make scenario-record` records new ones from the traffic file the baseline names. `make scenario-timing BASE=<checkout>` runs the scenario on this checkout's stack and the base checkout's at the same time, compares the timing, and is also `make scenario-compare` for this checkout. CI runs `make scenario-timing` on every PR, with `main` as the base, and on `main` after each merge, with the `main` before it.
+
+### The two witnesses
+
+- **The edge recording** (`internal/scenario/testdata/baseline.json`): what the Endpoints received, compared with the baseline. Its timing, each Attempt's time since its Delivery's first, is compared within a margin wide enough for any machine (below).
+- **Telemetry statistics**, read from the run's spans, using only the span names, attribute keys and outcomes [spec/span-schema.md](../spec/span-schema.md) declares, and only for Messages sent in a phase without a fault, since what a fault does depends on when it takes hold. Two kinds:
+  - **Counts** (`internal/scenario/testdata/counts.json`): spans by name and `herald.outcome`, and Tenant API calls by method and outcome. They don't depend on the machine, so they are compared with a committed baseline, which names its traffic file as the edge baseline does and is recorded with it. Batches aren't counted: how Messages are batched depends on when they arrive.
+  - **Timing**: handoff lag (from a Message's Tenant API call ending to its handoff starting), Attempt latency (`herald.latency_ms`, except for Endpoints the scenario makes slow or time out, whose latency is the harness's), and the lateness of retries (`herald.lateness_ms`), each as its 50th and 95th percentile. A first Attempt's lateness isn't one: while Deliveries are stored on one polling schedule and Attempts made on another, it is how far apart the two schedules happen to be, nearly the same for every Delivery of a run and different in the next. They depend on the machine, so each is compared with a run of the base build on the same runner at the same time, within its margin (below). The report lists both runs' values and sample counts, and each build's spans are saved beside it, as Parquet, for SQL over the two.
+
+### Timing margins
+
+How far each timing statistic may be from what it is compared with, either way: a percentage of the value compared with, plus a constant. A margin is a tolerance of the comparison, not something Herald promises, so it is here rather than in the spec. A unit test compares the code's margins with this table.
+
+| Statistic | Margin | Reason |
+|---|---|---|
+| time since a Delivery's first Attempt | 25% + 1000 ms | The edge recording, against the committed baseline. The retry schedule's jitter moves each delay by up to 10% either way, in the baseline's run as well as this one, so the two can be 20% of the schedule apart, up to 22% of the baseline's time; the constant covers the delivery workers' polling and the machine. With the local stack's retry scale, a change to a retry delay of an hour or more fails the comparison, and shorter ones are lost in the margin (ADR 0008). |
+| handoff lag p50 | 50% + 50 ms | Against the base's run. TBD from CI runs. |
+| handoff lag p95 | 50% + 50 ms | TBD from CI runs. |
+| Attempt latency p50 | 50% + 50 ms | TBD from CI runs. |
+| Attempt latency p95 | 50% + 50 ms | TBD from CI runs. |
+| retry lateness p50 | 50% + 50 ms | TBD from CI runs. |
+| retry lateness p95 | 50% + 50 ms | TBD from CI runs. |
+
+When the timing comparison fails, its report says which statistic moved, and holds the diff of CPU, allocation, heap, goroutine and blocking profiles taken from both builds while they ran (`scripts/profile.sh`), to show where the time went. The profiles and execution traces are uploaded with the services' logs.
 
 ### The traffic file and the baseline
 
@@ -57,7 +80,7 @@ The comparison rests on two committed files, an input and an output.
 - **Compare against:** the spec's requirements. There is no baseline, and a check changes only when its requirement does.
 - **Catch:** a rule broken anywhere in the traffic, including while faults run, where the end-to-end tests don't look. A failure names what broke: the Delivery, Message, span or goroutine stack, and the rule.
 - **Can't catch:** wrong behaviour that breaks no stated rule, which is what the comparison is for. Every check fails on missing data, so a check can't pass on nothing; but a rule nobody wrote down isn't checked.
-- **Run:** after every scenario run, in the same `make scenario-compare` or `make scenario-record`, so on every PR once #81 lands.
+- **Run:** after every scenario run, in the same `make scenario-compare`, `make scenario-record` or `make scenario-timing` (on the candidate's run only), so on every PR.
 
 ## Load test
 
@@ -69,11 +92,11 @@ The comparison rests on two committed files, an input and an output.
 
 ## Profiles
 
-Not a test, and not a gate: CPU time on a small, I/O-bound scenario is noise. `make profile` captures CPU, heap and allocation profiles and an execution trace from two builds while the scenario runs against both, and shows how they differ (`go tool pprof -diff_base`). Use it to explain a difference the comparison found, or to back a claim about performance.
+Not a test, and not a gate: CPU time on a small, I/O-bound scenario is noise. `make profile` captures CPU, heap and allocation profiles and an execution trace from two builds while the scenario runs against both, and shows how they differ (`go tool pprof -diff_base`). Use it to explain a difference the comparison found, or to back a claim about performance. `make scenario-timing` takes the same profiles during its runs, and puts their diff in its report when the timing comparison fails.
 
 ## CI
 
-On every PR, and on `main` after each merge: `make ci` (`golangci-lint`, `go test -race` with the unit and integration tests, `buf lint`, `buf breaking` against `main`, and a check that the sqlc and protobuf generated code is up to date), and a Docker image build for each service. On `main` only, the end-to-end tests against the compose stack. Once #81 lands, every PR also runs the end-to-end tests, the behaviour comparison and the scenario invariants. `.github/workflows/ci.yml` is the record.
+On every PR, and on `main` after each merge: `make ci` (`golangci-lint`, `go test -race` with the unit and integration tests, `buf lint`, `buf breaking` against `main`, and a check that the sqlc and protobuf generated code is up to date), a Docker image build for each service, the end-to-end tests against the compose stack, and `make scenario-timing`: the behaviour comparison and the scenario invariants on the candidate's stack, with the base build's stack running the scenario beside it for the timing comparison. On a failure, the services' logs, the comparison report, the profiles and both runs' spans are uploaded with the run. `.github/workflows/ci.yml` is the record.
 
 ## Where a new check belongs
 

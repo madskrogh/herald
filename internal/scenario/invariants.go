@@ -157,19 +157,7 @@ func CheckInvariants(ctx context.Context, stack *e2e.Stack, obs Observations, id
 	}
 	vs = append(vs, CheckFinalState(obs, state)...)
 
-	// The spans are complete once every trace and parent is there; errors,
-	// lag and lateness are read from whatever spans there are then.
-	var spanVs []Violation
-	err = settle(ctx, func() (bool, error) {
-		spans, err := stack.RunSpans(ctx, obs.TenantID.String())
-		if err != nil {
-			return false, fmt.Errorf("read the run's spans: %w", err)
-		}
-		spanVs = CheckSpans(obs, spans)
-		return !slices.ContainsFunc(spanVs, func(v Violation) bool {
-			return v.Rule == ruleTrace || v.Rule == ruleParent
-		}), nil
-	})
+	_, spanVs, err := settledSpans(ctx, stack, obs)
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +181,38 @@ func CheckInvariants(ctx context.Context, stack *e2e.Stack, obs Observations, id
 		vs = append(vs, leaks...)
 	}
 	return vs, nil
+}
+
+// settledSpans returns the spans of a finished run of obs's scenario, once
+// they are complete, and how they break the invariants (CheckSpans). They
+// are complete once every trace and parent is there, or settleTimeout has
+// passed; errors, lag and lateness are read from whatever spans there are
+// then.
+func settledSpans(ctx context.Context, stack *e2e.Stack, obs Observations) ([]e2e.Span, []Violation, error) {
+	var spans []e2e.Span
+	var vs []Violation
+	err := settle(ctx, func() (bool, error) {
+		var err error
+		spans, err = stack.RunSpans(ctx, obs.TenantID.String())
+		if err != nil {
+			return false, fmt.Errorf("read the run's spans: %w", err)
+		}
+		vs = CheckSpans(obs, spans)
+		return !slices.ContainsFunc(vs, func(v Violation) bool {
+			return v.Rule == ruleTrace || v.Rule == ruleParent
+		}), nil
+	})
+	return spans, vs, err
+}
+
+// ReadStatistics returns the Statistics of a finished run of obs's
+// scenario, once its spans are complete, as CheckInvariants waits for them.
+func ReadStatistics(ctx context.Context, stack *e2e.Stack, obs Observations) (Statistics, error) {
+	spans, _, err := settledSpans(ctx, stack, obs)
+	if err != nil {
+		return Statistics{}, err
+	}
+	return NewStatistics(obs, spans), nil
 }
 
 // settle calls check every settleInterval until it reports done, or
