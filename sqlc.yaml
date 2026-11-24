@@ -48,3 +48,16 @@ sql:
         package: pgcolumnsdb
         out: internal/pgcolumns/pgcolumnsdb
         sql_package: pgx/v5
+  - engine: postgresql
+    schema: internal/e2e/postgres/schema.sql
+    queries: internal/e2e/postgres/queries.sql
+    gen:
+      go:
+        package: e2edb
+        out: internal/e2e/e2edb
+        sql_package: pgx/v5
+        overrides:
+          - db_type: uuid
+            go_type:
+              import: uuid
+              type: UUID

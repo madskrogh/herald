@@ -35,7 +35,7 @@ type ListColumnsRow struct {
 
 // Every column of every table in the given schemas, as Postgres has it: its
 // type as format_type names it, whether it may be NULL, and whether it has a
-// default or is an identity column, so Postgres fills it in.
+// default, is an identity column or is generated, so Postgres fills it in.
 func (q *Queries) ListColumns(ctx context.Context, schemas []string) ([]ListColumnsRow, error) {
 	rows, err := q.db.Query(ctx, listColumns, schemas)
 	if err != nil {

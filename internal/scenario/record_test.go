@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
 	"github.com/madskrogh/herald/internal/scenario"
 )
@@ -65,11 +65,11 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 		},
 		EndpointURLs: map[string]string{failURL: "app-1/ep-1", tlsURL: "app-2/ep-1"},
 		EndpointIDs:  map[uuid.UUID]string{failID: "app-1/ep-1", tlsID: "app-2/ep-1"},
-		Deliveries: []delivery.Delivery{
-			{ID: d5, MessageID: id5, Endpoint: delivery.Endpoint{ID: failID}, State: delivery.StateSucceeded},
-			{ID: d1, MessageID: id1, Endpoint: delivery.Endpoint{ID: failID}, State: delivery.StateSucceeded},
-			{ID: d4, MessageID: id4, Endpoint: delivery.Endpoint{ID: tlsID}, State: delivery.StateFailed},
-			{ID: d6, MessageID: id6, Endpoint: delivery.Endpoint{ID: failID}, State: delivery.StateSucceeded},
+		Deliveries: []e2e.Delivery{
+			{ID: d5, MessageID: id5, EndpointID: failID, State: e2e.StateSucceeded},
+			{ID: d1, MessageID: id1, EndpointID: failID, State: e2e.StateSucceeded},
+			{ID: d4, MessageID: id4, EndpointID: tlsID, State: e2e.StateFailed},
+			{ID: d6, MessageID: id6, EndpointID: failID, State: e2e.StateSucceeded},
 		},
 		// Herald recorded one Attempt fewer to m005 than its Endpoint received.
 		Recorded: map[uuid.UUID]int{d1: 2, d4: 2, d5: 2, d6: 3},

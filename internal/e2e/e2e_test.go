@@ -15,7 +15,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
 )
@@ -176,7 +175,7 @@ func TestMessageIsDeliveredSigned(t *testing.T) {
 
 	attempts := waitAttempts(ctx, t, ep, 1)
 	checkSigned(t, attempts, messageID, payload)
-	waitOneDelivery(ctx, t, messageID, delivery.StateSucceeded)
+	waitOneDelivery(ctx, t, messageID, e2e.StateSucceeded)
 }
 
 func TestFailedAttemptsAreRetriedWithTheSameWebhookID(t *testing.T) {
@@ -188,7 +187,7 @@ func TestFailedAttemptsAreRetriedWithTheSameWebhookID(t *testing.T) {
 	payload := `{"invoice": 42}`
 	messageID := sendMessage(ctx, t, tenant, app, payload, "")
 
-	waitOneDelivery(ctx, t, messageID, delivery.StateSucceeded)
+	waitOneDelivery(ctx, t, messageID, e2e.StateSucceeded)
 	// The Delivery has succeeded, so no Attempt comes after these.
 	attempts := waitAttempts(ctx, t, ep, 3)
 	if len(attempts) != 3 {
@@ -210,7 +209,7 @@ func TestAttemptThatTimesOutIsRetried(t *testing.T) {
 	payload := `{"invoice": 42}`
 	messageID := sendMessage(ctx, t, tenant, app, payload, "")
 
-	waitOneDelivery(ctx, t, messageID, delivery.StateSucceeded)
+	waitOneDelivery(ctx, t, messageID, e2e.StateSucceeded)
 	// The Delivery has succeeded, so no Attempt comes after these.
 	attempts := waitAttempts(ctx, t, ep, 2)
 	if len(attempts) != 2 {
@@ -233,7 +232,7 @@ func TestDeliveryFailsWhenTheRetryScheduleRunsOut(t *testing.T) {
 	payload := `{"invoice": 42}`
 	messageID := sendMessage(ctx, t, tenant, app, payload, "")
 
-	waitOneDelivery(ctx, t, messageID, delivery.StateFailed)
+	waitOneDelivery(ctx, t, messageID, e2e.StateFailed)
 	// The Delivery has failed, so no Attempt comes after these.
 	attempts := waitAttempts(ctx, t, ep, 8)
 	if len(attempts) != 8 {
@@ -261,8 +260,8 @@ func TestRepeatedIdempotencyKeyMakesOneDelivery(t *testing.T) {
 	if other == first {
 		t.Errorf("another Idempotency-Key: Message ID = %s, the same as the first's", other)
 	}
-	waitOneDelivery(ctx, t, first, delivery.StateSucceeded)
-	waitOneDelivery(ctx, t, other, delivery.StateSucceeded)
+	waitOneDelivery(ctx, t, first, e2e.StateSucceeded)
+	waitOneDelivery(ctx, t, other, e2e.StateSucceeded)
 	// Both Messages' Deliveries have succeeded, so no Attempt comes after
 	// these.
 	attempts := waitAttempts(ctx, t, ep, 2)
@@ -306,7 +305,7 @@ func TestSlowEndpointDoesNotDelayAnother(t *testing.T) {
 	// held every worker. It must succeed well before then.
 	fastCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	waitOneDelivery(fastCtx, t, fastMessage, delivery.StateSucceeded)
+	waitOneDelivery(fastCtx, t, fastMessage, e2e.StateSucceeded)
 	// Nothing has released the slow Endpoint's Attempts, so the fast Delivery
 	// didn't wait for any of them, and the cap held the slow Endpoint to 4.
 	if got := len(waitAttempts(ctx, t, slow, 0)); got != 4 {
@@ -314,7 +313,7 @@ func TestSlowEndpointDoesNotDelayAnother(t *testing.T) {
 	}
 	releaseOnce()
 	for _, m := range slowMessages {
-		waitOneDelivery(ctx, t, m, delivery.StateSucceeded)
+		waitOneDelivery(ctx, t, m, e2e.StateSucceeded)
 	}
 }
 
@@ -372,17 +371,17 @@ func checkSigned(t *testing.T, attempts []endpointtest.Attempt, messageID, paylo
 
 // waitOneDelivery waits until the Message's Deliveries have finished and
 // checks that it has one, in state want.
-func waitOneDelivery(ctx context.Context, t *testing.T, messageID string, want delivery.State) {
+func waitOneDelivery(ctx context.Context, t *testing.T, messageID string, want e2e.DeliveryState) {
 	t.Helper()
 	deliveries, err := stack.WaitDeliveries(ctx, messageID)
 	if err != nil {
 		t.Fatalf("WaitDeliveries: %v", err)
 	}
-	var got []delivery.State
+	var got []e2e.DeliveryState
 	for _, d := range deliveries {
 		got = append(got, d.State)
 	}
-	if diff := cmp.Diff([]delivery.State{want}, got); diff != "" {
+	if diff := cmp.Diff([]e2e.DeliveryState{want}, got); diff != "" {
 		t.Errorf("Message %s: Delivery states (-want +got):\n%s", messageID, diff)
 	}
 }

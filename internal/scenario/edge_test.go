@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
 	"github.com/madskrogh/herald/internal/scenario"
 )
@@ -63,10 +63,10 @@ func edgeRun() scenario.Observations {
 		Sent:         map[string]scenario.Sent{"m001": {ID: edgeM1}, "m002": {ID: edgeM2}},
 		EndpointURLs: map[string]string{ep1URL: "app-1/ep-1", ep2URL: "app-1/ep-2"},
 		EndpointIDs:  map[uuid.UUID]string{edgeEP1: "app-1/ep-1", edgeEP2: "app-1/ep-2"},
-		Deliveries: []delivery.Delivery{
-			{ID: edgeD11, MessageID: edgeM1, Endpoint: delivery.Endpoint{ID: edgeEP1}, State: delivery.StateSucceeded},
-			{ID: edgeD21, MessageID: edgeM2, Endpoint: delivery.Endpoint{ID: edgeEP1}, State: delivery.StateSucceeded},
-			{ID: edgeD22, MessageID: edgeM2, Endpoint: delivery.Endpoint{ID: edgeEP2}, State: delivery.StateSucceeded},
+		Deliveries: []e2e.Delivery{
+			{ID: edgeD11, MessageID: edgeM1, EndpointID: edgeEP1, State: e2e.StateSucceeded},
+			{ID: edgeD21, MessageID: edgeM2, EndpointID: edgeEP1, State: e2e.StateSucceeded},
+			{ID: edgeD22, MessageID: edgeM2, EndpointID: edgeEP2, State: e2e.StateSucceeded},
 		},
 		Recorded: map[uuid.UUID]int{edgeD11: 1, edgeD21: 1, edgeD22: 3},
 		Attempts: []endpointtest.Attempt{
