@@ -61,10 +61,10 @@ type section struct {
 	line      int    // the heading's line; 0 before the first heading
 	why       bool   // whether it has a "Why:" paragraph
 	withdrawn bool   // whether it has a "Withdrawn:" paragraph
-	// tables holds the first line of each table with at least one row. Only
-	// vector files' tables are checked: in a requirement file, a table may sit
-	// under any heading, such as the limits table.
-	tables []int
+	// tables holds each table with at least one row. Only vector files'
+	// tables are checked: in a requirement file, a table may sit under any
+	// heading, such as the limits table.
+	tables []Table
 }
 
 type requirement struct {
@@ -224,8 +224,8 @@ func vectorRefs(name string, sections []section) ([]vectorRef, []Problem) {
 			refs = append(refs, vectorRef{id: id, file: name, line: s.line})
 			continue
 		}
-		for _, line := range s.tables {
-			problems = append(problems, Problem{File: name, Line: line, Message: `vector is under no requirement: put it under a heading that starts with the requirement's ID, such as "## R-1"`})
+		for _, t := range s.tables {
+			problems = append(problems, Problem{File: name, Line: t.Line, Message: `vector is under no requirement: put it under a heading that starts with the requirement's ID, such as "## R-1"`})
 		}
 	}
 	return refs, problems
@@ -257,7 +257,7 @@ func parse(data []byte) []section {
 		}
 		if n := tableLen(lines[i:]); n > 0 {
 			if n > 2 {
-				cur.tables = append(cur.tables, i+1)
+				cur.tables = append(cur.tables, newTable(i+1, lines[i:i+n]))
 			}
 			i += n - 1
 			continue

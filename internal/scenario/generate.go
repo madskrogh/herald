@@ -24,10 +24,10 @@ var (
 
 // maxDeliveries is the most Deliveries an Endpoint whose Deliveries take
 // more than one Attempt, or whose Attempts take seconds, gets in a phase:
-// the 4 Attempts an Endpoint may have in flight (maxInFlight in
-// internal/delivery). With more, one Delivery's Attempts would wait for
-// another's, and their timing would vary from run to run.
-const maxDeliveries = 4
+// as many as an Endpoint may have Attempts in flight (R-19). With more, one
+// Delivery's Attempts would wait for another's, and their timing would vary
+// from run to run.
+const maxDeliveries = maxInFlight
 
 // Fast Endpoints answer within milliseconds. Those that accept every Event
 // type answer every Attempt at once, so they can take many Deliveries; the
