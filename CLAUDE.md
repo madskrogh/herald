@@ -21,7 +21,7 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 | `make e2e` | Run the end-to-end tests against this checkout's stack (start it with `make up`). `RUN=<regexp>` selects tests, e.g. `make e2e RUN=TestSpanIsStoredInClickHouse` |
 | `make scenario-compare` | Run the scenario against this checkout's stack (start it with `make up`) and compare what its Endpoints received with the committed baseline, reporting each difference by Delivery and field, then check the scenario invariants (`docs/testing.md`). Takes about five minutes, and nothing else may use the stack meanwhile |
 | `make scenario-record` | Run the scenario as `make scenario-compare` does and record what its Endpoints received as the new baseline (`internal/scenario/testdata/baseline.json`), from the traffic file the baseline names (`internal/scenario/testdata/traffic.json`). A change to what Herald sends to Endpoints, or to the traffic file, re-records the baseline in the same PR |
-| `make scenario-traffic SEED=<n>` | Print synthetic traffic drawn from a seed, as a draft to copy from. The scenario runs only the committed traffic file, which is edited by hand; this never writes it |
+| `make scenario-traffic SEED=<n>` | Print synthetic traffic drawn from a seed, as a draft to start from. The scenario runs only the committed traffic file, which is written by a person or captured from real traffic; this never writes it. How the traffic file and the baseline relate: `docs/testing.md` |
 | `make worktree-rm NAME=x` | Stop a worktree's stack, remove the worktree and its branch (after its session has exited) |
 
 Run `make ci` before every push. It is exactly what CI runs.
