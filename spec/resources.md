@@ -45,6 +45,12 @@ Why: reusing a connection saves the Endpoint a TLS handshake per Attempt, and an
 
 ### R-108 · planned
 
-herald-api MUST close a REST connection whose client hasn't sent a request's headers within `rest-header-timeout`, or the whole request within `rest-read-timeout`, of starting it, and MUST close a REST connection that has been idle for `rest-idle-timeout`.
+herald-api MUST close a REST connection whose client hasn't sent a request's headers within `rest-header-timeout`, or the whole request within `rest-read-timeout`, of starting it, and MUST close a REST connection that has been idle for `api-idle-timeout`.
 
 Why: each open connection holds memory and a file descriptor, so a client that sends slowly, or opens connections and leaves them, must not be able to hold them for ever (#114).
+
+### R-116 · planned
+
+herald-api MUST close a gRPC connection whose client hasn't finished setting it up within `grpc-handshake-timeout` of connecting, and MUST close a gRPC connection that has had no call in progress for `api-idle-timeout`.
+
+Why: as for R-108. The two transports serve the same Tenant API, so a client mustn't be able to hold connections on one that the other would close (#114).
