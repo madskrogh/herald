@@ -41,7 +41,7 @@ Why: a deployment that doesn't set them, such as the local stack, relies on the 
 
 ### R-95 · planned
 
-`HERALD_KEYRING` MUST be a comma-separated list of keys, each a key ID, a colon, and a 32-byte key in padded standard base64: `<id>:<key>[,<id>:<key>...]`. Each key ID MUST be 1 to `keyring-key-id-bytes` characters from `A-Z`, `a-z`, `0-9`, `_` and `-`, and MUST differ from the others. A service given any other value MUST NOT start.
+`HERALD_KEYRING` MUST be a comma-separated list of keys, each a key ID, a colon, and a 32-byte key in padded standard base64: `<id>:<key>[,<id>:<key>...]`. Each key ID MUST be 1 to `keyring-key-id-bytes` bytes, each one of `A-Z`, `a-z`, `0-9`, `_` and `-`, and MUST differ from the others. A service given any other value MUST NOT start.
 
 Why: the keys are AES-256 keys ([ADR 0003](../docs/adr/0003-standard-webhooks-signing.md)), and each encrypted secret records the ID of the key that encrypted it. Whitespace isn't trimmed, so a space after a comma is a mistake that stops the service, rather than a key ID that silently differs.
 
@@ -126,7 +126,7 @@ Why: the two services are rolled out one after the other, so for a while each ru
 
 ### R-98 · planned
 
-herald-api and herald-dispatcher MUST each have a `migrate` command that applies its own schema's migrations and exits, with status 0 once the schema is current. Started without a command, a service MUST NOT migrate, and assumes its schema is current.
+herald-api and herald-dispatcher MUST each have a `migrate` command that applies its own schema's migrations and exits, with status 0 once the schema is current. Started without a command, a service MUST NOT migrate, and assumes its schema is current. Given any other command, or an argument after `migrate`, it MUST exit with a non-zero status without doing anything.
 
 Why: a deploy runs each service's migrations as a step of their own, before any replica of the new build starts, so a migration that fails stops the deploy instead of crash-looping every replica, and replicas that start together don't each try to migrate ([ADR 0010](../docs/adr/0010-migrations-as-a-one-shot-step.md)). Each service owns its schema ([ADR 0002](../docs/adr/0002-two-services-outbox-nats-handoff.md)).
 
@@ -143,9 +143,9 @@ Why: a deployer can't always prevent the overlap, and two runs applying the same
 
 ### R-101 · planned
 
-A service MUST start, and keep running, while Postgres or NATS is unreachable, and keep trying to reach it. While either is unreachable, the service MUST log an error that names it: as it starts, if it is unreachable then, and at least once every `dependency-log-interval` until it is reachable again.
+A service MUST start, and keep running, while Postgres or NATS is unreachable, and keep trying to reach it.
 
-Why: in production, Postgres and NATS are shared infrastructure that is normally up before Herald and stays up across its deploys, so an outage of either is one to ride out, not a reason to stop. herald-api accepts Messages without NATS, and they wait in the Outbox ([ADR 0002](../docs/adr/0002-two-services-outbox-nats-handoff.md)); a dispatcher still makes Attempts for the Deliveries it stored. Exiting would only add restarts, and the error lines keep the outage visible (decided in #114).
+Why: in production, Postgres and NATS are shared infrastructure that is normally up before Herald and stays up across its deploys, so an outage of either is one to ride out, not a reason to stop. herald-api accepts Messages without NATS, and they wait in the Outbox ([ADR 0002](../docs/adr/0002-two-services-outbox-nats-handoff.md)); a dispatcher still makes Attempts for the Deliveries it stored. Exiting would only add restarts (decided in #114).
 
 | Unreachable at start | herald-api | herald-dispatcher |
 |---|---|---|
@@ -153,15 +153,21 @@ Why: in production, Postgres and NATS are shared infrastructure that is normally
 | Postgres | starts; logs an error | starts; logs an error |
 | neither | starts | starts |
 
+### R-115 · planned
+
+While Postgres or NATS is unreachable, a service MUST log an error that names it: as it starts, if it is unreachable then, and at least once every `dependency-log-interval` until it is reachable again.
+
+Why: a service that rides out an outage (R-101) must not hide it; the error lines keep it visible to an operator watching the logs (decided in #114).
+
 ### R-102 · planned
 
-When a service receives `SIGTERM` or `SIGINT`, it MUST stop taking new work, let the work in progress finish, and exit within `max-shutdown`, with status 0.
+When a service receives `SIGTERM` or `SIGINT`, it MUST stop taking new work, let the work in progress finish, and exit within `max-shutdown`: with status 0 when all of it finished, and otherwise, having cut off what hadn't, with a non-zero status.
 
 Why: Docker and Kubernetes stop a container with `SIGTERM` and kill it `max-shutdown` later, so a service still finishing then is killed mid-shutdown. herald-api lets calls in progress finish, and leaves the Messages its relay hadn't handed off in the Outbox for the next relay; herald-dispatcher stores and replies to the Batches it received, and lets its Attempts in flight finish (R-99).
 
 ### R-99 · planned
 
-When herald-dispatcher is told to stop, it MUST let its Attempts in flight finish for up to `attempt-drain`, and then cut off those still running: a cut-off Attempt isn't counted, and its Delivery is due again at once.
+When herald-dispatcher is told to stop, it MUST let its Attempts in flight finish for up to `attempt-drain-timeout`, and then cut off those still running: a cut-off Attempt isn't counted, and its Delivery is due again at once.
 
 Why: a cut-off Attempt may or may not have reached the Endpoint, so it is made again, which at-least-once delivery allows (R-17), rather than counted as a failure the Endpoint didn't cause. Giving the Delivery back at once lets another dispatcher make the Attempt without waiting `lease-duration` (R-89).
 

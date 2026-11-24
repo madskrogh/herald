@@ -8,7 +8,7 @@ A service's memory is its container's memory as the container runtime reports it
 
 ### R-84 · planned
 
-While the scenario runs, each service's memory MUST stay below `max-memory`.
+While the scenario runs, each service's memory MUST stay below `max-service-memory`.
 
 Why: a service whose memory grows with its traffic runs out of it in production, where the traffic doesn't end. Herald keeps Messages, Deliveries and Attempts in Postgres, not in memory, so what a service holds shouldn't depend on how much it has handled.
 
@@ -27,21 +27,21 @@ Why: Herald keeps no cache, so anything a service still holds once the traffic h
 
 ### R-86 · planned
 
-A service process MUST NOT hold more than `max-db-connections` connections to Postgres at once, measured as Postgres counts them.
+While the scenario runs, and at any other time, a service process MUST NOT hold more than `max-db-connections` connections to Postgres at once, measured as Postgres counts the connections from that process's address.
 
 Why: every replica of both services draws on Postgres's one connection limit, so each needs a cap an operator can plan for. Nothing requires idle connections to close after the scenario: a leaked connection shows as the cap being reached (decided in #114).
 
 ### R-87 · planned
 
-A herald-dispatcher process MUST NOT have more than `max-attempts-in-flight` Attempts in flight at once.
+A herald-dispatcher process MUST NOT have more than `max-attempts-in-flight` Attempts in flight at once, measured as the requests from it that Endpoints have open at the same moment, whatever the load.
 
 Why: each Attempt in flight holds a connection to an Endpoint, so the cap bounds the connections and the memory one dispatcher uses however many Deliveries are due. More throughput comes from more replicas.
 
 ### R-88 · planned
 
-herald-dispatcher MAY keep a connection to an Endpoint open between Attempts, but MUST NOT keep more of them open to one Endpoint than `max-in-flight-per-endpoint`, and MUST close one that has been idle for 5 minutes. It MAY close one sooner.
+herald-dispatcher MAY keep a connection to an Endpoint open between Attempts, but MUST NOT keep more of them open to one Endpoint than `max-in-flight-per-endpoint`, How long it keeps an idle one open MAY be any time.
 
-Why: reusing a connection saves the Endpoint a TLS handshake per Attempt, and an Endpoint never has more Attempts in flight than that cap (R-19), so more idle connections would only hold its resources. Any idle time of a few minutes serves; 5 minutes bounds what a Tenant's quiet Endpoint keeps open for Herald.
+Why: reusing a connection saves the Endpoint a TLS handshake per Attempt, and an Endpoint never has more Attempts in flight than that cap (R-19), so more idle connections would only hold its resources.
 
 ### R-108 · planned
 

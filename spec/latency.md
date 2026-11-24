@@ -58,7 +58,7 @@ Why: a Delivery a dispatcher claimed is held for it alone, so no other dispatche
 
 Once Postgres and NATS are both reachable again after either was unreachable, Herald MUST resume handing Messages off and starting Attempts within `max-resume-delay`.
 
-Why: Herald retries a failing dependency less often the longer it fails, so a long outage costs it neither log volume nor load on the dependency as it comes back; the wait is capped so that an outage ends for Tenants soon after it ends for Herald (#114).
+Why: an outage of Postgres or NATS should end for Tenants soon after it ends for Herald, however long it lasted (#114).
 
 ## Tenant API
 

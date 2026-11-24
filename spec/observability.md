@@ -176,18 +176,24 @@ Why: as for spans (R-82), logs leave Herald for whatever store collects them, wh
 
 Each service MUST log a line with `msg` `started` once it is serving, naming each address it listens on, and a line with `msg` `stopped` as it exits after being told to stop.
 
+Why: an operator sees when a replica is up, and on which addresses, even when it was given port 0 and chose its own; and a `stopped` line shows a shutdown finished rather than being killed (R-102).
+
 | Service | Fields of `started` |
 |---|---|
 | herald-api | `grpc_addr`, `http_addr`, and `pprof_addr` when `HERALD_PPROF_ADDR` is set |
 | herald-dispatcher | `pprof_addr` when `HERALD_PPROF_ADDR` is set |
 
-Why: an operator sees when a replica is up, and on which addresses, even when it was given port 0 and chose its own; and a `stopped` line shows a shutdown finished rather than being killed (R-102).
-
 ### R-111 · planned
 
-When a Tenant API call fails with an internal error, or panics, herald-api MUST log an error line naming the call's method and the error, and for a panic its stack, and the call MUST fail with `INTERNAL` / `500`.
+When a Tenant API call fails with an internal error, or panics, herald-api MUST log an error line naming the call's method and the error, and for a panic its stack.
 
-Why: the Tenant is told only that something went wrong inside Herald, so the log line, which carries the call's `trace_id` (R-56), is where a developer finds the cause. A panic in one call mustn't stop the service, or fail the other calls in progress.
+Why: the Tenant is told only that something went wrong inside Herald, so the log line, which carries the call's `trace_id` (R-56), is where a developer finds the cause.
+
+### R-114 · planned
+
+When a Tenant API call panics, herald-api MUST fail that call with `INTERNAL` / `500`, and go on serving the other calls.
+
+Why: a bug that one call reaches mustn't stop the service, or fail the calls of other Tenants in progress.
 
 ## Exporting spans
 
@@ -195,7 +201,7 @@ Why: the Tenant is told only that something went wrong inside Herald, so the log
 
 When a service can't export spans, it MUST drop them, log a warning, and go on with its work.
 
-Why: spans are for debugging, and an unreachable Collector must not stop Webhooks being accepted or delivered ([ADR 0006](../docs/adr/0006-clickhouse-telemetry-store.md)).
+Why: spans are for debugging, and an unreachable Collector must not stop Messages being accepted or Attempts being made ([ADR 0006](../docs/adr/0006-clickhouse-telemetry-store.md)).
 
 ### R-113 · planned
 
