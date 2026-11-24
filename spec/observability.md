@@ -162,7 +162,7 @@ Why: a log line then finds its span, and the span its log lines, so a developer 
 | an Attempt | `time`, `level`, `msg`, `service`, `delivery_id`, `message_id`, `endpoint_id`, `attempt`, `status_code`, `latency_ms`, `state`, `trace_id`, `span_id`, and `attempt_error` when the Attempt got no response |
 | a line with no current span | no `trace_id` or `span_id` |
 
-### R-109 · planned
+### R-111 · planned
 
 An Attempt's log line MUST NOT hold the Endpoint's URL, or any part of its path or query, even when the Attempt's error, which the Tenant sees, does.
 
@@ -172,24 +172,24 @@ Why: as for spans (R-82), logs leave Herald for whatever store collects them, wh
 |---|---|---|---|
 | `http://127.0.0.1:1/webhooks?token=tok_9f2c41d7` | connection refused | the URL, with `tok_9f2c41d7` | why the connection failed, without `tok_9f2c41d7` |
 
-### R-110 · planned
+### R-112 · planned
 
 Each service MUST log a line with `msg` `started` once it is serving, naming each address it listens on, and a line with `msg` `stopped` as it exits after being told to stop.
 
-Why: an operator sees when a replica is up, and on which addresses, even when it was given port 0 and chose its own; and a `stopped` line shows a shutdown finished rather than being killed (R-102).
+Why: an operator sees when a replica is up, and on which addresses, even when it was given port 0 and chose its own; and a `stopped` line shows a shutdown finished rather than being killed (R-104).
 
 | Service | Fields of `started` |
 |---|---|
 | herald-api | `grpc_addr`, `http_addr`, and `pprof_addr` when `HERALD_PPROF_ADDR` is set |
 | herald-dispatcher | `pprof_addr` when `HERALD_PPROF_ADDR` is set |
 
-### R-111 · planned
+### R-113 · planned
 
 When a Tenant API call fails with an internal error, or panics, herald-api MUST log an error line naming the call's method and the error, and for a panic its stack.
 
 Why: the Tenant is told only that something went wrong inside Herald, so the log line, which carries the call's `trace_id` (R-56), is where a developer finds the cause.
 
-### R-114 · planned
+### R-116 · planned
 
 When a Tenant API call panics, herald-api MUST fail that call with `INTERNAL` / `500`, and go on serving the other calls.
 
@@ -197,13 +197,13 @@ Why: a bug that one call reaches mustn't stop the service, or fail the calls of 
 
 ## Exporting spans
 
-### R-112 · planned
+### R-114 · planned
 
 When a service can't export spans, it MUST drop them, log a warning, and go on with its work.
 
 Why: spans are for debugging, and an unreachable Collector must not stop Messages being accepted or Attempts being made ([ADR 0006](../docs/adr/0006-clickhouse-telemetry-store.md)).
 
-### R-113 · planned
+### R-115 · planned
 
 When `HERALD_OTLP_URL` isn't set, each service MUST log a warning, as it starts, that spans are not exported.
 

@@ -48,13 +48,13 @@ Why: as for R-73, but how long Herald takes with Postgres at `fault-postgres-cpu
 
 ## Recovery
 
-### R-89 · planned
+### R-91 · planned
 
 When a dispatcher stops during an Attempt without recording it or giving its Delivery back, as when it is killed, that Delivery MUST be due again within `lease-duration` of the Attempt's start.
 
-Why: a Delivery a dispatcher claimed is held for it alone, so no other dispatcher makes an Attempt at the same time. A dispatcher that dies can't give it back, so the hold has to run out on its own, and `lease-duration` says when. A dispatcher that is told to stop gives its Deliveries back at once (R-99).
+Why: a Delivery a dispatcher claimed is held for it alone, so no other dispatcher makes an Attempt at the same time. A dispatcher that dies can't give it back, so the hold has to run out on its own, and `lease-duration` says when. A dispatcher that is told to stop gives its Deliveries back at once (R-101).
 
-### R-90 · planned
+### R-92 · planned
 
 Once Postgres and NATS are both reachable again after either was unreachable, Herald MUST resume handing Messages off and starting Attempts within `max-resume-delay`.
 
@@ -62,7 +62,7 @@ Why: an outage of Postgres or NATS should end for Tenants soon after it ends for
 
 ## Tenant API
 
-### R-91 · planned
+### R-93 · planned
 
 When Postgres is reachable and isn't slowed, every Tenant API call MUST return within `max-api-latency`, measured by the Tenant from sending the call to receiving the response. This holds with no fault, while NATS is unavailable, and while a dispatcher restarts. No requirement states how long a call takes while Postgres is unreachable.
 
@@ -73,10 +73,10 @@ Why: a Tenant calls the Tenant API while handling its own users' requests, so a 
 | none | `max-api-latency` |
 | NATS unavailable for `fault-nats-unavailable` | `max-api-latency` |
 | dispatcher restarted | `max-api-latency` |
-| Postgres slowed | `max-api-latency-in-fault` (R-92) |
+| Postgres slowed | `max-api-latency-in-fault` (R-94) |
 
-### R-92 · planned
+### R-94 · planned
 
-Unlike R-91, while Postgres is slowed, every Tenant API call SHOULD return within `max-api-latency-in-fault`.
+Unlike R-93, while Postgres is slowed, every Tenant API call SHOULD return within `max-api-latency-in-fault`.
 
 Why: every call waits on Postgres, so how long it takes with Postgres at `fault-postgres-cpu` depends on the machine, as for R-74. The limit catches a call that stalls rather than one that is slow (decided in #114).
