@@ -2,7 +2,7 @@
 
 The spec states every decision in Herald that someone at one of its boundaries can notice: what Herald returns and sends for what it is given, what it does in each case, how long it takes, what resources it uses, what debugging data it leaves, and what operators use. Herald's code is derived from it, never the other way round ([ADR 0007](../docs/adr/0007-code-regenerated-from-the-spec.md)). If the spec and another document disagree about behaviour, the spec wins.
 
-The areas are [delivery](delivery.md), the [Tenant API](tenant-api.md), [security](security.md), [observability](observability.md), [latency](latency.md) and [operations](operations.md), and every value they name is in [limits](limits.md). The spans Herald emits are in the [span schema](span-schema.md).
+The areas are [delivery](delivery.md), the [Tenant API](tenant-api.md), [security](security.md), [observability](observability.md), [latency](latency.md), [resource use](resources.md) and [operations](operations.md), and every value they name is in [limits](limits.md). The spans Herald emits are in the [span schema](span-schema.md).
 
 This file states the spec's conventions. Its examples are in code blocks, which the check doesn't read.
 
