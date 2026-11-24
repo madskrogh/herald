@@ -49,11 +49,20 @@ type Sent struct {
 // Recording is a run's Observations normalised: what doesn't vary between
 // runs of the same build. It is what the baseline holds.
 type Recording struct {
-	Seed uint64 `json:"seed"`
+	// Traffic is the traffic file the run ran.
+	Traffic TrafficFile `json:"traffic"`
 	// Faults has one record for each phase with a fault, in order.
 	Faults     []FaultRecord    `json:"faults"`
 	Messages   []MessageRecord  `json:"messages"`
 	Deliveries []DeliveryRecord `json:"deliveries"`
+}
+
+// TrafficFile names a traffic file, as it was when a run read it.
+type TrafficFile struct {
+	// File is its path, from the baseline's directory.
+	File string `json:"file"`
+	// SHA256 is the SHA-256 of its contents, in hex.
+	SHA256 string `json:"sha256"`
 }
 
 // FaultRecord is how a fault held back the Messages sent under it.
@@ -121,7 +130,7 @@ const lateAfter = 3 * time.Second
 // NewRecording normalises obs. It fails on an Attempt it can't place: one
 // whose webhook-id is no Message's ID, or that has no Delivery.
 func NewRecording(obs Observations) (Recording, error) {
-	rec := Recording{Seed: obs.Scenario.Seed}
+	rec := Recording{}
 	messages := map[string]Message{}
 	faults := map[string]Fault{}
 	sentAt := map[string]time.Time{}

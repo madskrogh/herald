@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e scenario-compare scenario-record endpoint profile admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e scenario-compare scenario-record scenario-traffic endpoint profile admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -144,10 +144,18 @@ scenario-compare: .env
 	@$(SCENARIO)
 
 # Runs the scenario as scenario-compare does and records what its Endpoints
-# received as the new baseline, from the baseline's seed, or SEED if given.
-# Usage: make scenario-record [SEED=<n>]
+# received as the new baseline, from the traffic file the baseline names
+# (internal/scenario/testdata/traffic.json).
 scenario-record: .env
-	@$(SCENARIO) -args -update $(if $(SEED),-seed '$(SEED)')
+	@$(SCENARIO) -args -update
+
+# Prints synthetic traffic drawn from SEED, as a traffic file, for a person to
+# review. The scenario runs only the committed traffic file, which is edited
+# by hand; this never writes it.
+# Usage: make scenario-traffic SEED=<n>
+scenario-traffic:
+	@test -n '$(SEED)' || { echo "scenario-traffic: set SEED"; exit 1; }
+	@go run ./cmd/scenario-traffic -seed '$(SEED)'
 
 # Serves an Endpoint for this checkout's stack that prints each Attempt it
 # receives. Given the Endpoint's signing secret, it also says whether each

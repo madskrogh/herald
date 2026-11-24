@@ -59,11 +59,17 @@ const (
 	largePayload  = 200 << 10
 )
 
-// Generate returns the scenario generated from seed. The same seed always
-// gives the same scenario.
+// Generate returns synthetic traffic drawn from seed, the same for the same
+// seed.
+//
+// It is a utility for making test data, and the scenario never calls it: the
+// scenario runs only the committed traffic file (ReadTraffic). Its output,
+// written with WriteTraffic, is a draft for a person to review. Changes to
+// the scenario's traffic are made by hand, in the committed file, so cases
+// added there for a bug aren't lost to a regenerated file (decided on #113).
 func Generate(seed uint64) Scenario {
 	g := &generator{r: rand.New(rand.NewPCG(seed, 0))}
-	s := Scenario{Seed: seed}
+	var s Scenario
 
 	// Applications whose Endpoints answer fast. The first Endpoint of each
 	// accepts every Event type, so every Message has a Delivery.
@@ -275,11 +281,12 @@ func (g *generator) size() int {
 func (g *generator) payload(name string, size int) string {
 	// Varies the size within its class, by up to a quarter either way.
 	size += size / 4 * (g.r.IntN(3) - 1)
-	data := make([]byte, size)
-	for i := range data {
-		data[i] = byte('a' + g.r.IntN(26))
+	p, err := payload(name, size)
+	if err != nil {
+		// Every size it draws is far longer than a payload's frame.
+		panic(err)
 	}
-	return fmt.Sprintf(`{"message":%q,"data":%q}`, name, data)
+	return p
 }
 
 // pick returns one of items.

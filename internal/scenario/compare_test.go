@@ -110,10 +110,17 @@ func TestCompare(t *testing.T) {
 			},
 		},
 		{
-			name:   "seed",
-			change: func(r *scenario.Recording) { r.Seed = 2 },
+			name:   "traffic file",
+			change: func(r *scenario.Recording) { r.Traffic.File = "other.json" },
 			want: []scenario.Difference{
-				{Field: "seed", Want: "1", Got: "2"},
+				{Field: "traffic file", Want: "traffic.json", Got: "other.json"},
+			},
+		},
+		{
+			name:   "traffic edited",
+			change: func(r *scenario.Recording) { r.Traffic.SHA256 = "5e5e" },
+			want: []scenario.Difference{
+				{Field: "traffic sha256", Want: "a1a1", Got: "5e5e"},
 			},
 		},
 	}
@@ -136,8 +143,8 @@ func baseline() scenario.Recording {
 		return map[string]string{"Content-Type": "application/json", "User-Agent": "Herald", "Webhook-Id": message}
 	}
 	return scenario.Recording{
-		Seed:   1,
-		Faults: []scenario.FaultRecord{{Fault: scenario.PostgresSlowed, Late: true}},
+		Traffic: scenario.TrafficFile{File: "traffic.json", SHA256: "a1a1"},
+		Faults:  []scenario.FaultRecord{{Fault: scenario.PostgresSlowed, Late: true}},
 		Messages: []scenario.MessageRecord{
 			{Name: "m001", Outcome: "accepted"},
 			{Name: "m003", Outcome: "same as m001"},

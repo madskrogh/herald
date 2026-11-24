@@ -45,7 +45,6 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	m6 := scenario.Message{Name: "m006", Application: "app-1", EventType: "invoice.paid", Payload: `{"message":"m006"}`}
 	run := scenario.Observations{
 		Scenario: scenario.Scenario{
-			Seed: 42,
 			Applications: []scenario.Application{
 				{Name: "app-1", Endpoints: []scenario.Endpoint{{Name: "app-1/ep-1", Behaviour: scenario.Fail}}},
 				{Name: "app-2", Endpoints: []scenario.Endpoint{{Name: "app-2/ep-1", Behaviour: scenario.TLSError}}},
@@ -111,7 +110,6 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	}
 	ms := func(n int64) *int64 { return &n }
 	want := scenario.Recording{
-		Seed:   42,
 		Faults: []scenario.FaultRecord{{Fault: scenario.NATSPaused, Late: true}},
 		Messages: []scenario.MessageRecord{
 			{Name: "m001", Outcome: "accepted"},
