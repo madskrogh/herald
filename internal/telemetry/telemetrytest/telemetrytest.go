@@ -1,15 +1,17 @@
 // Package telemetrytest records the spans that the code under test emits,
-// and checks each against the span schema (internal/telemetry).
+// and checks each against the span schema in the spec (spec/span-schema.md).
 package telemetrytest
 
 import (
+	"fmt"
 	"testing"
 
+	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/madskrogh/herald/internal/telemetry"
+	"github.com/madskrogh/herald/internal/spanschema"
 )
 
 // Recorder records the spans ended through its Provider.
@@ -30,10 +32,8 @@ func NewRecorder(t *testing.T) *Recorder {
 		rec:      rec,
 	}
 	t.Cleanup(func() {
-		for _, s := range r.rec.Ended() {
-			if err := telemetry.CheckSpan(s.Name(), attributeKeys(s)); err != nil {
-				t.Errorf("span schema: %v", err)
-			}
+		for _, err := range Check(r.rec.Ended()) {
+			t.Errorf("span schema: %v", err)
 		}
 	})
 	return r
@@ -82,10 +82,57 @@ type Span struct {
 	Attributes map[string]string
 }
 
-func attributeKeys(s sdktrace.ReadOnlySpan) []string {
-	var keys []string
-	for _, kv := range s.Attributes() {
-		keys = append(keys, string(kv.Key))
+// Check returns every way spans break the span schema, the type each value
+// was emitted as included: an int attribute must be emitted as an integer,
+// and any other as a string. A span's parent and links are checked by name
+// when they are among spans; its service isn't checked.
+func Check(spans []sdktrace.ReadOnlySpan) []error {
+	schema, err := spanschema.Load()
+	if err != nil {
+		return []error{err}
 	}
-	return keys
+	names := map[trace.SpanID]string{}
+	for _, s := range spans {
+		names[s.SpanContext().SpanID()] = s.Name()
+	}
+	var problems []error
+	for _, s := range spans {
+		span := spanschema.Span{
+			Name:       s.Name(),
+			Attributes: map[string]string{},
+			Parent:     names[s.Parent().SpanID()],
+			Root:       !s.Parent().IsValid(),
+		}
+		for _, kv := range s.Attributes() {
+			span.Attributes[string(kv.Key)] = kv.Value.String()
+		}
+		for _, l := range s.Links() {
+			if name, ok := names[l.SpanContext.SpanID()]; ok {
+				span.Links = append(span.Links, name)
+			}
+		}
+		problems = append(problems, schema.Check(span)...)
+		problems = append(problems, emittedTypes(schema, s)...)
+	}
+	return problems
+}
+
+// emittedTypes returns the attributes of s that the schema lists and that
+// were emitted as another type than it gives.
+func emittedTypes(schema spanschema.Schema, s sdktrace.ReadOnlySpan) []error {
+	var problems []error
+	for _, kv := range s.Attributes() {
+		a, ok := schema.Attributes[string(kv.Key)]
+		if !ok {
+			continue
+		}
+		want := attribute.STRING
+		if a.Type == spanschema.Int {
+			want = attribute.INT64
+		}
+		if got := kv.Value.Type(); got != want {
+			problems = append(problems, fmt.Errorf("span %q: attribute %q emitted as %s, want %s", s.Name(), kv.Key, got, want))
+		}
+	}
+	return problems
 }

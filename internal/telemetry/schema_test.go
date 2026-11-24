@@ -1,47 +1,45 @@
 package telemetry_test
 
 import (
+	"slices"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/madskrogh/herald/internal/spanschema"
 	"github.com/madskrogh/herald/internal/telemetry"
 )
 
-func TestCheckSpan(t *testing.T) {
+// TestSchemaMatchesTheSpec checks the span names, attribute keys and outcome
+// values the code emits against the span schema in the spec. The types of
+// the values are checked on every span a test records (telemetrytest).
+func TestSchemaMatchesTheSpec(t *testing.T) {
 	t.Parallel()
-	attempt := []string{
-		"herald.tenant_id", "herald.application_id", "herald.endpoint_id",
-		"herald.message_id", "herald.delivery_id", "herald.attempt",
-		"herald.outcome", "herald.status_code", "herald.latency_ms", "herald.lateness_ms",
-		"herald.error",
+	schema, err := spanschema.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-	tests := []struct {
-		name    string
-		span    string
-		keys    []string
-		wantErr bool
-	}{
-		{name: "every key the schema lists", span: "attempt", keys: attempt},
-		{name: "keys in another order", span: "attempt", keys: reversed(attempt)},
-		{name: "a key missing", span: "attempt", keys: attempt[1:], wantErr: true},
-		{name: "a key not in the schema", span: "attempt", keys: append(attempt[:len(attempt):len(attempt)], "herald.endpoint_url"), wantErr: true},
-		{name: "a key twice", span: "attempt", keys: append(attempt[:len(attempt):len(attempt)], "herald.error"), wantErr: true},
-		{name: "a span name not in the schema", span: "send attempt", keys: attempt, wantErr: true},
+	wantAttrs := map[string][]string{}
+	wantOutcomes := map[string][]string{}
+	for name, s := range schema.Spans {
+		wantAttrs[name] = s.Attributes
+		wantOutcomes[name] = s.Outcomes
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := telemetry.CheckSpan(tt.span, tt.keys)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CheckSpan(%q, %q) = %v, want error: %t", tt.span, tt.keys, err, tt.wantErr)
-			}
-		})
+	gotAttrs := map[string][]string{}
+	for name, keys := range telemetry.Schema {
+		for _, k := range keys {
+			gotAttrs[name] = append(gotAttrs[name], string(k))
+		}
 	}
-}
-
-func reversed(s []string) []string {
-	r := make([]string, len(s))
-	for i, v := range s {
-		r[len(s)-1-i] = v
+	sorted := cmp.Transformer("sorted", func(s []string) []string {
+		s = slices.Clone(s)
+		slices.Sort(s)
+		return s
+	})
+	if diff := cmp.Diff(wantAttrs, gotAttrs, sorted); diff != "" {
+		t.Errorf("telemetry.Schema differs from the spec's attributes of each span (-spec +code):\n%s", diff)
 	}
-	return r
+	if diff := cmp.Diff(wantOutcomes, telemetry.Outcomes, sorted); diff != "" {
+		t.Errorf("telemetry.Outcomes differs from the spec's outcomes (-spec +code):\n%s", diff)
+	}
 }

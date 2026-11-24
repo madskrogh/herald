@@ -13,18 +13,26 @@ import (
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
-const tenantID = "0198a1b2-0000-7000-8000-0000000000aa"
+const (
+	tenantID      = "0198a1b2-0000-7000-8000-0000000000aa"
+	applicationID = "0198a1b2-0000-7000-8000-0000000000bb"
+)
 
 // spanRun returns finalRun's Observations and the spans a build that keeps
 // every rule emits for them: a trace for each Message from its Tenant API
 // call to every Attempt, a trace of its own for m003's call, which returned
-// m001, and the Batch that handed both Messages off.
+// m001, and the Batch that handed both Messages off. Each span follows the
+// span schema.
 func spanRun() (scenario.Observations, []e2e.Span) {
 	obs, _ := finalRun()
 	at := func(ms int) time.Time { return edgeStart.Add(time.Duration(ms) * time.Millisecond) }
 	span := func(trace, id, parent, name string, start int, attrs map[string]string) e2e.Span {
+		service := "herald-api"
+		if name == "store_deliveries" || name == "attempt" {
+			service = "herald-dispatcher"
+		}
 		s := e2e.Span{
-			TraceID: trace, SpanID: id, ParentSpanID: parent, Name: name,
+			TraceID: trace, SpanID: id, ParentSpanID: parent, Name: name, ServiceName: service,
 			Start: at(start), End: at(start + 10), StatusCode: "Ok",
 			Attributes: map[string]string{"herald.tenant_id": tenantID, "herald.error": ""},
 		}
@@ -34,24 +42,41 @@ func spanRun() (scenario.Observations, []e2e.Span) {
 		return s
 	}
 	call := func(trace, id string, start int) e2e.Span {
-		return span(trace, id, "", "tenant_api.call", start, map[string]string{"herald.outcome": "OK", "rpc.method": "/herald.tenant.v1.MessageService/CreateMessage"})
+		return span(trace, id, "", "tenant_api.call", start, map[string]string{
+			"rpc.method":     "/herald.tenant.v1.MessageService/CreateMessage",
+			"herald.outcome": "OK",
+		})
 	}
 	handoff := func(trace, id, parent string, start int, message string) e2e.Span {
-		return span(trace, id, parent, "handoff", start, map[string]string{"herald.message_id": message, "herald.outcome": "handed_off"})
+		return span(trace, id, parent, "handoff", start, map[string]string{
+			"herald.application_id": applicationID,
+			"herald.message_id":     message,
+			"herald.batch_size":     "2",
+			"herald.delivery_count": "2",
+			"herald.outcome":        "handed_off",
+		})
 	}
 	store := func(trace, id, parent string, start int, message string) e2e.Span {
-		return span(trace, id, parent, "store_deliveries", start, map[string]string{"herald.message_id": message, "herald.outcome": "stored"})
+		return span(trace, id, parent, "store_deliveries", start, map[string]string{
+			"herald.application_id": applicationID,
+			"herald.message_id":     message,
+			"herald.batch_size":     "2",
+			"herald.delivery_count": "2",
+			"herald.outcome":        "stored",
+		})
 	}
 	attempt := func(trace, id, parent string, start int, message, endpoint, deliveryID string, n, status int, outcome, err string) e2e.Span {
 		s := span(trace, id, parent, "attempt", start, map[string]string{
-			"herald.message_id":  message,
-			"herald.endpoint_id": endpoint,
-			"herald.delivery_id": deliveryID,
-			"herald.attempt":     strconv.Itoa(n),
-			"herald.status_code": strconv.Itoa(status),
-			"herald.outcome":     outcome,
-			"herald.lateness_ms": "120",
-			"herald.error":       err,
+			"herald.application_id": applicationID,
+			"herald.message_id":     message,
+			"herald.endpoint_id":    endpoint,
+			"herald.delivery_id":    deliveryID,
+			"herald.attempt":        strconv.Itoa(n),
+			"herald.status_code":    strconv.Itoa(status),
+			"herald.outcome":        outcome,
+			"herald.latency_ms":     "35",
+			"herald.lateness_ms":    "120",
+			"herald.error":          err,
 		})
 		if err != "" {
 			s.StatusCode = "Error"
@@ -61,7 +86,7 @@ func spanRun() (scenario.Observations, []e2e.Span) {
 	m1, m2 := edgeM1.String(), edgeM2.String()
 	ep1, ep2 := edgeEP1.String(), edgeEP2.String()
 	const answered500 = "the Endpoint answered 500 Internal Server Error"
-	batch := span("tb", "b1", "", "handoff.batch", 400, map[string]string{"herald.outcome": "handed_off"})
+	batch := span("tb", "b1", "", "handoff.batch", 400, map[string]string{"herald.batch_size": "2", "herald.outcome": "handed_off"})
 	delete(batch.Attributes, "herald.tenant_id")
 	batch.Links = []e2e.Link{{TraceID: "t1", SpanID: "h1"}, {TraceID: "t2", SpanID: "h2"}}
 	return obs, []e2e.Span{
@@ -234,7 +259,7 @@ func TestCheckSpansNamesWhatBroke(t *testing.T) {
 				delete(byID(spans, "a3").Attributes, "herald.status_code")
 				return spans
 			},
-			want: []violation{{"error", "attempt span a3"}},
+			want: []violation{{"schema", "attempt span a3"}, {"error", "attempt span a3"}},
 		},
 		{
 			name: "a refusal of another call, when the scenario asks for a refused Message",
@@ -273,7 +298,47 @@ func TestCheckSpansNamesWhatBroke(t *testing.T) {
 				delete(byID(spans, "a4").Attributes, "herald.lateness_ms")
 				return spans
 			},
-			want: []violation{{"lateness", "m002 to app-1/ep-2"}},
+			want: []violation{{"schema", "attempt span a4"}, {"lateness", "m002 to app-1/ep-2"}},
+		},
+		{
+			name: "an attribute the schema doesn't give the span",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "a1").Attributes["herald.endpoint_url"] = "http://host.docker.internal:50001/endpoints/1"
+				return spans
+			},
+			want: []violation{{"schema", "attempt span a1"}},
+		},
+		{
+			name: "an attribute of another type",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "a1").Attributes["herald.latency_ms"] = "35ms"
+				return spans
+			},
+			want: []violation{{"schema", "attempt span a1"}},
+		},
+		{
+			name: "an outcome the span doesn't take",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "c3").Attributes["herald.outcome"] = "ok"
+				return spans
+			},
+			want: []violation{{"schema", "tenant_api.call span c3"}},
+		},
+		{
+			name: "a parent the span may not have",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "a1").ParentSpanID = "h1"
+				return spans
+			},
+			want: []violation{{"schema", "attempt span a1"}},
+		},
+		{
+			name: "a span from another service",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "s1").ServiceName = "herald-api"
+				return spans
+			},
+			want: []violation{{"schema", "store_deliveries span s1"}},
 		},
 	}
 	for _, tt := range tests {
@@ -471,7 +536,7 @@ func TestCheckSpansFailsOnNothingToCheck(t *testing.T) {
 	for _, v := range scenario.CheckSpans(obs, nil) {
 		got[v.Rule] = true
 	}
-	for _, rule := range []string{"trace", "parent", "error", "lag", "lateness"} {
+	for _, rule := range []string{"trace", "parent", "schema", "error", "lag", "lateness"} {
 		if !got[rule] {
 			t.Errorf("no violation of %q on a run with no spans", rule)
 		}

@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -12,16 +13,44 @@ import (
 
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/e2e"
-	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // The rules CheckSpans checks, in the order it reports them.
 const (
 	ruleTrace    = "trace"
 	ruleParent   = "parent"
+	ruleSchema   = "schema"
 	ruleError    = "error"
 	ruleLag      = "lag"
 	ruleLateness = "lateness"
+)
+
+// The span names, attribute keys and outcomes the rules read, as the span
+// schema in the spec names them (spec/span-schema.md).
+const (
+	spanTenantAPICall   = "tenant_api.call"
+	spanHandoffBatch    = "handoff.batch"
+	spanHandoff         = "handoff"
+	spanStoreDeliveries = "store_deliveries"
+	spanAttempt         = "attempt"
+
+	attrRPCMethod  = "rpc.method"
+	attrMessageID  = "herald.message_id"
+	attrEndpointID = "herald.endpoint_id"
+	attrDeliveryID = "herald.delivery_id"
+	attrAttempt    = "herald.attempt"
+	attrOutcome    = "herald.outcome"
+	attrStatusCode = "herald.status_code"
+	attrLatenessMs = "herald.lateness_ms"
+	attrError      = "herald.error"
+
+	outcomeHandedOff   = "handed_off"
+	outcomeStored      = "stored"
+	outcomeFailed      = "failed"
+	outcomeSucceeded   = "succeeded"
+	outcomePending     = "pending"
+	outcomeCutOff      = "cut_off"
+	outcomeNotRecorded = "not_recorded"
 )
 
 // statusError is the status of a span whose work failed.
@@ -45,9 +74,9 @@ var noResponse = []Behaviour{TimeOut, Reset, Malformed, TLSError}
 // and a dispatcher shutting down all fail handoff rounds and the storing
 // of Batches.
 var faultErrors = map[string][]Fault{
-	telemetry.SpanHandoff:         {NATSPaused, PostgresSlowed, DispatcherRestarted},
-	telemetry.SpanHandoffBatch:    {NATSPaused, PostgresSlowed, DispatcherRestarted},
-	telemetry.SpanStoreDeliveries: {NATSPaused, PostgresSlowed, DispatcherRestarted},
+	spanHandoff:         {NATSPaused, PostgresSlowed, DispatcherRestarted},
+	spanHandoffBatch:    {NATSPaused, PostgresSlowed, DispatcherRestarted},
+	spanStoreDeliveries: {NATSPaused, PostgresSlowed, DispatcherRestarted},
 }
 
 // The Tenant API call, and its outcome, for a Message sent again with an
@@ -66,6 +95,9 @@ const (
 //     recorded;
 //   - parent: R-51 and R-52, which root every trace at a Tenant API call or
 //     a Batch;
+//   - schema: R-79 to R-81, against the span schema: every span's name, its
+//     attributes and their types, its outcome, its service, and the spans
+//     it is a child of and links to;
 //   - error: R-75, with the causes the scenario brings about: an
 //     Endpoint's, through its behaviour, and a fault's, in the fault's
 //     phase;
@@ -79,10 +111,11 @@ func CheckSpans(obs Observations, spans []e2e.Span) []Violation {
 	c := newSpanCheck(obs, spans)
 	c.checkTraces()
 	c.checkParents()
+	c.checkSchema()
 	c.checkErrors()
 	c.checkLag()
 	c.checkLateness()
-	return sortViolations(c.violations, ruleTrace, ruleParent, ruleError, ruleLag, ruleLateness)
+	return sortViolations(c.violations, ruleTrace, ruleParent, ruleSchema, ruleError, ruleLag, ruleLateness)
 }
 
 // spanCheck is a run's spans arranged for CheckSpans.
@@ -144,7 +177,7 @@ func subject(s e2e.Span) string {
 // root returns the Tenant API call at the root of a trace.
 func (c *spanCheck) root(trace string) (e2e.Span, bool) {
 	for _, s := range c.byTrace[trace] {
-		if s.Name == telemetry.SpanTenantAPICall && s.ParentSpanID == "" {
+		if s.Name == spanTenantAPICall && s.ParentSpanID == "" {
 			return s, true
 		}
 	}
@@ -155,8 +188,8 @@ func (c *spanCheck) root(trace string) (e2e.Span, bool) {
 // with the given ID.
 func (c *spanCheck) handedOff(messageID string) (e2e.Span, bool) {
 	for _, s := range c.spans {
-		if s.Name == telemetry.SpanHandoff && s.Attributes[string(telemetry.MessageID)] == messageID &&
-			s.Attributes[string(telemetry.Outcome)] == telemetry.OutcomeHandedOff {
+		if s.Name == spanHandoff && s.Attributes[attrMessageID] == messageID &&
+			s.Attributes[attrOutcome] == outcomeHandedOff {
 			return s, true
 		}
 	}
@@ -204,15 +237,15 @@ func (c *spanCheck) missingFromTrace(messageID string, deliveries []delivery.Del
 	stored := false
 	for _, s := range trace {
 		switch {
-		case s.Name == telemetry.SpanStoreDeliveries && s.Attributes[string(telemetry.MessageID)] == messageID &&
-			s.Attributes[string(telemetry.Outcome)] == telemetry.OutcomeStored:
+		case s.Name == spanStoreDeliveries && s.Attributes[attrMessageID] == messageID &&
+			s.Attributes[attrOutcome] == outcomeStored:
 			stored = true
 		// An Attempt Herald couldn't record may be recorded all the same:
 		// when the commit times out, Postgres may have committed it.
-		case s.Name == telemetry.SpanAttempt && slices.Contains(
-			[]string{telemetry.OutcomeSucceeded, telemetry.OutcomePending, telemetry.OutcomeFailed, telemetry.OutcomeNotRecorded},
-			s.Attributes[string(telemetry.Outcome)]):
-			recorded[s.Attributes[string(telemetry.DeliveryID)]+"/"+s.Attributes[string(telemetry.AttemptNumber)]] = true
+		case s.Name == spanAttempt && slices.Contains(
+			[]string{outcomeSucceeded, outcomePending, outcomeFailed, outcomeNotRecorded},
+			s.Attributes[attrOutcome]):
+			recorded[s.Attributes[attrDeliveryID]+"/"+s.Attributes[attrAttempt]] = true
 		}
 	}
 	if !stored {
@@ -238,8 +271,25 @@ func (c *spanCheck) checkParents() {
 			if _, ok := c.byTrace[s.TraceID][s.ParentSpanID]; !ok {
 				c.add(ruleParent, subject(s), fmt.Sprintf("its parent %s isn't in its trace %s", s.ParentSpanID, s.TraceID))
 			}
-		case s.Name != telemetry.SpanTenantAPICall && s.Name != telemetry.SpanHandoffBatch:
+		case s.Name != spanTenantAPICall && s.Name != spanHandoffBatch:
 			c.add(ruleParent, subject(s), fmt.Sprintf("a root in trace %s, but only a Tenant API call or a Batch starts a trace", s.TraceID))
+		}
+	}
+}
+
+func (c *spanCheck) checkSchema() {
+	if len(c.spans) == 0 {
+		c.nothingToCheck(ruleSchema, "spans")
+		return
+	}
+	problems, err := e2e.SchemaProblems(c.spans)
+	if err != nil {
+		c.add(ruleSchema, "", err.Error())
+		return
+	}
+	for _, s := range c.spans {
+		if ps := problems[s.SpanID]; len(ps) > 0 {
+			c.add(ruleSchema, subject(s), errors.Join(ps...).Error())
 		}
 	}
 }
@@ -250,10 +300,10 @@ func (c *spanCheck) checkErrors() {
 	}
 	conflicts := c.idempotencyConflicts()
 	for _, s := range c.spans {
-		msg, ok := s.Attributes[string(telemetry.Error)]
+		msg, ok := s.Attributes[attrError]
 		switch {
 		case !ok:
-			c.add(ruleError, subject(s), "no "+string(telemetry.Error)+" attribute")
+			c.add(ruleError, subject(s), "no "+attrError+" attribute")
 			continue
 		case msg == "" && s.StatusCode != statusError:
 			continue
@@ -264,8 +314,8 @@ func (c *spanCheck) checkErrors() {
 			c.add(ruleError, subject(s), "an error, but not an error status: "+msg)
 			continue
 		}
-		if s.Name == telemetry.SpanTenantAPICall && s.Attributes[string(telemetry.RPCMethod)] == methodCreateMessage &&
-			s.Attributes[string(telemetry.Outcome)] == outcomeFailedPrecondition && conflicts > 0 {
+		if s.Name == spanTenantAPICall && s.Attributes[attrRPCMethod] == methodCreateMessage &&
+			s.Attributes[attrOutcome] == outcomeFailedPrecondition && conflicts > 0 {
 			conflicts--
 			continue
 		}
@@ -294,19 +344,19 @@ func (c *spanCheck) idempotencyConflicts() int {
 // expected reports whether the scenario causes the error s records.
 func (c *spanCheck) expected(s e2e.Span) bool {
 	switch s.Name {
-	case telemetry.SpanAttempt:
-		fault := c.faults[s.Attributes[string(telemetry.MessageID)]]
-		switch s.Attributes[string(telemetry.Outcome)] {
-		case telemetry.OutcomeCutOff:
+	case spanAttempt:
+		fault := c.faults[s.Attributes[attrMessageID]]
+		switch s.Attributes[attrOutcome] {
+		case outcomeCutOff:
 			return fault == DispatcherRestarted
-		case telemetry.OutcomeNotRecorded:
+		case outcomeNotRecorded:
 			return fault == PostgresSlowed
 		}
-		if outcome := s.Attributes[string(telemetry.Outcome)]; outcome != telemetry.OutcomePending && outcome != telemetry.OutcomeFailed {
+		if outcome := s.Attributes[attrOutcome]; outcome != outcomePending && outcome != outcomeFailed {
 			return false
 		}
-		behaviour := c.behaviours[s.Attributes[string(telemetry.EndpointID)]]
-		status, err := strconv.Atoi(s.Attributes[string(telemetry.StatusCode)])
+		behaviour := c.behaviours[s.Attributes[attrEndpointID]]
+		status, err := strconv.Atoi(s.Attributes[attrStatusCode])
 		switch {
 		case err != nil:
 			return false
@@ -315,29 +365,29 @@ func (c *spanCheck) expected(s e2e.Span) bool {
 			return ok && status == want
 		}
 		return slices.Contains(noResponse, behaviour)
-	case telemetry.SpanHandoffBatch:
-		if s.Attributes[string(telemetry.Outcome)] != telemetry.OutcomeFailed {
+	case spanHandoffBatch:
+		if s.Attributes[attrOutcome] != outcomeFailed {
 			return false
 		}
 		// A Batch is in no Message's phase, but holds Messages of one: the
 		// phases run one after another.
 		for _, link := range s.Links {
 			for _, h := range c.spans {
-				if h.SpanID == link.SpanID && slices.Contains(faultErrors[s.Name], c.faults[h.Attributes[string(telemetry.MessageID)]]) {
+				if h.SpanID == link.SpanID && slices.Contains(faultErrors[s.Name], c.faults[h.Attributes[attrMessageID]]) {
 					return true
 				}
 			}
 		}
 		return false
 	default:
-		return s.Attributes[string(telemetry.Outcome)] == telemetry.OutcomeFailed &&
-			slices.Contains(faultErrors[s.Name], c.faults[s.Attributes[string(telemetry.MessageID)]])
+		return s.Attributes[attrOutcome] == outcomeFailed &&
+			slices.Contains(faultErrors[s.Name], c.faults[s.Attributes[attrMessageID]])
 	}
 }
 
 // messageName returns the name of the Message whose span s is.
 func (c *spanCheck) messageName(s e2e.Span) (string, bool) {
-	id, err := uuid.Parse(s.Attributes[string(telemetry.MessageID)])
+	id, err := uuid.Parse(s.Attributes[attrMessageID])
 	if err != nil {
 		return "", false
 	}
@@ -380,11 +430,11 @@ func (c *spanCheck) checkLateness() {
 	reported := map[string]bool{}
 	for _, s := range c.spans {
 		message, ok := c.messageName(s)
-		if s.Name != telemetry.SpanAttempt || !ok {
+		if s.Name != spanAttempt || !ok {
 			continue
 		}
 		checked++
-		endpoint := s.Attributes[string(telemetry.EndpointID)]
+		endpoint := s.Attributes[attrEndpointID]
 		if id, err := uuid.Parse(endpoint); err == nil {
 			endpoint = c.obs.EndpointIDs[id]
 		}
@@ -392,15 +442,15 @@ func (c *spanCheck) checkLateness() {
 		if reported[k] {
 			continue
 		}
-		ms, err := strconv.ParseInt(s.Attributes[string(telemetry.LatenessMs)], 10, 64)
+		ms, err := strconv.ParseInt(s.Attributes[attrLatenessMs], 10, 64)
 		if err != nil {
 			reported[k] = true
-			c.add(ruleLateness, k, fmt.Sprintf("Attempt span %s has no lateness: %s = %q", s.SpanID, telemetry.LatenessMs, s.Attributes[string(telemetry.LatenessMs)]))
+			c.add(ruleLateness, k, fmt.Sprintf("Attempt span %s has no lateness: %s = %q", s.SpanID, attrLatenessMs, s.Attributes[attrLatenessMs]))
 			continue
 		}
-		if late, limit := time.Duration(ms)*time.Millisecond, c.limit(s.Attributes[string(telemetry.MessageID)]); late > limit {
+		if late, limit := time.Duration(ms)*time.Millisecond, c.limit(s.Attributes[attrMessageID]); late > limit {
 			reported[k] = true
-			c.add(ruleLateness, k, fmt.Sprintf("Attempt %s started %v after it fell due, want within %v", s.Attributes[string(telemetry.AttemptNumber)], late, limit))
+			c.add(ruleLateness, k, fmt.Sprintf("Attempt %s started %v after it fell due, want within %v", s.Attributes[attrAttempt], late, limit))
 		}
 	}
 	if checked == 0 {

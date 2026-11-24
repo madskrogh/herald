@@ -2,7 +2,6 @@ package e2e_test
 
 import (
 	"cmp"
-	"maps"
 	"slices"
 	"strconv"
 	"testing"
@@ -12,7 +11,6 @@ import (
 	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
-	"github.com/madskrogh/herald/internal/telemetry"
 )
 
 // TestMessageIsOneTraceFromTheAPIToEveryAttempt sends a Message to two
@@ -53,8 +51,12 @@ func TestMessageIsOneTraceFromTheAPIToEveryAttempt(t *testing.T) {
 	if len(spans) != wantSpans {
 		t.Fatalf("Message's trace has %d spans, want %d: %+v", len(spans), wantSpans, spans)
 	}
+	problems, err := e2e.SchemaProblems(spans)
+	if err != nil {
+		t.Fatalf("SchemaProblems: %v", err)
+	}
 	for _, s := range spans {
-		if err := telemetry.CheckSpan(s.Name, slices.Collect(maps.Keys(s.Attributes))); err != nil {
+		for _, err := range problems[s.SpanID] {
 			t.Errorf("span schema: %v", err)
 		}
 		for _, key := range []string{"service.version", "herald.run_id"} {
@@ -68,9 +70,9 @@ func TestMessageIsOneTraceFromTheAPIToEveryAttempt(t *testing.T) {
 	for _, s := range spans {
 		byName[s.Name] = append(byName[s.Name], s)
 	}
-	call := only(t, byName, telemetry.SpanTenantAPICall)
-	handoff := only(t, byName, telemetry.SpanHandoff)
-	store := only(t, byName, telemetry.SpanStoreDeliveries)
+	call := only(t, byName, "tenant_api.call")
+	handoff := only(t, byName, "handoff")
+	store := only(t, byName, "store_deliveries")
 	if call.ParentSpanID != "" {
 		t.Errorf("Tenant API call span has parent %s, want none", call.ParentSpanID)
 	}
@@ -101,7 +103,7 @@ func TestMessageIsOneTraceFromTheAPIToEveryAttempt(t *testing.T) {
 
 	// Every Attempt is a child of the store span, a retry as much as the
 	// first.
-	attempts := byName[telemetry.SpanAttempt]
+	attempts := byName["attempt"]
 	slices.SortFunc(attempts, func(a, b e2e.Span) int {
 		return cmp.Or(
 			cmp.Compare(a.Attributes["herald.endpoint_id"], b.Attributes["herald.endpoint_id"]),
@@ -133,8 +135,8 @@ func TestMessageIsOneTraceFromTheAPIToEveryAttempt(t *testing.T) {
 	if len(batches) != 1 {
 		t.Fatalf("got %d Batch spans linked to the handoff, want 1", len(batches))
 	}
-	if batches[0].Name != telemetry.SpanHandoffBatch || batches[0].TraceID == call.TraceID {
-		t.Errorf("span linked to the handoff is %s in trace %s, want a %s span in a trace of its own", batches[0].Name, batches[0].TraceID, telemetry.SpanHandoffBatch)
+	if batches[0].Name != "handoff.batch" || batches[0].TraceID == call.TraceID {
+		t.Errorf("span linked to the handoff is %s in trace %s, want a %s span in a trace of its own", batches[0].Name, batches[0].TraceID, "handoff.batch")
 	}
 }
 
