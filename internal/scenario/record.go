@@ -47,9 +47,12 @@ type Sent struct {
 }
 
 // Recording is a run's Observations normalised: what doesn't vary between
-// runs of the same build. It is what the baseline holds.
+// runs of the same build. It is what the baseline holds: the output of the
+// traffic file it names, recorded and never written by hand
+// (docs/testing.md, "The traffic file and the baseline").
 type Recording struct {
-	Seed uint64 `json:"seed"`
+	// Traffic is the traffic file the run ran.
+	Traffic TrafficFile `json:"traffic"`
 	// Faults has one record for each phase with a fault, in order.
 	Faults     []FaultRecord    `json:"faults"`
 	Messages   []MessageRecord  `json:"messages"`
@@ -118,10 +121,11 @@ type AttemptRecord struct {
 // unnoticed (decided on #112).
 const lateAfter = 3 * time.Second
 
-// NewRecording normalises obs. It fails on an Attempt it can't place: one
-// whose webhook-id is no Message's ID, or that has no Delivery.
-func NewRecording(obs Observations) (Recording, error) {
-	rec := Recording{Seed: obs.Scenario.Seed}
+// NewRecording normalises obs, observed running the traffic in traffic. It
+// fails on an Attempt it can't place: one whose webhook-id is no Message's
+// ID, or that has no Delivery.
+func NewRecording(traffic TrafficFile, obs Observations) (Recording, error) {
+	rec := Recording{Traffic: traffic}
 	messages := map[string]Message{}
 	faults := map[string]Fault{}
 	sentAt := map[string]time.Time{}

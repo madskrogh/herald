@@ -1,0 +1,3 @@
+# The scenario's baseline holds the SHA-256 of its traffic file, so the file
+# is checked out byte for byte as committed, whatever the platform.
+internal/scenario/testdata/traffic.json -text

@@ -3,7 +3,6 @@ package scenario
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -75,13 +74,7 @@ func respond(b Behaviour) endpointtest.Respond {
 // messageNumber returns the number in the name of the Message whose payload
 // is body, such as 17 for m017, or 0 if body names none.
 func messageNumber(body []byte) int {
-	var p struct {
-		Message string `json:"message"`
-	}
-	if json.Unmarshal(body, &p) != nil {
-		return 0
-	}
-	n, err := strconv.Atoi(strings.TrimPrefix(p.Message, "m"))
+	n, err := strconv.Atoi(strings.TrimPrefix(payloadMessage(string(body)), "m"))
 	if err != nil {
 		return 0
 	}
