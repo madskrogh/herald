@@ -12,9 +12,20 @@ import (
 // their cases from the spec (ADR 0013).
 type Table struct {
 	// Line is the line of the file its header is on.
-	Line   int
-	Header []string
-	Rows   [][]string
+	Line int
+	// Heading is the text of the heading it sits under, or empty if it
+	// comes before the first heading. A shape file's reader finds its
+	// tables by heading.
+	Heading string
+	Header  []string
+	Rows    [][]string
+}
+
+// RowLine returns the line of the file row i of Rows is on, for errors
+// that point at it.
+func (t Table) RowLine(i int) int {
+	// A table's rows are consecutive lines, below its header and delimiter.
+	return t.Line + 2 + i
 }
 
 // Column returns the index of the header cell named name, or -1. Tests use
@@ -29,9 +40,9 @@ func (t Table) Column(name string) int {
 }
 
 // newTable reads the lines of a table, its header and delimiter rows
-// included, that starts at line.
-func newTable(line int, lines []string) Table {
-	t := Table{Line: line, Header: cells(lines[0])}
+// included, that starts at line under heading.
+func newTable(heading string, line int, lines []string) Table {
+	t := Table{Line: line, Heading: heading, Header: cells(lines[0])}
 	for _, l := range lines[2:] {
 		t.Rows = append(t.Rows, cells(l))
 	}

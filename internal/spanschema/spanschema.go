@@ -6,16 +6,14 @@
 package spanschema
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"uuid"
 
+	internalspec "github.com/madskrogh/herald/internal/spec"
 	"github.com/madskrogh/herald/spec"
 )
 
@@ -94,11 +92,11 @@ const outcomeKey = "herald.outcome"
 
 // load parses the schema file once.
 var load = sync.OnceValues(func() (Schema, error) {
-	data, err := spec.Files.ReadFile(file)
+	tables, err := internalspec.FileTables(spec.Files, file)
 	if err != nil {
 		return Schema{}, fmt.Errorf("read the span schema: %w", err)
 	}
-	s, err := parse(data)
+	s, err := parse(tables)
 	if err != nil {
 		return Schema{}, fmt.Errorf("span schema %s: %w", file, err)
 	}
@@ -237,17 +235,15 @@ var (
 )
 
 var (
-	headingRE    = regexp.MustCompile(`^#+\s+(.*?)\s*$`)
 	backtickRE   = regexp.MustCompile("`([^`]*)`")
 	backtickedRE = regexp.MustCompile("^`([^`]+)`$")
-	delimiterRE  = regexp.MustCompile(`^:?-+:?$`)
 )
 
-// parse reads a span schema in the form of spec/span-schema.md: a table of
-// spans, of attributes, of each span's attributes and of outcomes, each
-// under its own "##" heading.
-func parse(data []byte) (Schema, error) {
-	tables, err := readTables(data)
+// parse reads a span schema from the tables of a file in the form of
+// spec/span-schema.md: a table of spans, of attributes, of each span's
+// attributes and of outcomes, each under its own "##" heading.
+func parse(fileTables []internalspec.Table) (Schema, error) {
+	tables, err := rowsByHeading(fileTables)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -379,85 +375,38 @@ func (r row) backticked(column string) (string, error) {
 	return m[1], nil
 }
 
-// readTables returns the rows of the first table under each heading, by the
-// heading's text.
-func readTables(data []byte) (map[string][]row, error) {
-	tables := map[string][]row{}
-	var (
-		section string
-		header  []string
-		done    bool // whether the section's table has ended
-	)
-	sc := bufio.NewScanner(bytes.NewReader(data))
-	for line := 1; sc.Scan(); line++ {
-		text := strings.TrimSpace(sc.Text())
-		if m := headingRE.FindStringSubmatch(text); m != nil {
-			section, header, done = m[1], nil, false
+// rowsByHeading returns the rows of the first table under each heading, by
+// the heading's text. A table before the first heading is left out.
+func rowsByHeading(tables []internalspec.Table) (map[string][]row, error) {
+	byHeading := map[string][]row{}
+	for _, t := range tables {
+		if _, ok := byHeading[t.Heading]; ok || t.Heading == "" {
 			continue
 		}
-		if !strings.HasPrefix(text, "|") {
-			if header != nil {
-				done = true
-			}
-			continue
+		rs, err := rows(t)
+		if err != nil {
+			return nil, err
 		}
-		if section == "" || done {
-			continue
-		}
-		cells := splitRow(text)
-		switch {
-		case header == nil:
-			header = cells
-			continue
-		case isDelimiter(cells):
-			continue
-		case len(cells) != len(header):
-			return nil, fmt.Errorf("line %d: %d cells, want %d", line, len(cells), len(header))
-		}
-		r := row{line: line, cells: map[string]string{}}
-		for i, h := range header {
-			r.cells[h] = cells[i]
-		}
-		tables[section] = append(tables[section], r)
+		byHeading[t.Heading] = rs
 	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("read tables: %w", err)
-	}
-	return tables, nil
+	return byHeading, nil
 }
 
-// splitRow returns the cells of a table row. An escaped pipe, \|, is part of
-// its cell, as a pipe.
-func splitRow(text string) []string {
-	text = strings.TrimSuffix(strings.TrimPrefix(text, "|"), "|")
-	var (
-		cells []string
-		cell  strings.Builder
-	)
-	for i := 0; i < len(text); i++ {
-		switch {
-		case text[i] == '\\' && i+1 < len(text) && text[i+1] == '|':
-			cell.WriteByte('|')
-			i++
-		case text[i] == '|':
-			cells = append(cells, strings.TrimSpace(cell.String()))
-			cell.Reset()
-		default:
-			cell.WriteByte(text[i])
+// rows returns the rows of t, their cells by column. A row with more or
+// fewer cells than the header is an error.
+func rows(t internalspec.Table) ([]row, error) {
+	out := make([]row, 0, len(t.Rows))
+	for i, cells := range t.Rows {
+		r := row{line: t.RowLine(i), cells: map[string]string{}}
+		if len(cells) != len(t.Header) {
+			return nil, r.errorf("%d cells, want %d", len(cells), len(t.Header))
 		}
-	}
-	return append(cells, strings.TrimSpace(cell.String()))
-}
-
-// isDelimiter reports whether cells are a table's delimiter row, such as
-// |---|:--:|.
-func isDelimiter(cells []string) bool {
-	for _, c := range cells {
-		if !delimiterRE.MatchString(c) {
-			return false
+		for j, h := range t.Header {
+			r.cells[h] = cells[j]
 		}
+		out = append(out, r)
 	}
-	return true
+	return out, nil
 }
 
 func backticks(cell string) []string {
