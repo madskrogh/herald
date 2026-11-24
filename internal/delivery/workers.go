@@ -348,7 +348,6 @@ func (w *Workers) send(ctx context.Context, d Delivery) (Attempt, error) {
 	ctx, cancel := context.WithTimeout(ctx, attemptTimeout)
 	defer cancel()
 	begin := time.Now()
-	time.Sleep(100 * time.Millisecond)
 	resp, err := w.cfg.Client.Do(req.WithContext(ctx))
 	if err != nil {
 		a.Latency = time.Since(begin)
