@@ -45,8 +45,8 @@ Herald has six kinds of tests. They differ in what they run against and in what 
 
 ## Scenario invariants
 
-- **Check:** rules that hold on any build, after every scenario run: at the edge (signatures, `webhook-id`, payloads, fan-out, the per-Endpoint cap, the retry schedule), in final state in Postgres (every Delivery finished and agreeing with the edge, the Outbox drained, duplicate protection), in the spans (complete traces, no orphans, no unexpected errors, lag and lateness under fixed limits), and in the goroutine profiles (no leaks).
-- **Compare against:** an absolute rule. There is no baseline, and a rule is never changed to accept a new behaviour.
+- **Check:** the spec's requirements, after every scenario run, at the edge (what the Endpoints received), in final state in Postgres, and in the spans. Each check names the requirements it holds Herald to, in its doc comment in `internal/scenario` (`CheckEdge`, `CheckFinalState`, `CheckSpans`). Its filter matching and retry schedule are its own, written from [the spec](../spec/README.md) and tested against its vectors, and its limits are compared with [spec/limits.md](../spec/limits.md). One check isn't a requirement: each service's goroutines return to their idle set, a Go-only way of showing the service holds nothing once the scenario ends ([ADR 0007](adr/0007-code-regenerated-from-the-spec.md)).
+- **Compare against:** the spec's requirements. There is no baseline, and a check changes only when its requirement does.
 - **Catch:** a rule broken anywhere in the generated traffic, including while faults run, where the end-to-end tests don't look. A failure names what broke: the Delivery, Message, span or goroutine stack, and the rule.
 - **Can't catch:** wrong behaviour that breaks no stated rule, which is what the comparison is for. Every check fails on missing data, so a check can't pass on nothing; but a rule nobody wrote down isn't checked.
 - **Run:** after every scenario run, in the same `make scenario-compare` or `make scenario-record`, so on every PR once #81 lands.

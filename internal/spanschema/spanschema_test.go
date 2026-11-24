@@ -31,10 +31,10 @@ func TestCheckFollowsTheVectors(t *testing.T) {
 		check   func(Span) []error
 	}{
 		{"R-53 · implemented", schema.CheckAttributes},
-		{"R-71 · implemented", schema.CheckAttributes},
-		{"R-72 · implemented", schema.CheckAttributes},
+		{"R-79 · implemented", schema.CheckAttributes},
+		{"R-80 · implemented", schema.CheckAttributes},
 		// Its vectors give the trace shape, not the attributes.
-		{"R-73 · implemented", schema.CheckTrace},
+		{"R-81 · implemented", schema.CheckTrace},
 	} {
 		rows := tables[req.heading]
 		if len(rows) == 0 {

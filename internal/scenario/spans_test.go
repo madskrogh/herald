@@ -234,6 +234,49 @@ func TestCheckSpansNamesWhatBroke(t *testing.T) {
 			want: []violation{{"error", "tenant_api.call span c3"}},
 		},
 		{
+			name: "an error without an error status",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "a3").StatusCode = "Ok"
+				return spans
+			},
+			want: []violation{{"error", "attempt span a3"}},
+		},
+		{
+			name: "an Endpoint's error on an Attempt that succeeded",
+			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				byID(spans, "a3").Attributes["herald.outcome"] = "succeeded"
+				return spans
+			},
+			want: []violation{{"error", "attempt span a3"}},
+		},
+		{
+			name: "an error with no status code at an Endpoint that gives no response",
+			breakIt: func(obs *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				obs.Scenario.Applications[0].Endpoints[1].Behaviour = scenario.TimeOut
+				for _, id := range []string{"a3", "a4"} {
+					byID(spans, id).Attributes["herald.status_code"] = "0"
+				}
+				delete(byID(spans, "a3").Attributes, "herald.status_code")
+				return spans
+			},
+			want: []violation{{"schema", "attempt span a3"}, {"error", "attempt span a3"}},
+		},
+		{
+			name: "a refusal of another call, when the scenario asks for a refused Message",
+			breakIt: func(obs *scenario.Observations, spans []e2e.Span) []e2e.Span {
+				m := scenario.Message{Name: "m004", Application: "app-1", EventType: "invoice.paid", IdempotencyKey: "key-m001", Payload: `{"message":"m004"}`}
+				obs.Scenario.Phases[0].Messages = append(obs.Scenario.Phases[0].Messages, m)
+				obs.Sent["m004"] = scenario.Sent{Status: 422}
+				c := byID(spans, "c3")
+				c.StatusCode = "Error"
+				c.Attributes["rpc.method"] = "/herald.tenant.v1.EndpointService/CreateEndpoint"
+				c.Attributes["herald.outcome"] = "FailedPrecondition"
+				c.Attributes["herald.error"] = "refused"
+				return spans
+			},
+			want: []violation{{"error", "tenant_api.call span c3"}},
+		},
+		{
 			name: "a stalled handoff",
 			breakIt: func(_ *scenario.Observations, spans []e2e.Span) []e2e.Span {
 				byID(spans, "h1").Start = byID(spans, "c1").End.Add(2500 * time.Millisecond)
@@ -328,6 +371,53 @@ func TestCheckSpansAllowsTheRefusalTheScenarioAsksFor(t *testing.T) {
 	if got := scenario.CheckSpans(obs, append(spans, refused)); len(got) != 0 {
 		t.Errorf("CheckSpans = %v, want no violations", got)
 	}
+}
+
+// TestCheckSpansDoesNotReadErrorText checks that an error the scenario
+// causes is expected whatever words it uses: R-75 tells causes apart by
+// outcome and status code, and leaves the words to the build.
+func TestCheckSpansDoesNotReadErrorText(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		behaviour scenario.Behaviour
+	}{
+		{"an Endpoint that doesn't answer in time", scenario.TimeOut},
+		{"an Endpoint that resets the connection", scenario.Reset},
+		{"an Endpoint that answers with something that isn't HTTP", scenario.Malformed},
+		{"an Endpoint with an untrusted certificate", scenario.TLSError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			obs, spans := spanRun()
+			obs.Scenario.Applications[0].Endpoints[1].Behaviour = tt.behaviour
+			for i := range spans {
+				if spans[i].SpanID == "a3" || spans[i].SpanID == "a4" {
+					spans[i].Attributes["herald.status_code"] = "0"
+					spans[i].Attributes["herald.error"] = "no response: something went wrong"
+				}
+			}
+			if got := scenario.CheckSpans(obs, spans); len(got) != 0 {
+				t.Errorf("CheckSpans = %v, want no violations", got)
+			}
+		})
+	}
+	t.Run("a refusal of an Idempotency-Key used with another request", func(t *testing.T) {
+		t.Parallel()
+		obs, spans := spanRun()
+		m := scenario.Message{Name: "m004", Application: "app-1", EventType: "invoice.paid", IdempotencyKey: "key-m001", Payload: `{"message":"m004"}`}
+		obs.Scenario.Phases[0].Messages = append(obs.Scenario.Phases[0].Messages, m)
+		obs.Sent["m004"] = scenario.Sent{Status: 422}
+		refused := clone(spans[slices.IndexFunc(spans, func(s e2e.Span) bool { return s.SpanID == "c3" })], "c4")
+		refused.TraceID = "t4"
+		refused.StatusCode = "Error"
+		refused.Attributes["herald.outcome"] = "FailedPrecondition"
+		refused.Attributes["herald.error"] = "this key belongs to another request"
+		if got := scenario.CheckSpans(obs, append(spans, refused)); len(got) != 0 {
+			t.Errorf("CheckSpans = %v, want no violations", got)
+		}
+	})
 }
 
 // TestCheckSpansLeavesTheEdgeToCheckEdge checks that an Attempt CheckEdge

@@ -42,7 +42,7 @@ Why: each span carries everything known at that point, so a question nobody plan
 | `handoff.batch` | `herald.batch_size=2`, `herald.outcome=handed_off`, `herald.error=`, `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa` | no | `herald.tenant_id` |
 | `batch` | `herald.batch_size=2`, `herald.outcome=handed_off`, `herald.error=` | no | `batch` |
 
-### R-71 · implemented
+### R-79 · implemented
 
 Each attribute of a span MUST have the type the [span schema](span-schema.md) gives its key, and MUST NOT be empty unless the schema allows it. An `int` attribute MUST be emitted as an integer, and any other as a string.
 
@@ -60,7 +60,7 @@ Why: a query compares and sums attribute values, so an ID that isn't a UUID or a
 | `handoff` | `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.application_id=`, `herald.message_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.batch_size=1`, `herald.delivery_count=0`, `herald.outcome=handed_off`, `herald.error=` | yes | |
 | `handoff` | `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.application_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.message_id=`, `herald.batch_size=1`, `herald.delivery_count=0`, `herald.outcome=handed_off`, `herald.error=` | no | `herald.message_id` |
 
-### R-72 · implemented
+### R-80 · implemented
 
 The `herald.outcome` attribute of a span MUST be one of the values the [span schema](span-schema.md) lists for that span.
 
@@ -73,7 +73,7 @@ Why: Attempts, handoffs and calls are counted by outcome, so a value outside the
 | `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/GetMessage`, `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.outcome=NotFound`, `herald.error=message not found` | yes | |
 | `tenant_api.call` | `rpc.method=/herald.tenant.v1.MessageService/GetMessage`, `herald.tenant_id=0198a1b2-0000-7000-8000-0000000000aa`, `herald.outcome=NOT_FOUND`, `herald.error=message not found` | no | `herald.outcome` |
 
-### R-73 · implemented
+### R-81 · implemented
 
 A span's parent, and each span it links to, MUST be one the [span schema](span-schema.md) allows for it. A span MUST have a parent unless the schema allows it to be a root, and MUST come from the service the schema names.
 
@@ -93,7 +93,7 @@ Why: the trace shape is what a developer follows from one Message to every step 
 | `handoff.batch` | herald-api | `tenant_api.call` | `handoff` | no | `tenant_api.call` |
 | `handoff` | herald-api | `tenant_api.call` | `handoff` | no | `handoff` |
 
-### R-74 · implemented
+### R-82 · implemented
 
 An `attempt` span's `herald.error` MUST NOT hold the Endpoint's URL, or any part of its path or query, even when the Attempt's own error, which the Tenant sees, does.
 
@@ -103,7 +103,7 @@ Why: spans leave Herald for the Collector and the telemetry store, which the Ten
 |---|---|---|---|
 | `http://127.0.0.1:1/webhooks?token=tok_9f2c41d7` | connection refused | the URL, with `tok_9f2c41d7` | why the connection failed, without `tok_9f2c41d7` |
 
-### R-75 · planned
+### R-83 · planned
 
 A Tenant API call's span MUST start a new trace, whatever trace context the Tenant sends with the call.
 
@@ -131,6 +131,23 @@ Why: runs of different builds share one store, so a query compares them by versi
 |---|---|---|---|---|---|
 | herald-api | `abc123` | `run-7` | `herald-api` | `abc123` | `run-7` |
 | herald-dispatcher | not set | not set | `herald-dispatcher` | `dev` | (empty) |
+
+### R-75 · implemented
+
+A span MUST record an error, as a non-empty `herald.error` and an error status together, when and only when its work failed for one of the causes below.
+
+Why: an error on a span is what a developer looking for a problem searches for. One that only says a Tenant's Endpoint misbehaved, or that the stack Herald runs on failed, is expected; any other is a bug in Herald, and the scenario invariants report it as one. Which words an error uses is left to the build, so the causes are told apart by outcome and status code, not by text.
+
+| Span | `herald.outcome` | Cause |
+|---|---|---|
+| `attempt` | `pending` or `failed` | the Endpoint answered with a status that isn't `2xx`, which is `herald.status_code` (R-7) |
+| `attempt` | `pending` or `failed` | the Endpoint gave no response: it didn't answer within `attempt-timeout`, reset the connection, answered with something that isn't HTTP, or failed the TLS handshake. `herald.status_code` is `0` |
+| `attempt` | `cut_off` | the dispatcher stopped during the Attempt |
+| `attempt` | `not_recorded` | Postgres didn't confirm the Attempt was recorded (R-17) |
+| `handoff`, `handoff.batch` | `failed` | NATS, Postgres or a dispatcher failed, such as in a fault [latency.md](latency.md) names |
+| `store_deliveries` | `failed` | as for `handoff` |
+| `tenant_api.call` | the gRPC status code a requirement of [tenant-api.md](tenant-api.md) fails the call with | the call failed as that requirement says, such as `FailedPrecondition` for an Idempotency-Key used with another request (R-39) |
+| any | any | none: no error, and a status other than an error |
 
 ## Logs
 

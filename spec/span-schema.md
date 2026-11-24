@@ -1,6 +1,6 @@
 # Span schema
 
-The spans Herald emits: their names, the trace shape, the attribute keys and their types, and the values of `herald.outcome` ([R-53](observability.md#r-53--implemented) to [R-73](observability.md#r-73--implemented)). Herald's code is checked against this file, and the checks read it to check the spans of a run.
+The spans Herald emits: their names, the trace shape, the attribute keys and their types, and the values of `herald.outcome` ([R-53](observability.md#r-53--implemented) and [R-79](observability.md#r-79--implemented) to [R-81](observability.md#r-81--implemented)). Herald's code is checked against this file, and the checks read it to check the spans of a run.
 
 Each span is one wide span: it carries everything known at that point, so a question nobody planned for is a new query, not new instrumentation. That is the reason every attribute appears on every span that knows it, and the reason this file gives for an attribute is why someone queries it.
 
@@ -10,7 +10,7 @@ Each span is one wide span: it carries everything known at that point, so a ques
 
 | Span | Service | Parent | Root | Links to | Why |
 |---|---|---|---|---|---|
-| `tenant_api.call` | herald-api | | always | | One call to the Tenant API, over gRPC or REST, is the root of the trace of any Message it creates ([R-51](observability.md#r-51--implemented)), whatever trace context the Tenant sends ([R-75](observability.md#r-75--planned)). |
+| `tenant_api.call` | herald-api | | always | | One call to the Tenant API, over gRPC or REST, is the root of the trace of any Message it creates ([R-51](observability.md#r-51--implemented)), whatever trace context the Tenant sends ([R-83](observability.md#r-83--planned)). |
 | `handoff.batch` | herald-api | | always | `handoff` | A Batch holds Messages from many traces, so it can't have one parent; it starts a trace of its own and links to the handoff of each Message in it ([R-52](observability.md#r-52--implemented)). |
 | `handoff` | herald-api | `tenant_api.call` | may | | One Message in a Batch, in the Message's trace. A Message stored before Messages kept their trace context has none to continue, and starts a trace of its own. |
 | `store_deliveries` | herald-dispatcher | `handoff` | may | | A dispatcher storing one Message's Deliveries from a Batch, in the Message's trace. Each Delivery keeps its context, so that every Attempt for it is its child. A Message handed off without trace context starts a trace of its own. |
@@ -35,7 +35,7 @@ Every value is text in the store, where checks and people read it ([ADR 0006](..
 | `herald.lateness_ms` | int | never | How long after its Delivery fell due an Attempt started, in milliseconds, so a query sees Attempts that start late. |
 | `herald.batch_size` | int | never | How many Messages the Batch holds, so handoff and storing are read against Batch size. |
 | `herald.delivery_count` | int | never | How many Deliveries the Message has, its fan-out, so handoff and storing are read against it. |
-| `herald.error` | string | allowed | Why the work failed, or empty if it didn't, so a failure is read from its span. On an Attempt it never holds the Endpoint's URL ([R-74](observability.md#r-74--implemented)). |
+| `herald.error` | string | allowed | Why the work failed, or empty if it didn't, so a failure is read from its span. On an Attempt it never holds the Endpoint's URL ([R-82](observability.md#r-82--implemented)). |
 
 ## Attributes of each span
 

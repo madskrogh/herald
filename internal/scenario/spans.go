@@ -25,15 +25,6 @@ const (
 	ruleLateness = "lateness"
 )
 
-// The limits on handoff lag and how late an Attempt starts: tight on the
-// normal path, and loose enough under a fault that only a stall breaks
-// them. Neither depends on the retry scale: the relay's and the workers'
-// polling drive both (decided in #80).
-const (
-	delayLimit        = 2 * time.Second
-	delayLimitInFault = 15 * time.Second
-)
-
 // The span names, attribute keys and outcomes the rules read, as the span
 // schema in the spec names them (spec/span-schema.md).
 const (
@@ -43,6 +34,7 @@ const (
 	spanStoreDeliveries = "store_deliveries"
 	spanAttempt         = "attempt"
 
+	attrRPCMethod  = "rpc.method"
 	attrMessageID  = "herald.message_id"
 	attrEndpointID = "herald.endpoint_id"
 	attrDeliveryID = "herald.delivery_id"
@@ -64,56 +56,54 @@ const (
 // statusError is the status of a span whose work failed.
 const statusError = "Error"
 
-// endpointErrors says which errors an Attempt to an Endpoint with each
-// behaviour may record: its status code, or, for 0, a part of its error
-// that says why there was no response. Other behaviours answer every
-// Attempt in time.
-var endpointErrors = map[Behaviour]struct {
-	status int
-	errors []string
-}{
-	Fail:      {status: 500},
-	Flap:      {status: 503},
-	Redirect:  {status: 302},
-	TimeOut:   {errors: []string{"deadline exceeded"}},
-	Reset:     {errors: []string{"EOF", "connection reset"}},
-	Malformed: {errors: []string{"malformed HTTP"}},
-	TLSError:  {errors: []string{"certificate"}},
+// endpointStatus is the status code an Endpoint with each behaviour
+// answers a failed Attempt with, which is R-75's cause for its error.
+var endpointStatus = map[Behaviour]int{
+	Fail:     500,
+	Flap:     503,
+	Redirect: 302,
 }
 
+// noResponse holds the behaviours of an Endpoint that gives no response
+// to some Attempts, which is R-75's cause for an error with status code 0.
+// Which words the error uses is the build's choice, so they aren't read.
+var noResponse = []Behaviour{TimeOut, Reset, Malformed, TLSError}
+
 // faultErrors says which faults may make a span's work fail, by span name,
-// beyond what an Endpoint causes. A paused NATS, a slowed Postgres and a
-// dispatcher shutting down all fail handoff rounds and the storing of
-// Batches.
+// beyond what an Endpoint causes (R-75). A paused NATS, a slowed Postgres
+// and a dispatcher shutting down all fail handoff rounds and the storing
+// of Batches.
 var faultErrors = map[string][]Fault{
 	spanHandoff:         {NATSPaused, PostgresSlowed, DispatcherRestarted},
 	spanHandoffBatch:    {NATSPaused, PostgresSlowed, DispatcherRestarted},
 	spanStoreDeliveries: {NATSPaused, PostgresSlowed, DispatcherRestarted},
 }
 
-// The Tenant API call's outcome and error for a Message sent again with an
-// Idempotency-Key and another request, which the scenario sends on purpose.
+// The Tenant API call, and its outcome, for a Message sent again with an
+// Idempotency-Key and another request, which the scenario sends on purpose
+// (R-39).
 const (
+	methodCreateMessage       = "/herald.tenant.v1.MessageService/CreateMessage"
 	outcomeFailedPrecondition = "FailedPrecondition"
-	idempotencyConflict       = "Idempotency-Key was used for a different request"
 )
 
-// CheckSpans checks the rules that hold in a run's spans: every span of
-// each trace that has a span of the run's Tenant, and the Batches that link
-// to them.
+// CheckSpans checks the requirements that show in a run's spans: every span
+// of each trace that has a span of the run's Tenant, and the Batches that
+// link to them. One rule each:
 //
-//   - every Message Herald accepted has one trace from its Tenant API call
-//     through the handoff and the storing of its Deliveries to a span for
-//     every Attempt Herald recorded;
-//   - every span's parent is in its trace, and every root is a Tenant API
-//     call or a Batch;
-//   - every span follows the span schema: its name, its attributes and their
-//     types, its outcome, its service, and the spans it is a child of and
-//     links to;
-//   - no span records an error the scenario doesn't cause: an Endpoint's,
-//     through its behaviour, or a fault's, in the fault's phase;
-//   - each handoff comes within 2 s of its Tenant API call, and each Attempt
-//     starts within 2 s of falling due, or 15 s under a fault.
+//   - trace: R-51, for every Message Herald accepted and every Attempt it
+//     recorded;
+//   - parent: R-51 and R-52, which root every trace at a Tenant API call or
+//     a Batch;
+//   - schema: R-79 to R-81, against the span schema: every span's name, its
+//     attributes and their types, its outcome, its service, and the spans
+//     it is a child of and links to;
+//   - error: R-75, with the causes the scenario brings about: an
+//     Endpoint's, through its behaviour, and a fault's, in the fault's
+//     phase;
+//   - lag: R-71, and R-73 or R-74 under a fault;
+//   - lateness: R-72, and R-73 or R-74 under a fault. R-74 is a SHOULD,
+//     but the check holds Herald to it all the same.
 //
 // Each rule also fails when the run gives it nothing to check, and a span
 // without an attribute a rule reads breaks the rule.
@@ -320,9 +310,12 @@ func (c *spanCheck) checkErrors() {
 		case msg == "":
 			c.add(ruleError, subject(s), "an error status, but no error")
 			continue
+		case s.StatusCode != statusError:
+			c.add(ruleError, subject(s), "an error, but not an error status: "+msg)
+			continue
 		}
-		if s.Name == spanTenantAPICall && s.Attributes[attrOutcome] == outcomeFailedPrecondition &&
-			strings.HasPrefix(msg, idempotencyConflict) && conflicts > 0 {
+		if s.Name == spanTenantAPICall && s.Attributes[attrRPCMethod] == methodCreateMessage &&
+			s.Attributes[attrOutcome] == outcomeFailedPrecondition && conflicts > 0 {
 			conflicts--
 			continue
 		}
@@ -359,17 +352,19 @@ func (c *spanCheck) expected(s e2e.Span) bool {
 		case outcomeNotRecorded:
 			return fault == PostgresSlowed
 		}
-		want, ok := endpointErrors[c.behaviours[s.Attributes[attrEndpointID]]]
-		if !ok {
+		if outcome := s.Attributes[attrOutcome]; outcome != outcomePending && outcome != outcomeFailed {
 			return false
 		}
-		status, _ := strconv.Atoi(s.Attributes[attrStatusCode])
-		if status != 0 {
-			return status == want.status
+		behaviour := c.behaviours[s.Attributes[attrEndpointID]]
+		status, err := strconv.Atoi(s.Attributes[attrStatusCode])
+		switch {
+		case err != nil:
+			return false
+		case status != 0:
+			want, ok := endpointStatus[behaviour]
+			return ok && status == want
 		}
-		return slices.ContainsFunc(want.errors, func(e string) bool {
-			return strings.Contains(s.Attributes[attrError], e)
-		})
+		return slices.Contains(noResponse, behaviour)
 	case spanHandoffBatch:
 		if s.Attributes[attrOutcome] != outcomeFailed {
 			return false
@@ -401,12 +396,12 @@ func (c *spanCheck) messageName(s e2e.Span) (string, bool) {
 }
 
 // limit returns the limit on lag and lateness for the Message with the
-// given ID.
+// given ID: R-71 and R-72's, or under a fault R-73 and R-74's.
 func (c *spanCheck) limit(messageID string) time.Duration {
 	if c.faults[messageID] != "" {
-		return delayLimitInFault
+		return maxDelayInFault
 	}
-	return delayLimit
+	return maxDelay
 }
 
 func (c *spanCheck) checkLag() {

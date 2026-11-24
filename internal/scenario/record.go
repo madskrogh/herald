@@ -110,6 +110,12 @@ type AttemptRecord struct {
 // lateAfter is how long after its Message was sent a Delivery's first
 // Attempt comes, at least, when a fault held it back: more than without a
 // fault, and less than any fault holds a Message back.
+//
+// It is a fact about the scenario's faults, not a decision about Herald, so
+// it isn't in the spec: every build is held back by a paused NATS. A fault
+// phase recorded as late shows that the fault took hold, so fault injection
+// that stopped working shows up in the comparison rather than passing
+// unnoticed (decided on #112).
 const lateAfter = 3 * time.Second
 
 // NewRecording normalises obs. It fails on an Attempt it can't place: one

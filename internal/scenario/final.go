@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 	"uuid"
 
 	"github.com/madskrogh/herald/internal/delivery"
@@ -19,10 +18,6 @@ const (
 	ruleDuplicates = "duplicates"
 )
 
-// attemptTimeout is how long an Endpoint has to answer an Attempt with a
-// 2xx for it to succeed (the spec's attempt-timeout, R-7).
-const attemptTimeout = 15 * time.Second
-
 // FinalState is where a run left its Messages in Postgres.
 type FinalState struct {
 	// Messages are every Message of the run's Tenant.
@@ -31,16 +26,14 @@ type FinalState struct {
 	Deliveries []delivery.Delivery
 }
 
-// CheckFinalState checks the rules that hold for where a run left its
-// Messages and Deliveries, once every phase has finished:
+// CheckFinalState checks the requirements that show in where a run left its
+// Messages and Deliveries, once every phase has finished, one rule each:
 //
-//   - every Delivery ended succeeded or failed, and succeeded exactly when
-//     the last Attempt its Endpoint received got a 2xx within 15 s;
-//   - every Message was handed off, and none was Parked: the scenario sends
-//     none that a dispatcher rejects;
-//   - a Message sent again with the same Idempotency-Key returned the first
-//     one rather than creating another, and each Message has exactly one
-//     Delivery per Endpoint whose filter matches it.
+//   - final state: R-7, R-9, R-12 and R-13, against the last Attempt each
+//     Delivery's Endpoint received;
+//   - outbox: R-1 and R-59, given that the scenario sends no Message a
+//     dispatcher refuses, so none may be parked;
+//   - duplicates: R-38, and R-1's one Delivery per matching Endpoint.
 //
 // Each rule also fails when the run gives it nothing to check.
 func CheckFinalState(obs Observations, state FinalState) []Violation {

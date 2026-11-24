@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/madskrogh/herald/internal/eventtype"
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
@@ -83,7 +82,7 @@ func TestGenerateCoversEverything(t *testing.T) {
 					sent = append(sent, m)
 					reached := 0
 					for _, ep := range application(t, s, m.Application).Endpoints {
-						if matches(t, ep.Filter, m.EventType) {
+						if scenario.Matches(ep.Filter, m.EventType) {
 							deliveries[ep.Name]++
 							inPhase[ep.Name]++
 							reached++
@@ -151,19 +150,4 @@ func application(t *testing.T, s scenario.Scenario, name string) scenario.Applic
 	}
 	t.Fatalf("no Application %q", name)
 	return scenario.Application{}
-}
-
-// matches reports whether Herald's own filter matching sends a Message of
-// Event type et to an Endpoint with filter.
-func matches(t *testing.T, filter []string, et string) bool {
-	t.Helper()
-	f, err := eventtype.ParseFilter(filter)
-	if err != nil {
-		t.Fatalf("filter %q: %v", filter, err)
-	}
-	e, err := eventtype.ParseEventType(et)
-	if err != nil {
-		t.Fatalf("Event type %q: %v", et, err)
-	}
-	return f.Matches(e)
 }
