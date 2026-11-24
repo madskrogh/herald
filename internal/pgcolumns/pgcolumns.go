@@ -92,7 +92,7 @@ func parse(tables []internalspec.Table) ([]Column, error) {
 	if !ok {
 		return nil, fmt.Errorf("no table under %q", "## "+section)
 	}
-	for _, name := range []string{"Table", "Column", "Type", "Null", "Set by", "Holds", "Why"} {
+	for _, name := range []string{"Table", "Column", "Type", "Null", "Set by", "Holds", "Why", "Leaves when"} {
 		if t.Column(name) < 0 {
 			return nil, fmt.Errorf("line %d: no %q column", t.Line, name)
 		}
@@ -138,6 +138,9 @@ func parse(tables []internalspec.Table) ([]Column, error) {
 		}
 		if cell("Why") == "" {
 			return nil, errorf("%s has no reason", name)
+		}
+		if cell("Leaves when") == "" {
+			return nil, errorf("%s doesn't say what replaces it", name)
 		}
 		list = append(list, c)
 	}

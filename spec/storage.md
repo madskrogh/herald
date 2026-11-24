@@ -1,6 +1,10 @@
 # What Herald stores
 
-The Postgres columns the scenario writes, to set up a run, and reads, for where the run left its Messages and Deliveries. They are listed, with their types, in the [Postgres column list](postgres-columns.md). Nothing else Herald stores is in the spec: not its other columns, tables or indexes. Behaviour that rests on an index, such as the Idempotency-Key, is stated and checked through the Tenant API ([ADR 0007](../docs/adr/0007-code-regenerated-from-the-spec.md)).
+The Postgres columns the scenario writes, to set up a run, and reads, for where the run left its Messages and Deliveries. They are listed, with their types, in the [Postgres column list](postgres-columns.md).
+
+These columns are in the spec only because nothing else shows what the scenario needs yet: no API returns a run's Deliveries and their Attempts, or whether a Message was handed off or Parked, and herald-admin's commands aren't requirements yet. Each entry in the list names what replaces it. When that arrives, the scenario reads or writes through it instead, and the entry leaves the list; R-85 is withdrawn once no table is left that the scenario writes.
+
+Nothing else Herald stores is in the spec: not its other columns, tables or indexes. Behaviour that rests on an index, such as the Idempotency-Key, is stated and checked through the Tenant API ([ADR 0007](../docs/adr/0007-code-regenerated-from-the-spec.md)).
 
 ### R-84 · implemented
 

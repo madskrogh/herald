@@ -11,7 +11,7 @@ This file states the spec's conventions. Its examples are in code blocks, which 
 - `spec/*.md`: requirements, one file per area of Herald, such as `delivery.md` or `tenant-api.md`.
 - `spec/limits.md`: the limits table.
 - `spec/span-schema.md`: the span schema, a shape file: the spans Herald emits, their attributes and types, the values of `herald.outcome`, and the trace shape. Each entry gives its reason, and the checks read its tables.
-- `spec/postgres-columns.md`: the Postgres column list, a shape file: the columns the scenario writes and reads, their types, whether they may be NULL, and who sets them. Each entry gives its reason; the migrated database is checked against it, and the scenario's harness reads only its columns.
+- `spec/postgres-columns.md`: the Postgres column list, a shape file: the columns the scenario writes and reads, their types, whether they may be NULL, who sets them, and what replaces each. Each entry gives its reason; the migrated database is checked against it, and the scenario's harness reads only its columns.
 - `spec/spec.go`: embeds the spec's Markdown files, so the checks read them from any package.
 - `spec/vectors/*.md`: vector files, for vectors too long to sit under their requirement.
 
