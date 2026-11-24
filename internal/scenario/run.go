@@ -39,7 +39,7 @@ func Run(ctx context.Context, stack *e2e.Stack, compose Compose, s Scenario, log
 		EndpointIDs:  map[uuid.UUID]string{},
 		Recorded:     map[uuid.UUID]int{},
 	}
-	tenant, err := stack.NewTenant(ctx, fmt.Sprintf("scenario %d", s.Seed))
+	tenant, err := stack.NewTenant(ctx, "scenario")
 	if err != nil {
 		return Observations{}, fmt.Errorf("create tenant: %w", err)
 	}

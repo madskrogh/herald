@@ -37,17 +37,25 @@ Herald has six kinds of tests. They differ in what they run against and in what 
 
 ## Behaviour comparison
 
-- **Check:** what the scenario's fake Endpoints receive (the edge recording), and counts and timing from the spans. The scenario is generated traffic from a seed, with Endpoints that misbehave as real ones do and faults in the stack.
+- **Check:** what the scenario's fake Endpoints receive (the edge recording), and counts and timing from the spans, when the scenario runs the committed traffic file (below).
 - **Compare against:** a committed baseline for what doesn't depend on the machine, and a run of the `main` build on the same runner for timing. A recording keeps whatever the recorded build did, bugs included.
-- **Catch:** any change in behaviour, intended or not, for the inputs the scenario generates. An intended change shows up as a baseline diff the reviewer approves.
-- **Can't catch:** a bug the baseline already holds, or inputs the scenario doesn't generate. It says that behaviour changed, not that it is right.
-- **Run:** `make scenario-compare`; `make scenario-record` records a new baseline. CI runs it on every PR once #81 lands.
+- **Catch:** any change in behaviour, intended or not, for the inputs in the traffic file. An intended change shows up as a baseline diff the reviewer approves.
+- **Can't catch:** a bug the baseline already holds, or inputs the traffic file doesn't have. It says that behaviour changed, not that it is right.
+- **Run:** `make scenario-compare`; `make scenario-record` records a new baseline from the traffic file the baseline names. CI runs it on every PR once #81 lands.
+
+### The traffic file and the baseline
+
+The comparison rests on two committed files, an input and an output.
+
+- **The traffic file** (`internal/scenario/testdata/traffic.json`) is the input: what the scenario sends. Applications, Endpoints with their filters and how each answers, misbehaving as real ones do, and Messages sent in phases with faults in the stack. It says nothing about how Herald behaves. It may be written by a person, or captured from real traffic, such as production. `make scenario-traffic SEED=<n>` prints synthetic traffic, drawn from a seed, as a draft to start from; the scenario never runs it, and it never writes the committed file. A unit test holds whatever file is committed to the rules the comparison depends on: every Endpoint behaviour and fault, repeated and conflicting Idempotency-Keys, and no more Deliveries to a slow or retrying Endpoint in a phase than keep its timing steady.
+- **The baseline** (`internal/scenario/testdata/baseline.json`) is the output: what the Endpoints received when that traffic ran. What the Tenant API answered to each Message, and each Delivery's Attempts in order, with their headers, body, signature and rough timing, and how it ended. It is recorded, never written by hand: by `make scenario-record`, which runs the traffic against a build, or captured together with the traffic, from the same real traffic.
+- **How they are tied.** The baseline names its traffic file and that file's SHA-256 as they were when it was recorded. The comparison runs the traffic file the baseline names, and a traffic file changed since fails it with that difference first. So a change to the traffic comes with a new baseline in the same PR, and a baseline diff with no traffic change is a change in Herald's behaviour, for the reviewer to approve.
 
 ## Scenario invariants
 
 - **Check:** the spec's requirements, after every scenario run, at the edge (what the Endpoints received), in final state in Postgres, and in the spans. Each check names the requirements it holds Herald to, in its doc comment in `internal/scenario` (`CheckEdge`, `CheckFinalState`, `CheckSpans`). Its filter matching and retry schedule are its own, written from [the spec](../spec/README.md) and tested against its vectors, and its limits are compared with [spec/limits.md](../spec/limits.md). One check isn't a requirement: each service's goroutines return to their idle set, a Go-only way of showing the service holds nothing once the scenario ends, which serves the resource requirements stated without the language, such as R-87 ([ADR 0007](adr/0007-code-regenerated-from-the-spec.md)).
 - **Compare against:** the spec's requirements. There is no baseline, and a check changes only when its requirement does.
-- **Catch:** a rule broken anywhere in the generated traffic, including while faults run, where the end-to-end tests don't look. A failure names what broke: the Delivery, Message, span or goroutine stack, and the rule.
+- **Catch:** a rule broken anywhere in the traffic, including while faults run, where the end-to-end tests don't look. A failure names what broke: the Delivery, Message, span or goroutine stack, and the rule.
 - **Can't catch:** wrong behaviour that breaks no stated rule, which is what the comparison is for. Every check fails on missing data, so a check can't pass on nothing; but a rule nobody wrote down isn't checked.
 - **Run:** after every scenario run, in the same `make scenario-compare` or `make scenario-record`, so on every PR once #81 lands.
 
@@ -72,5 +80,5 @@ On every PR, and on `main` after each merge: `make ci` (`golangci-lint`, `go tes
 - A rule about one function or package, decidable without the stack: a **unit** or **integration** test.
 - A rule about the whole system for one case you can describe: an **end-to-end** test.
 - A rule that must hold for every Delivery, Message or span the scenario produces, on any build: a **scenario invariant**.
-- Behaviour that is right because it is what Herald does now, not because a rule says so (which headers, how many Attempts, how they are timed): the **behaviour comparison** already records it. A bug that reached `main` adds its case to the scenario.
+- Behaviour that is right because it is what Herald does now, not because a rule says so (which headers, how many Attempts, how they are timed): the **behaviour comparison** already records it. A bug that reached `main` adds its case to the traffic file.
 - A question about capacity or tuning: the **load test**.

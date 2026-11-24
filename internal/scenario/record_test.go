@@ -45,7 +45,6 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	m6 := scenario.Message{Name: "m006", Application: "app-1", EventType: "invoice.paid", Payload: `{"message":"m006"}`}
 	run := scenario.Observations{
 		Scenario: scenario.Scenario{
-			Seed: 42,
 			Applications: []scenario.Application{
 				{Name: "app-1", Endpoints: []scenario.Endpoint{{Name: "app-1/ep-1", Behaviour: scenario.Fail}}},
 				{Name: "app-2", Endpoints: []scenario.Endpoint{{Name: "app-2/ep-1", Behaviour: scenario.TLSError}}},
@@ -95,7 +94,8 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	run.Attempts[5].SignatureErr = errors.New("no matching signature")
 	run.Attempts[6].SignatureErr = errors.New("no matching signature")
 
-	got, err := scenario.NewRecording(run)
+	traffic := scenario.TrafficFile{File: "traffic.json", SHA256: "a1a1"}
+	got, err := scenario.NewRecording(traffic, run)
 	if err != nil {
 		t.Fatalf("NewRecording: %v", err)
 	}
@@ -111,8 +111,8 @@ func TestNewRecordingNormalisesARun(t *testing.T) {
 	}
 	ms := func(n int64) *int64 { return &n }
 	want := scenario.Recording{
-		Seed:   42,
-		Faults: []scenario.FaultRecord{{Fault: scenario.NATSPaused, Late: true}},
+		Traffic: scenario.TrafficFile{File: "traffic.json", SHA256: "a1a1"},
+		Faults:  []scenario.FaultRecord{{Fault: scenario.NATSPaused, Late: true}},
 		Messages: []scenario.MessageRecord{
 			{Name: "m001", Outcome: "accepted"},
 			{Name: "m002", Outcome: "same as m001"},

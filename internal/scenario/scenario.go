@@ -1,30 +1,32 @@
-// Package scenario runs generated traffic against a Herald stack and records
-// what its Endpoints receive, so that a later build can be compared with a
-// committed baseline. The scenario stands in for production traffic, and the
+// Package scenario runs the committed traffic file against a Herald stack and
+// records what its Endpoints receive, so that a later build can be compared
+// with the committed baseline: the traffic file is the input, and the
+// baseline the output it names (docs/testing.md, "The traffic file and the
+// baseline"). The scenario stands in for production traffic, and the
 // recording is taken outside Herald, at the Endpoints, so a change to
 // Herald's instrumentation can't change it (ADR 0008).
 package scenario
 
-// Scenario is the traffic of one run, generated from its Seed.
+// Scenario is the traffic of one run, as the traffic file holds it
+// (ReadTraffic).
 type Scenario struct {
-	Seed         uint64
-	Applications []Application
+	Applications []Application `json:"applications"`
 	// Phases run one after another. Each finishes, with every Delivery of
 	// its Messages succeeded or failed, before the next starts.
-	Phases []Phase
+	Phases []Phase `json:"phases"`
 }
 
 // Application is an Application the scenario creates.
 type Application struct {
-	Name      string
-	Endpoints []Endpoint
+	Name      string     `json:"name"`
+	Endpoints []Endpoint `json:"endpoints"`
 }
 
 // Endpoint is an Endpoint the scenario registers, and how it answers.
 type Endpoint struct {
-	Name      string
-	Filter    []string
-	Behaviour Behaviour
+	Name      string    `json:"name"`
+	Filter    []string  `json:"filter,omitempty"`
+	Behaviour Behaviour `json:"behaviour"`
 }
 
 // Behaviour is how an Endpoint answers its Attempts, like a real Endpoint
@@ -74,14 +76,15 @@ const (
 // Phase is a part of the scenario: Messages sent while a Fault, if any, is
 // in effect.
 type Phase struct {
-	Fault    Fault
-	Messages []Message
+	Fault Fault `json:"fault,omitempty"`
 	// HeldEndpoint, for DispatcherRestarted, names the TimeOut Endpoint
 	// whose unanswered Attempt is in flight when the dispatcher restarts.
-	HeldEndpoint string
+	HeldEndpoint string    `json:"held_endpoint,omitempty"`
+	Messages     []Message `json:"messages"`
 }
 
-// Message is a Message the scenario sends.
+// Message is a Message the scenario sends. The traffic file writes its
+// payload as the Message it belongs to and its length (ReadTraffic).
 type Message struct {
 	Name           string
 	Application    string

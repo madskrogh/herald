@@ -52,7 +52,8 @@ func Compare(want, got Recording) []Difference {
 			diffs = append(diffs, Difference{Delivery: where, Field: field, Want: w, Got: g})
 		}
 	}
-	add("", "seed", strconv.FormatUint(want.Seed, 10), strconv.FormatUint(got.Seed, 10))
+	add("", "traffic file", want.Traffic.File, got.Traffic.File)
+	add("", "traffic sha256", want.Traffic.SHA256, got.Traffic.SHA256)
 	add("", "faults", strconv.Itoa(len(want.Faults)), strconv.Itoa(len(got.Faults)))
 	for i := range min(len(want.Faults), len(got.Faults)) {
 		w, g := want.Faults[i], got.Faults[i]

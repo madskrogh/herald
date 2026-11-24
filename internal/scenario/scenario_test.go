@@ -17,13 +17,15 @@ import (
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
-var (
-	update = flag.Bool("update", false, "record a new baseline instead of comparing with it")
-	seed   = flag.Uint64("seed", 0, "with -update, the seed to generate the scenario from; 0 keeps the baseline's")
-)
+var update = flag.Bool("update", false, "record a new baseline instead of comparing with it")
 
-// baselineFile is the committed baseline.
-const baselineFile = "testdata/baseline.json"
+const (
+	// baselineFile is the committed baseline.
+	baselineFile = "testdata/baseline.json"
+	// trafficFile is the committed traffic file, from the baseline's
+	// directory: what a new baseline is recorded from when there is none.
+	trafficFile = "traffic.json"
+)
 
 // runTimeout bounds a whole run and the invariants checked after it. A run
 // takes about five minutes: the longest Deliveries run the whole retry
@@ -57,14 +59,16 @@ func TestScenario(t *testing.T) {
 
 	baseline, err := readBaseline()
 	switch {
-	case errors.Is(err, fs.ErrNotExist) && *update:
-		baseline.Seed = 1
+	case (errors.Is(err, fs.ErrNotExist) || errors.Is(err, errNoTrafficFile)) && *update:
+		baseline.Traffic.File = trafficFile
 	case err != nil:
 		t.Fatal(err)
 	}
-	s := baseline.Seed
-	if *update && *seed != 0 {
-		s = *seed
+	// The baseline's traffic file, as it is now: if it changed since the
+	// baseline was recorded, the comparison says so.
+	s, traffic, err := scenario.ReadTraffic(filepath.Dir(baselineFile), baseline.Traffic.File)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), runTimeout)
@@ -79,11 +83,11 @@ func TestScenario(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IdleGoroutines: %v", err)
 	}
-	obs, err := scenario.Run(ctx, stack, scenario.Compose{File: composeFile}, scenario.Generate(s), logger)
+	obs, err := scenario.Run(ctx, stack, scenario.Compose{File: composeFile}, s, logger)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	got, err := scenario.NewRecording(obs)
+	got, err := scenario.NewRecording(traffic, obs)
 	if err != nil {
 		t.Fatalf("NewRecording: %v", err)
 	}
@@ -109,7 +113,7 @@ func TestScenario(t *testing.T) {
 		if err := os.WriteFile(baselineFile, append(data, '\n'), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("recorded %s from seed %d", baselineFile, s)
+		t.Logf("recorded %s from %s", baselineFile, traffic.File)
 		return
 	}
 	for _, d := range scenario.Compare(baseline, got) {
@@ -126,5 +130,12 @@ func readBaseline() (scenario.Recording, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return r, fmt.Errorf("%s: %w", baselineFile, err)
 	}
+	if r.Traffic.File == "" {
+		return r, fmt.Errorf("%s: %w", baselineFile, errNoTrafficFile)
+	}
 	return r, nil
 }
+
+// errNoTrafficFile is a baseline naming no traffic file, such as one
+// recorded from a seed. Recording a new one replaces it.
+var errNoTrafficFile = errors.New("names no traffic file: record a new baseline with make scenario-record")

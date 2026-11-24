@@ -1,0 +1,1062 @@
+{
+  "applications": [
+    {
+      "name": "app-1",
+      "endpoints": [
+        {
+          "name": "app-1/ep-1",
+          "behaviour": "oversized"
+        },
+        {
+          "name": "app-1/ep-2",
+          "filter": [
+            "charge.updated",
+            "charge.created"
+          ],
+          "behaviour": "malformed"
+        }
+      ]
+    },
+    {
+      "name": "app-2",
+      "endpoints": [
+        {
+          "name": "app-2/ep-1",
+          "behaviour": "succeed"
+        }
+      ]
+    },
+    {
+      "name": "app-3",
+      "endpoints": [
+        {
+          "name": "app-3/ep-1",
+          "behaviour": "succeed"
+        },
+        {
+          "name": "app-3/ep-2",
+          "filter": [
+            "dispute.>"
+          ],
+          "behaviour": "fail"
+        },
+        {
+          "name": "app-3/ep-3",
+          "filter": [
+            "subscription.*"
+          ],
+          "behaviour": "reset"
+        },
+        {
+          "name": "app-3/ep-4",
+          "filter": [
+            "shipment.failed",
+            "shipment.updated"
+          ],
+          "behaviour": "fail"
+        },
+        {
+          "name": "app-3/ep-5",
+          "filter": [
+            "order.*"
+          ],
+          "behaviour": "reset"
+        }
+      ]
+    },
+    {
+      "name": "app-4",
+      "endpoints": [
+        {
+          "name": "app-4/ep-1",
+          "behaviour": "oversized"
+        },
+        {
+          "name": "app-4/ep-2",
+          "filter": [
+            "coupon.updated"
+          ],
+          "behaviour": "flap"
+        },
+        {
+          "name": "app-4/ep-3",
+          "filter": [
+            "refund.failed"
+          ],
+          "behaviour": "fail"
+        }
+      ]
+    },
+    {
+      "name": "app-5",
+      "endpoints": [
+        {
+          "name": "app-5/ep-1",
+          "behaviour": "slow"
+        }
+      ]
+    },
+    {
+      "name": "app-6",
+      "endpoints": [
+        {
+          "name": "app-6/ep-1",
+          "behaviour": "time out"
+        }
+      ]
+    },
+    {
+      "name": "app-7",
+      "endpoints": [
+        {
+          "name": "app-7/ep-1",
+          "behaviour": "redirect"
+        }
+      ]
+    },
+    {
+      "name": "app-8",
+      "endpoints": [
+        {
+          "name": "app-8/ep-1",
+          "behaviour": "tls error"
+        }
+      ]
+    },
+    {
+      "name": "app-9",
+      "endpoints": [
+        {
+          "name": "app-9/ep-1",
+          "behaviour": "time out"
+        }
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "messages": [
+        {
+          "name": "m001",
+          "application": "app-4",
+          "event_type": "coupon.updated",
+          "payload": {
+            "message": "m001",
+            "bytes": 153628
+          },
+          "idempotency_key": "key-m001"
+        },
+        {
+          "name": "m002",
+          "application": "app-3",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m002",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m003",
+          "application": "app-4",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m003",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m004",
+          "application": "app-1",
+          "event_type": "payout.sent",
+          "payload": {
+            "message": "m004",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m005",
+          "application": "app-4",
+          "event_type": "coupon.updated",
+          "payload": {
+            "message": "m005",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m006",
+          "application": "app-1",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m006",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m007",
+          "application": "app-3",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m007",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m008",
+          "application": "app-1",
+          "event_type": "charge.updated",
+          "payload": {
+            "message": "m008",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m009",
+          "application": "app-1",
+          "event_type": "payout.sent",
+          "payload": {
+            "message": "m009",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m010",
+          "application": "app-2",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m010",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m011",
+          "application": "app-3",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m011",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m012",
+          "application": "app-4",
+          "event_type": "customer.created",
+          "payload": {
+            "message": "m012",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m013",
+          "application": "app-1",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m013",
+            "bytes": 20508
+          },
+          "idempotency_key": "key-m013"
+        },
+        {
+          "name": "m014",
+          "application": "app-3",
+          "event_type": "subscription.completed",
+          "payload": {
+            "message": "m014",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m015",
+          "application": "app-2",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m015",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m016",
+          "application": "app-1",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m016",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m017",
+          "application": "app-1",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m017",
+            "bytes": 16412
+          },
+          "idempotency_key": "key-m017"
+        },
+        {
+          "name": "m018",
+          "application": "app-3",
+          "event_type": "order.completed",
+          "payload": {
+            "message": "m018",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m019",
+          "application": "app-1",
+          "event_type": "customer.created",
+          "payload": {
+            "message": "m019",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m020",
+          "application": "app-3",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m020",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m021",
+          "application": "app-2",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m021",
+            "bytes": 778
+          },
+          "idempotency_key": "key-m021"
+        },
+        {
+          "name": "m022",
+          "application": "app-3",
+          "event_type": "payout.failed",
+          "payload": {
+            "message": "m022",
+            "bytes": 20508
+          }
+        },
+        {
+          "name": "m023",
+          "application": "app-3",
+          "event_type": "shipment.updated",
+          "payload": {
+            "message": "m023",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m024",
+          "application": "app-3",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m024",
+            "bytes": 20508
+          },
+          "idempotency_key": "key-m024"
+        },
+        {
+          "name": "m025",
+          "application": "app-2",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m025",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m026",
+          "application": "app-3",
+          "event_type": "order.failed",
+          "payload": {
+            "message": "m026",
+            "bytes": 628
+          },
+          "idempotency_key": "key-m026"
+        },
+        {
+          "name": "m027",
+          "application": "app-3",
+          "event_type": "customer.created",
+          "payload": {
+            "message": "m027",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m028",
+          "application": "app-3",
+          "event_type": "dispute.completed",
+          "payload": {
+            "message": "m028",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m029",
+          "application": "app-4",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m029",
+            "bytes": 12316
+          },
+          "idempotency_key": "key-m029"
+        },
+        {
+          "name": "m030",
+          "application": "app-1",
+          "event_type": "payout.sent",
+          "payload": {
+            "message": "m030",
+            "bytes": 628
+          },
+          "idempotency_key": "key-m030"
+        },
+        {
+          "name": "m031",
+          "application": "app-3",
+          "event_type": "customer.created",
+          "payload": {
+            "message": "m031",
+            "bytes": 256028
+          },
+          "idempotency_key": "key-m031"
+        },
+        {
+          "name": "m032",
+          "application": "app-3",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m032",
+            "bytes": 16412
+          },
+          "idempotency_key": "key-m032"
+        },
+        {
+          "name": "m033",
+          "application": "app-2",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m033",
+            "bytes": 478
+          },
+          "idempotency_key": "key-m033"
+        },
+        {
+          "name": "m034",
+          "application": "app-3",
+          "event_type": "order.created",
+          "payload": {
+            "message": "m034",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m035",
+          "application": "app-4",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m035",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m036",
+          "application": "app-2",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m036",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m037",
+          "application": "app-3",
+          "event_type": "payout.sent",
+          "payload": {
+            "message": "m037",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m038",
+          "application": "app-4",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m038",
+            "bytes": 20508
+          },
+          "idempotency_key": "key-m038"
+        },
+        {
+          "name": "m039",
+          "application": "app-3",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m039",
+            "bytes": 20508
+          },
+          "idempotency_key": "key-m039"
+        },
+        {
+          "name": "m040",
+          "application": "app-3",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m040",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m041",
+          "application": "app-3",
+          "event_type": "payout.failed",
+          "payload": {
+            "message": "m041",
+            "bytes": 478
+          },
+          "idempotency_key": "key-m041"
+        },
+        {
+          "name": "m042",
+          "application": "app-2",
+          "event_type": "customer.created",
+          "payload": {
+            "message": "m042",
+            "bytes": 20508
+          },
+          "idempotency_key": "key-m042"
+        },
+        {
+          "name": "m043",
+          "application": "app-1",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m043",
+            "bytes": 12316
+          }
+        },
+        {
+          "name": "m044",
+          "application": "app-1",
+          "event_type": "payout.sent",
+          "payload": {
+            "message": "m044",
+            "bytes": 478
+          },
+          "idempotency_key": "key-m044"
+        },
+        {
+          "name": "m045",
+          "application": "app-4",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m045",
+            "bytes": 16412
+          }
+        },
+        {
+          "name": "m046",
+          "application": "app-1",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m046",
+            "bytes": 628
+          },
+          "idempotency_key": "key-m046"
+        },
+        {
+          "name": "m047",
+          "application": "app-3",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m047",
+            "bytes": 778
+          },
+          "idempotency_key": "key-m047"
+        },
+        {
+          "name": "m048",
+          "application": "app-4",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m048",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m049",
+          "application": "app-4",
+          "event_type": "coupon.updated",
+          "payload": {
+            "message": "m049",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m050",
+          "application": "app-3",
+          "event_type": "dispute.failed",
+          "payload": {
+            "message": "m050",
+            "bytes": 204828
+          }
+        },
+        {
+          "name": "m051",
+          "application": "app-2",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m051",
+            "bytes": 478
+          },
+          "idempotency_key": "key-m051"
+        },
+        {
+          "name": "m052",
+          "application": "app-3",
+          "event_type": "order.completed",
+          "payload": {
+            "message": "m052",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m053",
+          "application": "app-3",
+          "event_type": "dispute.failed",
+          "payload": {
+            "message": "m053",
+            "bytes": 478
+          },
+          "idempotency_key": "key-m053"
+        },
+        {
+          "name": "m054",
+          "application": "app-1",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m054",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m055",
+          "application": "app-1",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m055",
+            "bytes": 20508
+          }
+        },
+        {
+          "name": "m056",
+          "application": "app-3",
+          "event_type": "customer.created",
+          "payload": {
+            "message": "m056",
+            "bytes": 12316
+          },
+          "idempotency_key": "key-m056"
+        },
+        {
+          "name": "m057",
+          "application": "app-2",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m057",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m058",
+          "application": "app-1",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m058",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m059",
+          "application": "app-3",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m059",
+            "bytes": 12316
+          },
+          "idempotency_key": "key-m059"
+        },
+        {
+          "name": "m060",
+          "application": "app-4",
+          "event_type": "refund.failed",
+          "payload": {
+            "message": "m060",
+            "bytes": 153628
+          }
+        },
+        {
+          "name": "m061",
+          "application": "app-4",
+          "event_type": "payout.failed",
+          "payload": {
+            "message": "m061",
+            "bytes": 16412
+          }
+        },
+        {
+          "name": "m062",
+          "application": "app-3",
+          "event_type": "payout.failed",
+          "payload": {
+            "message": "m062",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m063",
+          "application": "app-3",
+          "event_type": "payout.failed",
+          "payload": {
+            "message": "m063",
+            "bytes": 778
+          },
+          "idempotency_key": "key-m063"
+        },
+        {
+          "name": "m064",
+          "application": "app-4",
+          "event_type": "refund.failed",
+          "payload": {
+            "message": "m064",
+            "bytes": 16412
+          }
+        },
+        {
+          "name": "m065",
+          "application": "app-3",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m065",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m066",
+          "application": "app-4",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m066",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m067",
+          "application": "app-2",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m067",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m068",
+          "application": "app-1",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m068",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m069",
+          "application": "app-4",
+          "event_type": "coupon.updated",
+          "payload": {
+            "message": "m069",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m070",
+          "application": "app-3",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m070",
+            "bytes": 153628
+          },
+          "idempotency_key": "key-m070"
+        },
+        {
+          "name": "m071",
+          "application": "app-1",
+          "event_type": "payout.failed",
+          "payload": {
+            "message": "m071",
+            "bytes": 478
+          },
+          "idempotency_key": "key-m071"
+        },
+        {
+          "name": "m072",
+          "application": "app-3",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m072",
+            "bytes": 478
+          },
+          "idempotency_key": "key-m072"
+        },
+        {
+          "name": "m073",
+          "application": "app-4",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m073",
+            "bytes": 12316
+          },
+          "idempotency_key": "key-m073"
+        },
+        {
+          "name": "m074",
+          "application": "app-2",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m074",
+            "bytes": 778
+          },
+          "idempotency_key": "key-m074"
+        },
+        {
+          "name": "m075",
+          "application": "app-1",
+          "event_type": "payout.sent",
+          "payload": {
+            "message": "m075",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m076",
+          "application": "app-4",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m076",
+            "bytes": 478
+          },
+          "idempotency_key": "key-m076"
+        },
+        {
+          "name": "m077",
+          "application": "app-3",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m077",
+            "bytes": 628
+          },
+          "idempotency_key": "key-m047"
+        },
+        {
+          "name": "m078",
+          "application": "app-2",
+          "event_type": "customer.created",
+          "payload": {
+            "message": "m042",
+            "bytes": 20508
+          },
+          "idempotency_key": "key-m042"
+        },
+        {
+          "name": "m079",
+          "application": "app-5",
+          "event_type": "payout.sent",
+          "payload": {
+            "message": "m079",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m080",
+          "application": "app-5",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m080",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m081",
+          "application": "app-6",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m081",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m082",
+          "application": "app-7",
+          "event_type": "customer.created",
+          "payload": {
+            "message": "m082",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m083",
+          "application": "app-7",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m083",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m084",
+          "application": "app-8",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m084",
+            "bytes": 778
+          }
+        }
+      ]
+    },
+    {
+      "fault": "nats paused",
+      "messages": [
+        {
+          "name": "m085",
+          "application": "app-3",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m085",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m086",
+          "application": "app-2",
+          "event_type": "payout.failed",
+          "payload": {
+            "message": "m086",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m087",
+          "application": "app-2",
+          "event_type": "customer.deleted",
+          "payload": {
+            "message": "m087",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m088",
+          "application": "app-2",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m088",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m089",
+          "application": "app-4",
+          "event_type": "refund.failed",
+          "payload": {
+            "message": "m089",
+            "bytes": 778
+          }
+        }
+      ]
+    },
+    {
+      "fault": "postgres slowed",
+      "messages": [
+        {
+          "name": "m090",
+          "application": "app-3",
+          "event_type": "invoice.created",
+          "payload": {
+            "message": "m090",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m091",
+          "application": "app-1",
+          "event_type": "invoice.voided",
+          "payload": {
+            "message": "m091",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m092",
+          "application": "app-4",
+          "event_type": "payout.sent",
+          "payload": {
+            "message": "m092",
+            "bytes": 628
+          }
+        }
+      ]
+    },
+    {
+      "fault": "dispatcher restarted",
+      "held_endpoint": "app-9/ep-1",
+      "messages": [
+        {
+          "name": "m093",
+          "application": "app-2",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m093",
+            "bytes": 778
+          }
+        },
+        {
+          "name": "m094",
+          "application": "app-3",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m094",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m095",
+          "application": "app-2",
+          "event_type": "invoice.paid",
+          "payload": {
+            "message": "m095",
+            "bytes": 478
+          }
+        },
+        {
+          "name": "m096",
+          "application": "app-4",
+          "event_type": "refund.failed",
+          "payload": {
+            "message": "m096",
+            "bytes": 628
+          }
+        },
+        {
+          "name": "m097",
+          "application": "app-9",
+          "event_type": "customer.updated",
+          "payload": {
+            "message": "m097",
+            "bytes": 628
+          }
+        }
+      ]
+    }
+  ]
+}
