@@ -6,9 +6,8 @@ import (
 	"strings"
 	"uuid"
 
-	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
-	"github.com/madskrogh/herald/internal/ingest"
 )
 
 // The rules CheckFinalState checks, in the order it reports them.
@@ -21,9 +20,9 @@ const (
 // FinalState is where a run left its Messages in Postgres.
 type FinalState struct {
 	// Messages are every Message of the run's Tenant.
-	Messages []ingest.MessageStatus
+	Messages []e2e.MessageStatus
 	// Deliveries are every Delivery of those Messages.
-	Deliveries []delivery.Delivery
+	Deliveries []e2e.Delivery
 }
 
 // CheckFinalState checks the requirements that show in where a run left its
@@ -45,8 +44,8 @@ func CheckFinalState(obs Observations, state FinalState) []Violation {
 		nothing(ruleFinalState, "Deliveries in Postgres")
 	}
 	for _, d := range state.Deliveries {
-		k := deliveryKey{e.names[d.MessageID], obs.EndpointIDs[d.Endpoint.ID]}
-		if d.State != delivery.StateSucceeded && d.State != delivery.StateFailed {
+		k := deliveryKey{e.names[d.MessageID], obs.EndpointIDs[d.EndpointID]}
+		if d.State != e2e.StateSucceeded && d.State != e2e.StateFailed {
 			add(ruleFinalState, k.String(), fmt.Sprintf("Delivery %s is %s, want succeeded or failed", d.ID, d.State))
 			continue
 		}
@@ -56,7 +55,7 @@ func CheckFinalState(obs Observations, state FinalState) []Violation {
 			continue
 		}
 		last := attempts[len(attempts)-1]
-		if succeeded := d.State == delivery.StateSucceeded; succeeded != answeredInTime(last) {
+		if succeeded := d.State == e2e.StateSucceeded; succeeded != answeredInTime(last) {
 			add(ruleFinalState, k.String(), fmt.Sprintf("Delivery %s is %s, but its last Attempt was answered %s after %v", d.ID, d.State, last.Answer, last.AnsweredAt.Sub(last.ReceivedAt)))
 		}
 	}
@@ -102,7 +101,7 @@ func CheckFinalState(obs Observations, state FinalState) []Violation {
 	// Endpoint.
 	count := map[deliveryKey]int{}
 	for _, d := range state.Deliveries {
-		count[deliveryKey{e.names[d.MessageID], obs.EndpointIDs[d.Endpoint.ID]}]++
+		count[deliveryKey{e.names[d.MessageID], obs.EndpointIDs[d.EndpointID]}]++
 	}
 	want := e.matching()
 	for _, k := range sortedKeys(want, count) {

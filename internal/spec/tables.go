@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -12,9 +13,68 @@ import (
 // their cases from the spec (ADR 0013).
 type Table struct {
 	// Line is the line of the file its header is on.
-	Line   int
-	Header []string
-	Rows   [][]string
+	Line int
+	// Heading is the text of the heading it sits under, or empty if it
+	// comes before the first heading. A shape file's reader finds its
+	// tables by heading.
+	Heading string
+	Header  []string
+	Rows    [][]string
+}
+
+// RowLine returns the line of the file row i of Rows is on, for errors
+// that point at it.
+func (t Table) RowLine(i int) int {
+	// A table's rows are consecutive lines, below its header and delimiter.
+	return t.Line + 2 + i
+}
+
+// TableUnder returns the first of tables under heading, and whether there
+// is one. A shape file's reader finds each of its tables this way.
+func TableUnder(tables []Table, heading string) (Table, bool) {
+	for _, t := range tables {
+		if t.Heading == heading {
+			return t, true
+		}
+	}
+	return Table{}, false
+}
+
+// Record is a row of a table, its cells by the header's names, with the line
+// it is on.
+type Record struct {
+	Line  int
+	Cells map[string]string
+}
+
+// Records returns the rows of t as Records. A row with more or fewer cells
+// than the header is an error, naming its line. A shape file's reader uses
+// it to read each row by column.
+func (t Table) Records() ([]Record, error) {
+	records := make([]Record, 0, len(t.Rows))
+	for i, cells := range t.Rows {
+		r := Record{Line: t.RowLine(i), Cells: make(map[string]string, len(t.Header))}
+		if len(cells) != len(t.Header) {
+			return nil, fmt.Errorf("line %d: %d cells, want %d", r.Line, len(cells), len(t.Header))
+		}
+		for j, h := range t.Header {
+			r.Cells[h] = cells[j]
+		}
+		records = append(records, r)
+	}
+	return records, nil
+}
+
+var backtickedRE = regexp.MustCompile("^`([^`]+)`$")
+
+// Backticked returns what cell holds in backticks when that is the whole
+// cell, a single name such as `ingest.tenants`, and whether it is.
+func Backticked(cell string) (string, bool) {
+	m := backtickedRE.FindStringSubmatch(cell)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
 }
 
 // Column returns the index of the header cell named name, or -1. Tests use
@@ -29,9 +89,9 @@ func (t Table) Column(name string) int {
 }
 
 // newTable reads the lines of a table, its header and delimiter rows
-// included, that starts at line.
-func newTable(line int, lines []string) Table {
-	t := Table{Line: line, Header: cells(lines[0])}
+// included, that starts at line under heading.
+func newTable(heading string, line int, lines []string) Table {
+	t := Table{Line: line, Heading: heading, Header: cells(lines[0])}
 	for _, l := range lines[2:] {
 		t.Rows = append(t.Rows, cells(l))
 	}
@@ -39,7 +99,7 @@ func newTable(line int, lines []string) Table {
 }
 
 // cells splits a table row into its cells. A pipe inside a code span, or
-// escaped as \|, doesn't split it.
+// escaped as \|, doesn't split it, and \| reads as |, as GitHub renders it.
 func cells(row string) []string {
 	row = strings.TrimSpace(row)
 	row = strings.TrimPrefix(row, "|")
@@ -54,8 +114,12 @@ func cells(row string) []string {
 		switch {
 		case escaped:
 			escaped = false
+			if r != '|' {
+				cell.WriteRune('\\')
+			}
 		case r == '\\':
 			escaped = true
+			continue
 		case r == '`':
 			code = !code
 		case r == '|' && !code:
@@ -64,6 +128,9 @@ func cells(row string) []string {
 			continue
 		}
 		cell.WriteRune(r)
+	}
+	if escaped {
+		cell.WriteRune('\\')
 	}
 	return append(out, strings.TrimSpace(cell.String()))
 }

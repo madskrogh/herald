@@ -125,7 +125,8 @@ func (s *Store) insert(ctx context.Context, messages []deliverydb.InsertMessageP
 }
 
 // MessageDeliveries returns the Deliveries of the Message with the given ID,
-// ordered by ID. A Message that hasn't been handed off has none.
+// ordered by ID. A Message that hasn't been handed off has none. Tests use
+// it, to check the Deliveries a dispatcher stored.
 func (s *Store) MessageDeliveries(ctx context.Context, messageID uuid.UUID) ([]Delivery, error) {
 	rows, err := s.q.ListMessageDeliveries(ctx, messageID)
 	if err != nil {

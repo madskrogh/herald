@@ -8,7 +8,6 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 
-	"github.com/madskrogh/herald/internal/delivery"
 	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
 )
@@ -37,7 +36,7 @@ func TestMessageIsOneTraceFromTheAPIToEveryAttempt(t *testing.T) {
 		t.Fatalf("WaitDeliveries: %v", err)
 	}
 	for _, d := range deliveries {
-		if d.State != delivery.StateSucceeded {
+		if d.State != e2e.StateSucceeded {
 			t.Fatalf("Delivery %s is %s, want succeeded", d.ID, d.State)
 		}
 	}

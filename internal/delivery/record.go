@@ -115,7 +115,8 @@ func (s *Store) Release(ctx context.Context, lease Lease, now time.Time) error {
 	return nil
 }
 
-// Attempts returns the Delivery's Attempts, oldest first.
+// Attempts returns the Delivery's Attempts, oldest first. Tests use it, to
+// check the Attempts a worker recorded.
 func (s *Store) Attempts(ctx context.Context, deliveryID uuid.UUID) ([]Attempt, error) {
 	rows, err := s.q.ListAttempts(ctx, deliveryID)
 	if err != nil {

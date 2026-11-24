@@ -7,9 +7,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
-	"github.com/madskrogh/herald/internal/ingest"
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
@@ -24,8 +23,8 @@ func finalRun() (scenario.Observations, scenario.FinalState) {
 	obs.Scenario.Phases[0].Messages = append(obs.Scenario.Phases[0].Messages, m3)
 	obs.Sent["m003"] = scenario.Sent{ID: edgeM1}
 	state := scenario.FinalState{
-		Messages: []ingest.MessageStatus{
-			{ID: edgeM1, IdempotencyKey: "key-m001", HandedOff: true},
+		Messages: []e2e.MessageStatus{
+			{ID: edgeM1, HandedOff: true},
 			{ID: edgeM2, HandedOff: true},
 		},
 		Deliveries: obs.Deliveries,
@@ -55,7 +54,7 @@ func TestCheckFinalStateNamesWhatBroke(t *testing.T) {
 		{
 			name: "a Delivery left pending",
 			breakIt: func(_ *scenario.Observations, state *scenario.FinalState) {
-				state.Deliveries[0].State = delivery.StatePending
+				state.Deliveries[0].State = e2e.StatePending
 			},
 			want: []violation{{"final state", "m001 to app-1/ep-1"}},
 		},
@@ -76,7 +75,7 @@ func TestCheckFinalStateNamesWhatBroke(t *testing.T) {
 		{
 			name: "failed, though its last Attempt got a 2xx",
 			breakIt: func(_ *scenario.Observations, state *scenario.FinalState) {
-				state.Deliveries[2].State = delivery.StateFailed
+				state.Deliveries[2].State = e2e.StateFailed
 			},
 			want: []violation{{"final state", "m002 to app-1/ep-2"}},
 		},
@@ -98,7 +97,7 @@ func TestCheckFinalStateNamesWhatBroke(t *testing.T) {
 			name: "a repeated Idempotency-Key that created a second Message",
 			breakIt: func(obs *scenario.Observations, state *scenario.FinalState) {
 				obs.Sent["m003"] = scenario.Sent{ID: extra}
-				state.Messages = append(state.Messages, ingest.MessageStatus{ID: extra, IdempotencyKey: "key-m001", HandedOff: true})
+				state.Messages = append(state.Messages, e2e.MessageStatus{ID: extra, HandedOff: true})
 			},
 			want: []violation{{"duplicates", "m003"}},
 		},

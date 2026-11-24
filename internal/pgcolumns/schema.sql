@@ -1,0 +1,2 @@
+-- The column check reads only Postgres's own catalog, which sqlc knows, so it
+-- has no schema of its own. sqlc needs a schema file all the same.

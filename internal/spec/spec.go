@@ -257,7 +257,7 @@ func parse(data []byte) []section {
 		}
 		if n := tableLen(lines[i:]); n > 0 {
 			if n > 2 {
-				cur.tables = append(cur.tables, newTable(i+1, lines[i:i+n]))
+				cur.tables = append(cur.tables, newTable(cur.heading, i+1, lines[i:i+n]))
 			}
 			i += n - 1
 			continue

@@ -6,6 +6,8 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,9 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/e2e/e2edb"
 	"github.com/madskrogh/herald/internal/endpointtest"
-	"github.com/madskrogh/herald/internal/ingest"
 )
 
 // Config says where the stack is.
@@ -102,10 +103,9 @@ type Stack struct {
 	clickHouseURL string
 	client        *http.Client
 	// pprofURLs holds where each service serves pprof, by service name.
-	pprofURLs  map[string]string
-	pool       *pgxpool.Pool
-	ingest     *ingest.Store
-	deliveries *delivery.Store
+	pprofURLs map[string]string
+	pool      *pgxpool.Pool
+	postgres  *e2edb.Queries
 	// Endpoints serves the fake Endpoints that Tenants register.
 	Endpoints *endpointtest.Server
 }
@@ -135,10 +135,9 @@ func Connect(ctx context.Context, cfg Config) (*Stack, error) {
 			"herald-api":        cfg.APIPprofURL,
 			"herald-dispatcher": cfg.DispatcherPprofURL,
 		},
-		pool:       pool,
-		ingest:     ingest.NewStore(pool),
-		deliveries: delivery.NewStore(pool),
-		Endpoints:  endpoints,
+		pool:      pool,
+		postgres:  e2edb.New(pool),
+		Endpoints: endpoints,
 	}, nil
 }
 
@@ -148,17 +147,22 @@ func (s *Stack) Close() {
 	s.pool.Close()
 }
 
-// NewTenant creates a Tenant with an API key, as herald-admin does.
+// NewTenant creates a Tenant with an API key, writing only the columns the
+// column list says the scenario sets, as herald-admin does (R-85).
 func (s *Stack) NewTenant(ctx context.Context, name string) (*Tenant, error) {
-	tenant, err := s.ingest.CreateTenant(ctx, name)
+	id, err := s.postgres.CreateTenant(ctx, name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create tenant %q: %w", name, err)
 	}
-	key, err := s.ingest.CreateAPIKey(ctx, tenant.ID)
+	// Any key works: the Tenant API accepts a key whose SHA-256 is stored
+	// for a Tenant (the column list's ingest.api_keys.key_hash).
+	key := rand.Text()
+	hash := sha256.Sum256([]byte(key))
+	err = s.postgres.CreateAPIKey(ctx, e2edb.CreateAPIKeyParams{TenantID: id, KeyHash: hash[:]})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create api key for tenant %s: %w", id, err)
 	}
-	return &Tenant{ID: tenant.ID, stack: s, apiKey: key}, nil
+	return &Tenant{ID: id, stack: s, apiKey: key}, nil
 }
 
 // pollInterval is how often poll checks the stack's state. The stack runs in
@@ -185,15 +189,15 @@ func poll(ctx context.Context, check func() (done bool, err error)) error {
 
 // WaitDeliveries waits until the Message with the given ID has Deliveries
 // and none of them is pending, and returns them, ordered by ID.
-func (s *Stack) WaitDeliveries(ctx context.Context, messageID string) ([]delivery.Delivery, error) {
+func (s *Stack) WaitDeliveries(ctx context.Context, messageID string) ([]Delivery, error) {
 	id, err := uuid.Parse(messageID)
 	if err != nil {
 		return nil, fmt.Errorf("message ID %q: %w", messageID, err)
 	}
-	var deliveries []delivery.Delivery
+	var deliveries []Delivery
 	err = poll(ctx, func() (bool, error) {
 		var err error
-		deliveries, err = s.deliveries.MessageDeliveries(ctx, id)
+		deliveries, err = s.MessageDeliveries(ctx, id)
 		return len(deliveries) > 0 && !anyPending(deliveries), err
 	})
 	switch {
@@ -203,24 +207,6 @@ func (s *Stack) WaitDeliveries(ctx context.Context, messageID string) ([]deliver
 		return deliveries, fmt.Errorf("message %s: %d Deliveries, waiting for all to finish: %w", messageID, len(deliveries), err)
 	}
 	return deliveries, nil
-}
-
-// Attempts returns the Attempts herald-dispatcher recorded for the Delivery,
-// oldest first.
-func (s *Stack) Attempts(ctx context.Context, deliveryID uuid.UUID) ([]delivery.Attempt, error) {
-	return s.deliveries.Attempts(ctx, deliveryID)
-}
-
-// TenantMessages returns where each of the Tenant's Messages is: handed off,
-// Parked, or still in the Outbox.
-func (s *Stack) TenantMessages(ctx context.Context, tenantID uuid.UUID) ([]ingest.MessageStatus, error) {
-	return s.ingest.TenantMessages(ctx, tenantID)
-}
-
-// MessageDeliveries returns the Deliveries of the Message with the given ID,
-// whatever their state, ordered by ID.
-func (s *Stack) MessageDeliveries(ctx context.Context, messageID uuid.UUID) ([]delivery.Delivery, error) {
-	return s.deliveries.MessageDeliveries(ctx, messageID)
 }
 
 // GoroutineProfile returns the service's goroutine profile, in pprof's
@@ -256,15 +242,6 @@ func (s *Stack) GoroutineProfile(ctx context.Context, service string) ([]byte, e
 // Stack keeps open between calls, so that herald-api stops serving them.
 func (s *Stack) CloseIdleConnections() {
 	s.client.CloseIdleConnections()
-}
-
-func anyPending(deliveries []delivery.Delivery) bool {
-	for _, d := range deliveries {
-		if d.State == delivery.StatePending {
-			return true
-		}
-	}
-	return false
 }
 
 // Tenant calls the Tenant API with one Tenant's API key.

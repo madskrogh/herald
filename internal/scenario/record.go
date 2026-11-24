@@ -11,7 +11,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/e2e"
 	"github.com/madskrogh/herald/internal/endpointtest"
 )
 
@@ -28,7 +28,7 @@ type Observations struct {
 	EndpointIDs  map[uuid.UUID]string
 	// Deliveries are the Deliveries of the Messages sent, once each has
 	// succeeded or failed.
-	Deliveries []delivery.Delivery
+	Deliveries []e2e.Delivery
 	// Recorded is how many Attempts Herald recorded for each Delivery, by
 	// the Delivery's ID.
 	Recorded map[uuid.UUID]int
@@ -81,9 +81,9 @@ type DeliveryRecord struct {
 	Endpoint  string    `json:"endpoint"`
 	Behaviour Behaviour `json:"behaviour"`
 	// Fault is the fault in effect while the Message was sent.
-	Fault    Fault           `json:"fault,omitempty"`
-	State    delivery.State  `json:"state"`
-	Attempts []AttemptRecord `json:"attempts"`
+	Fault    Fault             `json:"fault,omitempty"`
+	State    e2e.DeliveryState `json:"state"`
+	Attempts []AttemptRecord   `json:"attempts"`
 }
 
 // AttemptRecord is one Attempt an Endpoint received.
@@ -181,9 +181,9 @@ func NewRecording(obs Observations) (Recording, error) {
 		if !ok {
 			return Recording{}, fmt.Errorf("delivery %s: message %s is none the scenario sent", d.ID, d.MessageID)
 		}
-		endpoint, ok := obs.EndpointIDs[d.Endpoint.ID]
+		endpoint, ok := obs.EndpointIDs[d.EndpointID]
 		if !ok {
-			return Recording{}, fmt.Errorf("delivery %s: endpoint %s is none the scenario created", d.ID, d.Endpoint.ID)
+			return Recording{}, fmt.Errorf("delivery %s: endpoint %s is none the scenario created", d.ID, d.EndpointID)
 		}
 		k := key{message, endpoint}
 		records[k] = &DeliveryRecord{
