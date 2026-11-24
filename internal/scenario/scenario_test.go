@@ -18,9 +18,9 @@ import (
 )
 
 var (
-	update = flag.Bool("update", false, "record new baselines instead of comparing with them")
-	out    = flag.String("out", "", "write the run's statistics to `dir`/statistics.json, for the timing comparison")
-	base   = flag.Bool("base", false, "run as the base build of the timing comparison: only run the scenario and write its statistics, neither comparing with the baselines nor checking the invariants")
+	update   = flag.Bool("update", false, "record new baselines, and rewrite golden files, instead of comparing with them")
+	out      = flag.String("out", "", "write the run's statistics to `dir`/statistics.json, for the timing comparison")
+	baseOnly = flag.Bool("base", false, "run as the base build of the timing comparison: only run the scenario and write its statistics, neither comparing with the baselines nor checking the invariants")
 )
 
 const (
@@ -95,16 +95,17 @@ func TestScenario(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	stats, err := scenario.ReadStatistics(ctx, stack, obs)
+	spans, err := scenario.SettledSpans(ctx, stack, obs)
 	if err != nil {
-		t.Fatalf("ReadStatistics: %v", err)
+		t.Fatalf("SettledSpans: %v", err)
 	}
+	stats := scenario.NewStatistics(obs, spans)
 	if *out != "" {
 		if err := writeJSON(filepath.Join(*out, "statistics.json"), stats); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if *base {
+	if *baseOnly {
 		return
 	}
 	got, err := scenario.NewRecording(traffic, obs)
@@ -114,7 +115,7 @@ func TestScenario(t *testing.T) {
 	counts := scenario.Counts{Traffic: traffic, Counts: stats.Counts}
 	// Checked once the run is compared or recorded, whichever this is.
 	defer func() {
-		violations, err := scenario.CheckInvariants(ctx, stack, obs, idle)
+		violations, err := scenario.CheckInvariants(ctx, stack, obs, spans, idle)
 		if err != nil {
 			t.Fatalf("CheckInvariants: %v", err)
 		}

@@ -110,32 +110,24 @@ else
 HOST_ENDPOINT_IP = 127.0.0.1
 endif
 
-# Where the end-to-end tests and the scenario find this checkout's stack, as
-# variable assignments to prefix a command with after `. ./.env`. Without
-# them, both skip, as in `make test`.
-STACK_ENV = \
-	HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
-	HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
-	HERALD_E2E_ENDPOINT_IP="$(HOST_ENDPOINT_IP)" \
-	HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
-	HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
-	HERALD_E2E_API_PPROF_URL="http://localhost:$$HERALD_API_PPROF_PORT" \
-	HERALD_E2E_DISPATCHER_PPROF_URL="http://localhost:$$HERALD_DISPATCHER_PPROF_PORT"
+# Runs what follows it in a recipe with the variables that say where the
+# end-to-end tests and the scenario find this checkout's stack
+# (scripts/stack-env.sh). Without them, both skip, as in `make test`.
+STACK_ENV = stackenv=$$(HOST_ENDPOINT_IP='$(HOST_ENDPOINT_IP)' ./scripts/stack-env.sh .) && env $$stackenv
 
 # Runs the end-to-end tests against this checkout's stack, started with
 # `make up`. RUN selects tests as go test's -run does; without it, all of
 # them run.
 # Usage: make e2e RUN=TestSpanIsStoredInClickHouse
 e2e: .env
-	@. ./.env && $(STACK_ENV) go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
+	@$(STACK_ENV) go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
 
 # The scenario restarts herald-dispatcher, pauses NATS and slows Postgres
 # through this checkout's compose file, so nothing else may use the stack
 # while it runs. After the run, both targets check the scenario invariants
 # (docs/testing.md), reporting each by rule and what broke it.
 # It takes about five minutes.
-SCENARIO = . ./.env && $(STACK_ENV) HERALD_SCENARIO_COMPOSE_FILE="$(CURDIR)/compose.yaml" \
-	go test -race -count=1 -v -timeout 20m -run '^TestScenario$$' ./internal/scenario/ \
+SCENARIO = $(STACK_ENV) go test -race -count=1 -v -timeout 20m -run '^TestScenario$$' ./internal/scenario/ \
 	-args $(if $(OUT),-out '$(abspath $(OUT))')
 
 # Runs the scenario against this checkout's stack, started with `make up`,

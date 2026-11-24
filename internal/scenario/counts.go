@@ -1,8 +1,6 @@
 package scenario
 
 import (
-	"maps"
-	"slices"
 	"strconv"
 )
 
@@ -25,20 +23,13 @@ func CompareCounts(want, got Counts) []Difference {
 	}
 	add("traffic file", want.Traffic.File, got.Traffic.File)
 	add("traffic sha256", want.Traffic.SHA256, got.Traffic.SHA256)
-	kinds := slices.Sorted(maps.Keys(want.Counts))
-	for k := range got.Counts {
-		if _, ok := want.Counts[k]; !ok {
-			kinds = append(kinds, k)
-		}
-	}
-	slices.Sort(kinds)
 	count := func(m map[string]int, k string) string {
 		if n, ok := m[k]; ok {
 			return strconv.Itoa(n)
 		}
 		return none
 	}
-	for _, k := range kinds {
+	for _, k := range unionKeys(want.Counts, got.Counts) {
 		add("spans: "+k, count(want.Counts, k), count(got.Counts, k))
 	}
 	return diffs

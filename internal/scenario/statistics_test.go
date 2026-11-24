@@ -16,12 +16,7 @@ import (
 // it, which was made again.
 func faultRun() (scenario.Observations, []e2e.Span) {
 	obs, spans := spanRun()
-	phase := &obs.Scenario.Phases[0]
-	m2 := phase.Messages[1]
-	phase.Messages = append(phase.Messages[:1], phase.Messages[2:]...)
-	obs.Scenario.Phases = append(obs.Scenario.Phases, scenario.Phase{
-		Fault: scenario.DispatcherRestarted, Messages: []scenario.Message{m2},
-	})
+	underFault(&obs, scenario.DispatcherRestarted)
 	i := slices.IndexFunc(spans, func(s e2e.Span) bool { return s.SpanID == "a3" })
 	cut := spans[i]
 	cut.SpanID = "a3-cut"
@@ -30,6 +25,17 @@ func faultRun() (scenario.Observations, []e2e.Span) {
 		"herald.outcome": "cut_off", "herald.status_code": "0", "herald.error": "shutdown",
 	})
 	return obs, append(spans, cut)
+}
+
+// underFault moves m002 out of obs's first phase into a phase of its own,
+// under fault.
+func underFault(obs *scenario.Observations, fault scenario.Fault) {
+	phase := &obs.Scenario.Phases[0]
+	m2 := phase.Messages[1]
+	phase.Messages = append(phase.Messages[:1], phase.Messages[2:]...)
+	obs.Scenario.Phases = append(obs.Scenario.Phases, scenario.Phase{
+		Fault: fault, Messages: []scenario.Message{m2},
+	})
 }
 
 // with returns a copy of m with set's keys set.
@@ -113,12 +119,7 @@ func TestNewStatisticsTimesHandoffAndAttempts(t *testing.T) {
 	}
 	faulty := func() (scenario.Observations, []e2e.Span) {
 		obs, spans := timedRun()
-		phase := &obs.Scenario.Phases[0]
-		m2 := phase.Messages[1]
-		phase.Messages = append(phase.Messages[:1], phase.Messages[2:]...)
-		obs.Scenario.Phases = append(obs.Scenario.Phases, scenario.Phase{
-			Fault: scenario.PostgresSlowed, Messages: []scenario.Message{m2},
-		})
+		underFault(&obs, scenario.PostgresSlowed)
 		return obs, spans
 	}
 	tests := []struct {

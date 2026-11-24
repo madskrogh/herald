@@ -35,8 +35,8 @@ func TestMarginsFollowTheDocs(t *testing.T) {
 		return strconv.FormatInt(m.Percent, 10) + "% + " + strconv.FormatInt(m.Ms, 10) + " ms"
 	}
 	got := map[string]string{edgeStatistic: format(edgeMargin)}
-	for name, m := range TimingMargins {
-		got[name] = format(m)
+	for k, m := range TimingMargins {
+		got[k.String()] = format(m)
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("the comparison's margins differ from docs/testing.md (-docs +code):\n%s", diff)

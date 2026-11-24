@@ -122,8 +122,7 @@ func withinMargin(want, got *int64) bool {
 	if want == nil || got == nil {
 		return want == nil && got == nil
 	}
-	margin := *want*edgeMargin.Percent/100 + edgeMargin.Ms
-	return *got >= *want-margin && *got <= *want+margin
+	return edgeMargin.Allows(*want, *got)
 }
 
 func formatMs(ms *int64) string {

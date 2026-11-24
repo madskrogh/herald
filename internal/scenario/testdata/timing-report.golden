@@ -7,7 +7,7 @@ The candidate's timing statistics, each compared with the base's, run on the sam
 
 | Statistic | Base | Candidate | Margin | |
 |---|---|---|---|---|
-| Attempt latency p50 | 3 | (none) | ± 20 | **beyond the margin** |
+| Attempt latency p50 | 3 | (none) | ± 20 | **no samples to compare** |
 | handoff lag p50 | 100 | 161 | ± 60 | **beyond the margin** |
 | handoff lag p95 | 400 | 400 | ± 210 | within |
 

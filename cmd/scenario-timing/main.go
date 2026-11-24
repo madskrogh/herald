@@ -2,7 +2,9 @@
 // scenario, the base's and the candidate's, run on the same machine at the
 // same time, each within its margin (docs/testing.md, "Timing margins"). It
 // prints the comparison as a Markdown report, and fails if any statistic is
-// beyond its margin, naming each. Run it through `make scenario-timing`.
+// beyond its margin or has no samples to compare, naming each: with exit
+// status 1, and 2 when it can't compare at all. Run it through
+// `make scenario-timing`.
 package main
 
 import (
@@ -18,10 +20,16 @@ import (
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
+// errFailed is a comparison that ran and failed.
+var errFailed = errors.New("the timing comparison failed")
+
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "scenario-timing:", err)
-		os.Exit(1)
+		if errors.Is(err, errFailed) {
+			os.Exit(1)
+		}
+		os.Exit(2)
 	}
 }
 
@@ -49,14 +57,14 @@ func run(args []string, out io.Writer) error {
 	if err := scenario.WriteTimingReport(out, base, candidate, rows); err != nil {
 		return err
 	}
-	var beyond []string
+	var failed []string
 	for _, r := range rows {
 		if !r.Within {
-			beyond = append(beyond, fmt.Sprintf("%s (base %s, candidate %s, margin %s)", r.Statistic, r.Base, r.Candidate, r.Margin))
+			failed = append(failed, r.String())
 		}
 	}
-	if len(beyond) > 0 {
-		return fmt.Errorf("beyond the margin: %s", strings.Join(beyond, "; "))
+	if len(failed) > 0 {
+		return fmt.Errorf("%w: %s", errFailed, strings.Join(failed, "; "))
 	}
 	return nil
 }
