@@ -121,7 +121,8 @@ func goroutines(ctx context.Context, stack *e2e.Stack, service string) (Goroutin
 	return g, nil
 }
 
-// How CheckInvariants waits for the stack to settle after a run. The
+// How SettledSpans and CheckInvariants wait for the stack to settle after a
+// run. The
 // Collector exports spans in batches, so the last arrive a moment after the
 // run; and a service's goroutines end only once the connections they serve
 // close.
@@ -131,15 +132,15 @@ const (
 )
 
 // CheckInvariants checks every scenario invariant on a finished run of
-// obs's scenario: at the edge, in the final state in Postgres, in the spans
-// in ClickHouse, and in each service's goroutines compared with idle. It
+// obs's scenario: at the edge, in the final state in Postgres, in its spans
+// (SettledSpans), and in each service's goroutines compared with idle. It
 // closes the stack's fake Endpoints, and the Stack's connections to the
 // Tenant API, so that the services' goroutines serving them end.
 //
-// Spans and goroutines are read again until they keep the rules or
-// settleTimeout passes, and the violations of the last reading are
-// returned. The error is for a stack that can't be read.
-func CheckInvariants(ctx context.Context, stack *e2e.Stack, obs Observations, idle map[string]Goroutines) ([]Violation, error) {
+// Goroutines are read again until they keep the rules or settleTimeout
+// passes, and the violations of the last reading are returned. The error
+// is for a stack that can't be read.
+func CheckInvariants(ctx context.Context, stack *e2e.Stack, obs Observations, spans []e2e.Span, idle map[string]Goroutines) ([]Violation, error) {
 	vs := CheckEdge(obs)
 
 	var state FinalState
@@ -157,23 +158,7 @@ func CheckInvariants(ctx context.Context, stack *e2e.Stack, obs Observations, id
 	}
 	vs = append(vs, CheckFinalState(obs, state)...)
 
-	// The spans are complete once every trace and parent is there; errors,
-	// lag and lateness are read from whatever spans there are then.
-	var spanVs []Violation
-	err = settle(ctx, func() (bool, error) {
-		spans, err := stack.RunSpans(ctx, obs.TenantID.String())
-		if err != nil {
-			return false, fmt.Errorf("read the run's spans: %w", err)
-		}
-		spanVs = CheckSpans(obs, spans)
-		return !slices.ContainsFunc(spanVs, func(v Violation) bool {
-			return v.Rule == ruleTrace || v.Rule == ruleParent
-		}), nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	vs = append(vs, spanVs...)
+	vs = append(vs, CheckSpans(obs, spans)...)
 
 	stack.Endpoints.Close()
 	stack.CloseIdleConnections()
@@ -193,6 +178,25 @@ func CheckInvariants(ctx context.Context, stack *e2e.Stack, obs Observations, id
 		vs = append(vs, leaks...)
 	}
 	return vs, nil
+}
+
+// SettledSpans returns the spans of a finished run of obs's scenario, once
+// they are complete: once every trace and parent is there (CheckSpans), or
+// settleTimeout has passed. The statistics and the invariants read the
+// spans there are then.
+func SettledSpans(ctx context.Context, stack *e2e.Stack, obs Observations) ([]e2e.Span, error) {
+	var spans []e2e.Span
+	err := settle(ctx, func() (bool, error) {
+		var err error
+		spans, err = stack.RunSpans(ctx, obs.TenantID.String())
+		if err != nil {
+			return false, fmt.Errorf("read the run's spans: %w", err)
+		}
+		return !slices.ContainsFunc(CheckSpans(obs, spans), func(v Violation) bool {
+			return v.Rule == ruleTrace || v.Rule == ruleParent
+		}), nil
+	})
+	return spans, err
 }
 
 // settle calls check every settleInterval until it reports done, or

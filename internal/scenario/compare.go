@@ -7,19 +7,6 @@ import (
 	"strconv"
 )
 
-// Timing margins. An Attempt's time since its Delivery's first may differ
-// from the baseline's by jitterMargin of it, plus slackMs. The retry
-// schedule's jitter moves each delay by up to 10% either way, in the
-// baseline's run as well as this one, so the two can be 20% of the schedule
-// apart, which is up to 22% of the baseline's time. slackMs covers the
-// delivery workers' polling and the machine. With the local stack's retry
-// scale, a change to a retry delay of an hour or more fails the comparison,
-// and shorter ones are lost in the margins (ADR 0008).
-const (
-	jitterMargin = 25 // percent
-	slackMs      = 1000
-)
-
 // none stands for a value one side doesn't have.
 const none = "(none)"
 
@@ -128,15 +115,14 @@ func (d DeliveryRecord) name() string {
 	return d.Message + " to " + d.Endpoint
 }
 
-// withinMargin reports whether got is close enough to want, the baseline's
-// time since the Delivery's first Attempt. Neither having one, under a
-// fault, is close enough; only one having one is not.
+// withinMargin reports whether got is within edgeMargin of want, the
+// baseline's time since the Delivery's first Attempt. Neither having one,
+// under a fault, is close enough; only one having one is not.
 func withinMargin(want, got *int64) bool {
 	if want == nil || got == nil {
 		return want == nil && got == nil
 	}
-	margin := *want*jitterMargin/100 + slackMs
-	return *got >= *want-margin && *got <= *want+margin
+	return edgeMargin.Allows(*want, *got)
 }
 
 func formatMs(ms *int64) string {
