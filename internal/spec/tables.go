@@ -29,6 +29,17 @@ func (t Table) RowLine(i int) int {
 	return t.Line + 2 + i
 }
 
+// TableUnder returns the first of tables under heading, and whether there
+// is one. A shape file's reader finds each of its tables this way.
+func TableUnder(tables []Table, heading string) (Table, bool) {
+	for _, t := range tables {
+		if t.Heading == heading {
+			return t, true
+		}
+	}
+	return Table{}, false
+}
+
 // Record is a row of a table, its cells by the header's names, with the line
 // it is on.
 type Record struct {
@@ -88,7 +99,7 @@ func newTable(heading string, line int, lines []string) Table {
 }
 
 // cells splits a table row into its cells. A pipe inside a code span, or
-// escaped as \|, doesn't split it.
+// escaped as \|, doesn't split it, and \| reads as |, as GitHub renders it.
 func cells(row string) []string {
 	row = strings.TrimSpace(row)
 	row = strings.TrimPrefix(row, "|")
@@ -103,8 +114,12 @@ func cells(row string) []string {
 		switch {
 		case escaped:
 			escaped = false
+			if r != '|' {
+				cell.WriteRune('\\')
+			}
 		case r == '\\':
 			escaped = true
+			continue
 		case r == '`':
 			code = !code
 		case r == '|' && !code:
@@ -113,6 +128,9 @@ func cells(row string) []string {
 			continue
 		}
 		cell.WriteRune(r)
+	}
+	if escaped {
+		cell.WriteRune('\\')
 	}
 	return append(out, strings.TrimSpace(cell.String()))
 }

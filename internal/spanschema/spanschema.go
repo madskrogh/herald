@@ -240,16 +240,19 @@ var backtickRE = regexp.MustCompile("`([^`]*)`")
 // spec/span-schema.md: a table of spans, of attributes, of each span's
 // attributes and of outcomes, each under its own "##" heading.
 func parse(fileTables []internalspec.Table) (Schema, error) {
-	tables, err := rowsByHeading(fileTables)
-	if err != nil {
-		return Schema{}, err
-	}
-	s := Schema{Spans: map[string]SpanSchema{}, Attributes: map[string]Attribute{}}
+	tables := map[string][]row{}
 	for _, name := range []string{sectionSpans, sectionAttributes, sectionSpanAttrs, sectionOutcomes} {
-		if len(tables[name]) == 0 {
+		t, ok := internalspec.TableUnder(fileTables, name)
+		if !ok || len(t.Rows) == 0 {
 			return Schema{}, fmt.Errorf("no table under %q", "## "+name)
 		}
+		rs, err := rows(t)
+		if err != nil {
+			return Schema{}, err
+		}
+		tables[name] = rs
 	}
+	s := Schema{Spans: map[string]SpanSchema{}, Attributes: map[string]Attribute{}}
 	for _, r := range tables[sectionSpans] {
 		name, err := r.backticked("Span")
 		if err != nil {
@@ -367,23 +370,6 @@ func (r row) backticked(column string) (string, error) {
 		return "", r.errorf("%s %q is not one name in backticks", column, r.Cells[column])
 	}
 	return v, nil
-}
-
-// rowsByHeading returns the rows of the first table under each heading, by
-// the heading's text. A table before the first heading is left out.
-func rowsByHeading(tables []internalspec.Table) (map[string][]row, error) {
-	byHeading := map[string][]row{}
-	for _, t := range tables {
-		if _, ok := byHeading[t.Heading]; ok || t.Heading == "" {
-			continue
-		}
-		rs, err := rows(t)
-		if err != nil {
-			return nil, err
-		}
-		byHeading[t.Heading] = rs
-	}
-	return byHeading, nil
 }
 
 // rows returns the rows of t, their cells by column.

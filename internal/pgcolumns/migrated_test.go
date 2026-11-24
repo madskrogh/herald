@@ -3,10 +3,12 @@ package pgcolumns_test
 import (
 	"log/slog"
 	"testing"
+	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/madskrogh/herald/internal/delivery"
+	"github.com/madskrogh/herald/internal/e2e/e2edb"
 	"github.com/madskrogh/herald/internal/ingest"
 	"github.com/madskrogh/herald/internal/pgcolumns"
 	"github.com/madskrogh/herald/internal/pgtest"
@@ -56,5 +58,21 @@ func TestMigratedDatabaseKeepsTheList(t *testing.T) {
 	// none is stored, so the list was read and the check can fire.
 	if got, want := len(pgcolumns.Check(list, nil)), len(list); got != want || want == 0 {
 		t.Errorf("Check on no columns found %d problems, want one for each of the list's %d columns", got, want)
+	}
+
+	// R-85 itself: the harness's own writes, which set only the columns the
+	// list says the scenario sets, are accepted, and Postgres generates the
+	// Tenant's ID. This catches what the catalog doesn't show, such as a
+	// CHECK constraint or a trigger.
+	q := e2edb.New(pool)
+	tenantID, err := q.CreateTenant(ctx, "R-85")
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	if tenantID == uuid.Nil() {
+		t.Errorf("CreateTenant returned a zero ID, want one Postgres generated")
+	}
+	if err := q.CreateAPIKey(ctx, e2edb.CreateAPIKeyParams{TenantID: tenantID, KeyHash: []byte("a SHA-256 is 32 bytes long......")}); err != nil {
+		t.Errorf("CreateAPIKey: %v", err)
 	}
 }

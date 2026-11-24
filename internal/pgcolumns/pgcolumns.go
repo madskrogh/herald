@@ -88,12 +88,11 @@ func Load() ([]Column, error) {
 // parse reads the column list from the tables of a file in the form of
 // spec/postgres-columns.md: one table, under "## Columns".
 func parse(tables []internalspec.Table) ([]Column, error) {
-	i := slices.IndexFunc(tables, func(t internalspec.Table) bool { return t.Heading == section })
-	if i < 0 {
+	t, ok := internalspec.TableUnder(tables, section)
+	if !ok {
 		return nil, fmt.Errorf("no table under %q", "## "+section)
 	}
-	t := tables[i]
-	for _, name := range []string{"Table", "Column", "Type", "Null", "Set by", "Why"} {
+	for _, name := range []string{"Table", "Column", "Type", "Null", "Set by", "Holds", "Why"} {
 		if t.Column(name) < 0 {
 			return nil, fmt.Errorf("line %d: no %q column", t.Line, name)
 		}
@@ -133,6 +132,9 @@ func parse(tables []internalspec.Table) ([]Column, error) {
 		c.Nullable = nullable
 		if c.SetBy = SetBy(cell("Set by")); !slices.Contains(setBys, c.SetBy) {
 			return nil, errorf("%s: Set by %q is not one of %q", name, c.SetBy, setBys)
+		}
+		if cell("Holds") == "" {
+			return nil, errorf("%s doesn't say what it holds", name)
 		}
 		if cell("Why") == "" {
 			return nil, errorf("%s has no reason", name)
@@ -183,7 +185,7 @@ func Check(list []Column, stored []Stored) []error {
 	for _, s := range stored {
 		byName[s.fullName()] = s
 	}
-	listed := listedNames(list)
+	listed := byFullName(list)
 	// written holds the tables the scenario writes rows of.
 	written := map[string]bool{}
 	var problems []error
@@ -207,8 +209,15 @@ func Check(list []Column, stored []Stored) []error {
 			problems = append(problems, fmt.Errorf("%s has no default, but the list says the database sets it", name))
 		}
 	}
+	// Every column of a written table that the scenario doesn't set, and the
+	// list doesn't say the database sets (checked above), has to fill itself
+	// in.
 	for _, s := range stored {
-		if written[s.Table] && !listed[s.fullName()] && !s.Nullable && !s.HasDefault {
+		c, ok := listed[s.fullName()]
+		if ok && (c.SetBy == SetByScenario || c.SetBy == SetByDatabase) {
+			continue
+		}
+		if written[s.Table] && !s.Nullable && !s.HasDefault {
 			problems = append(problems, fmt.Errorf("%s is NOT NULL with no default, so the scenario can't write a row of %s", s.fullName(), s.Table))
 		}
 	}
@@ -219,20 +228,20 @@ func Check(list []Column, stored []Stored) []error {
 // order stored. Herald's database may have them; the harness's schema may
 // not, so that it reads only what the list names.
 func Unlisted(list []Column, stored []Stored) []Stored {
-	listed := listedNames(list)
+	listed := byFullName(list)
 	var out []Stored
 	for _, s := range stored {
-		if !listed[s.fullName()] {
+		if _, ok := listed[s.fullName()]; !ok {
 			out = append(out, s)
 		}
 	}
 	return out
 }
 
-func listedNames(list []Column) map[string]bool {
-	listed := make(map[string]bool, len(list))
+func byFullName(list []Column) map[string]Column {
+	listed := make(map[string]Column, len(list))
 	for _, c := range list {
-		listed[c.fullName()] = true
+		listed[c.fullName()] = c
 	}
 	return listed
 }

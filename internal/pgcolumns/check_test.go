@@ -9,8 +9,9 @@ import (
 )
 
 // TestCheck shows each way a database can break R-84 and R-85, against a
-// list of three columns: one the scenario writes, one Postgres generates
-// when it does, and one Herald writes that may be NULL.
+// list of four columns: one the scenario writes, one Postgres generates
+// when it does, and two Herald writes that may be NULL, one of them in a
+// table the scenario writes.
 func TestCheck(t *testing.T) {
 	t.Parallel()
 
@@ -18,6 +19,7 @@ func TestCheck(t *testing.T) {
 		{Table: "ingest.tenants", Name: "id", Type: "uuid", SetBy: pgcolumns.SetByDatabase},
 		{Table: "ingest.tenants", Name: "name", Type: "text", SetBy: pgcolumns.SetByScenario},
 		{Table: "ingest.messages", Name: "handed_off_at", Type: "timestamp with time zone", Nullable: true, SetBy: pgcolumns.SetByHerald},
+		{Table: "ingest.tenants", Name: "plan", Type: "text", Nullable: true, SetBy: pgcolumns.SetByHerald},
 	}
 	// matching is a database that keeps the list, with columns it doesn't
 	// name: one with a default in a table the scenario writes, and one
@@ -29,6 +31,7 @@ func TestCheck(t *testing.T) {
 			{Table: "ingest.tenants", Name: "created_at", Type: "timestamp with time zone", HasDefault: true},
 			{Table: "ingest.messages", Name: "handed_off_at", Type: "timestamp with time zone", Nullable: true},
 			{Table: "ingest.messages", Name: "payload", Type: "bytea"},
+			{Table: "ingest.tenants", Name: "plan", Type: "text", Nullable: true},
 		}
 	}
 
@@ -86,6 +89,14 @@ func TestCheck(t *testing.T) {
 				return s
 			},
 			want: []string{"ingest.tenants.created_at is NOT NULL with no default, so the scenario can't write a row of ingest.tenants"},
+		},
+		{
+			name: "a column Herald sets, in a table the scenario writes, has no default and isn't NULL",
+			change: func(s []pgcolumns.Stored) []pgcolumns.Stored {
+				s[5].Nullable = false
+				return s
+			},
+			want: []string{"ingest.tenants.plan is NOT NULL with no default, so the scenario can't write a row of ingest.tenants"},
 		},
 		{
 			name: "a column the list doesn't name, in a table the scenario writes, may be NULL",

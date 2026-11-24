@@ -67,6 +67,38 @@ Text.
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("FileTables (-want +got):\n%s", diff)
 	}
+
+	// TableUnder finds the first table under a heading, and none under a
+	// heading with no table.
+	for _, tt := range []struct {
+		heading string
+		line    int
+		ok      bool
+	}{{"Spans", 11, true}, {"Attributes", 22, true}, {"Outcomes", 0, false}} {
+		got, ok := spec.TableUnder(tables, tt.heading)
+		if got.Line != tt.line || ok != tt.ok {
+			t.Errorf("TableUnder(%q) = table at line %d, %v, want line %d, %v", tt.heading, got.Line, ok, tt.line, tt.ok)
+		}
+	}
+}
+
+// TestFileTablesCells checks how a row splits into cells: a pipe in a code
+// span or escaped as \| stays in its cell, and \| reads as |, as in
+// GitHub's Markdown.
+func TestFileTablesCells(t *testing.T) {
+	t.Parallel()
+
+	fsys := fstest.MapFS{"shape.md": &fstest.MapFile{Data: []byte("| A | B |\n|---|---|\n" +
+		"| `a|b` | c\\|d |\n" +
+		"| `a\\|b` | c\\d |\n")}}
+	tables, err := spec.FileTables(fsys, "shape.md")
+	if err != nil {
+		t.Fatalf("FileTables: %v", err)
+	}
+	want := [][]string{{"`a|b`", "c|d"}, {"`a|b`", `c\d`}}
+	if diff := cmp.Diff(want, tables[0].Rows); diff != "" {
+		t.Errorf("rows (-want +got):\n%s", diff)
+	}
 }
 
 func TestTableRecords(t *testing.T) {

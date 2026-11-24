@@ -225,7 +225,7 @@ type MessageStatus struct {
 }
 
 // TenantMessages returns where each of the Tenant's Messages is, in ID
-// order. Tests use it, to check where the relay left its Messages; herald-api
+// order. Tests use it, to check where HandOff left the Messages; herald-api
 // has no use for it.
 func (s *Store) TenantMessages(ctx context.Context, tenantID uuid.UUID) ([]MessageStatus, error) {
 	rows, err := s.q.ListTenantMessages(ctx, tenantID)
