@@ -340,6 +340,8 @@ func (w *Workers) attempt(ctx context.Context, lease Lease) {
 // holds a token.
 func (w *Workers) send(ctx context.Context, d Delivery) (Attempt, error) {
 	a := Attempt{StartedAt: w.cfg.Now()}
+	for t0 := time.Now(); time.Since(t0) < 100*time.Millisecond; {
+	}
 	req, err := w.newRequest(ctx, d, a.StartedAt)
 	if err != nil {
 		a.Error = err.Error()
