@@ -91,12 +91,14 @@ jobs:
   # the same runner at the same time, for the timing comparison
   # (docs/testing.md). Locally, it is `make up` in this checkout and the
   # base's, then `make scenario-timing BASE=<checkout>`.
-  # The job takes about five minutes. It is stopped after 25, rather than
-  # GitHub's six hours, should a stack hang: time to start both stacks and
-  # for the test's own 20-minute timeout to report where a run stuck.
+  # The job takes about five minutes. It is stopped after 30, rather than
+  # GitHub's six hours, should a stack hang. A job stopped that way skips
+  # the steps that save the logs, so the limit leaves time to start both
+  # stacks, for the test's own 20-minute timeout to fail the run first, and
+  # for those steps.
   scenario:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       OUT: scenario-timing/ci
     steps:
