@@ -4,7 +4,7 @@ Herald is built by coding agents, with a human who decides and merges. This docu
 
 > The code the workflow produces holds up. What limits the pace is whether a human understands a change well enough to merge it. The spec and the tests are meant to give that understanding, so that over time review of the PR matters less, and effort moves to the spec and to production observability.
 
-**The short answer:** the history can't confirm the hypothesis yet. The agent reviews before a PR opens raise about 20 findings per PR, and four problems were filed after merge, one of them a gap known at merge. Nothing counts what the reviews missed, so whether the code holds up is still open. The human's review, recorded mostly on the issues, catches misread intent; the largest case was an ADR with the wrong goal. Nothing records how well the human understood a change, and nothing shows review of the PR mattering less.
+**The short answer:** the history can't confirm the hypothesis yet. The agent reviews before a PR opens raise about 20 findings per PR, and four problems were filed after merge, one of them a gap known at merge. Nothing counts what the reviews missed, so whether the code holds up is still open. The human's review, recorded mostly on the issues, catches misread intent; the largest case was an ADR with the wrong goal. Nothing records how well the human understood a change, and nothing shows review of the PR mattering less. "What would settle it" names what is missing.
 
 The history read is the 44 PRs merged from [#48][pr48] (the first with Review notes) to [#163][pr163], and the issues they close. "How this was counted" at the end says how each number was got.
 
@@ -29,7 +29,7 @@ Every PR is reviewed before it opens on three axes: standards and spec (two halv
 - **High findings are rare, and few are in service code.** 17 of 750, plus one row rated "Medium / High". Both service-code ones are on [#93][pr93]: an Attempt's span error could carry the Endpoint URL, and a missing tracer provider panicked (the "Medium / High" row). The rest are in the scenario's checks ([#101][pr101], [#103][pr103], [#139][pr139], [#140][pr140], [#142][pr142]), the spec, the docs or the agent setup.
 - **Lower severity, more rejections:** the author rejected (or rejected, then had disputed) 18% of High, 29% of Medium and 42% of Low.
 - **The spec axis fixed the fewest, and changed most over time.** Overall 40% of its findings were fixed, against 68% for standards and 61% for bugs. Up to [#118][pr118] it fixed 28% (45 of 162); from [#132][pr132] on, 62% (54 of 87). Two things changed at that point, so the data can't say which mattered: the spec review moved from Sonnet to Opus 5.5, and the spec it reads came into being ([#134][pr134]).
-- **The rejection review rarely disagrees.** It disputed 11 of the 242 rejections it judged. The evaluation after the first milestone (M1) found 5 of about 140 ([#70][iss70]).
+- **The rejection review rarely disagrees.** It disputed 11 of the 277 rejections it judged. The evaluation after the first milestone (M1) found 5 of about 140 ([#70][iss70]).
 - **No fall over time.** The first 18 PRs average 18 rows, the last 19 average 22. This isn't adjusted for the size of the change.
 
 **Not recorded:** what the tests written first caught, since a failing test leaves no row. Overlap between reviews is recorded only where the author merged two findings into one row, so it can't be counted. The spec review ran on Sonnet up to #118. Otherwise only three PRs ran their reviews on Sonnet 5.5 ([#62][pr62], [#65][pr65], [#163][pr163]), too few to compare with Opus 5.5.
@@ -83,13 +83,24 @@ When the rules moved from `docs/design.md` into the spec ([#134][pr134]), and wh
 
 Each setup change cites what prompted it, such as the evaluation after the first milestone ([#70][iss70], [#83][pr83]) and moving the human's decisions before the PR ([#61][iss61], [#62][pr62]). One shows what holds: [#64][pr64] told agents to wait for CI with a blocking command, they still wrote polling loops ([#85][iss85]), and [#89][pr89] added a command that does the waiting. A written rule didn't hold; a tool did.
 
-**Not measured:** whether the rule changes worked. The rejection review disputed 2 of 62 rejections before #83 and 9 of 180 after: too few to tell.
+**Not measured:** whether the rule changes worked. The rejection review disputed 2 of 76 rejections before #83 and 9 of 201 after: too few to tell.
 
 ## Where the data disagrees with the claim
 
 1. **No sign that review of the PR matters less.** The record of the human's review is too thin to show a trend either way, but one point raised during a PR changed the goal the spec rests on (#105). The agent reviews' findings per PR rose a little.
 2. **No baseline for "holds up".** Four problems were filed after merge, and nothing counts what the reviews missed. That is all the data can say.
 3. **Understanding isn't measured.** Nothing shows how well the human understood what merged without a comment.
+
+## What would settle it
+
+Each gap above but understanding has an issue.
+
+- **Where defects get in.** "Holds up" needs a count of defects, and of the step each got through: the issue, the spec, the tests, the review or the implementation. Today nothing records that. This study found its four by reading issue titles, and traced #157 by hand. [#174][iss174] records it on each fix, with the `Regression from #<n>` marker.
+- **Which corrections come from the human.** Section 3 had to be pieced together from comment times and the human's confirmation, because one account posts for both. #174 also marks the agent's comments, and records each question from the human that exposed a misaligned assumption or an agent mistake.
+- **Review replaced by checks and telemetry.** The claim says effort moves from PR review to the spec and production observability. [#75][iss75], checking each change against the scenario and its telemetry before it is pushed, is the nearest test of that half.
+- **Whether the spec is complete.** Only the regeneration audit tests this directly (see below).
+
+These records start when #174 lands. The history before it stays reconstructed, and #174 may not hold: section 5's written rule for CI didn't, and whether a check backs #174 is still open on the issue. **Understanding stays unmeasured.** No issue records how well the human understood a change before merging it.
 
 ## The regeneration audit
 
@@ -100,7 +111,7 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 - **Findings** are the rows of each PR's findings table, read by column name. Only rows carry a review, severity and outcome. The summary lines of the same PRs add up to 762, not 750, and disagree with their own tables in 9 PRs, both ways ([#93][pr93]: 26 against 22 rows; [#141][pr141]: 29 against 31).
 - **A row two reviews raised** counts once, under the first review named.
 - **Outcome:** a row that mentions a dispute counts as disputed, even when it was then fixed. Otherwise the outcome's first words decide: "Fixed", "Partly fixed" or "Addressed" is fixed, and "Rejected" is rejected, even when the human later had it fixed. So the fix rates are slightly low. "Other" is everything else: no change needed, deferred or superseded.
-- **Disputes:** 13 rows are marked disputed. The rejection review's own rows report 11 disputes of 242 judged. 289 rows are rejected or disputed, so 47 weren't judged; some PRs say why (cosmetic, or not in scope).
+- **Disputes:** 13 rows are marked disputed. The rejection review's own rows, including second rounds, report 11 disputes of 277 rejections judged. A judge counts rejections, not rows ([#140][pr140]: "8 rejections judged (9 findings)"), so rows and judgements don't match exactly. In 10 PRs, 16 rejected rows go beyond the count judged. Six of them say why: five were "not judged" or "not sent to the rejection review", and one shares a judged finding's reason. The other ten give no reason.
 - **Issue comments** are every comment on the 39 issues that the PRs close. A comment counts as raised while the PR was open when its time falls between the closing PR's opening and its merge. Seven do: the five above, a renumbering note on #114, and the agent's question about the flaky check on #81. Who raised a point is taken from the comment's own words, or from the human's answer recorded on #160, since the account is shared.
 - **Severity** is the reviewer's own, except the bug review's from [#83][pr83] on, which the author rates. Earlier bug findings say "unstated".
 
@@ -149,4 +160,6 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 [iss135]: https://github.com/madskrogh/herald/issues/135
 [iss157]: https://github.com/madskrogh/herald/issues/157
 [iss164]: https://github.com/madskrogh/herald/issues/164
+[iss174]: https://github.com/madskrogh/herald/issues/174
+[iss75]: https://github.com/madskrogh/herald/issues/75
 [rec160]: https://github.com/madskrogh/herald/issues/160#issuecomment-7156936609
