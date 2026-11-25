@@ -26,9 +26,8 @@ The reviewer works like a coach. They hold the context (the business, the users,
 - Evidence for load-bearing claims: tests, file and line, logs, queries.
 - What you ran to verify the change, with results, and what you didn't check.
 - The `report.md` of the `make scenario-timing` run against `origin/main` before the PR opened (`CLAUDE.md`, Workflow step 6), and each baseline the diff re-records.
-- Whether this fixes a bug that reached `main` (labelled `bug`, or with a `Regression from #<n>` trace), and the scenario case that shows it.
 - Each review that ran: its model, its effort if it takes one, and the setup commit it ran on.
-- Whether this fixes a defect found after the pre-PR reviews: the PR that shipped it, and its trace (`CLAUDE.md`, "What the history records").
+- Whether this fixes a defect found after the pre-PR reviews: the PR that shipped it, and its trace (`CLAUDE.md`, "What the history records"). A defect that reached `main` (labelled `bug`, or with a `Regression from #<n>` trace) also needs the traffic-file case that shows it.
 - The "Raised by the human" comments on the issue.
 
 ## Shape
@@ -54,7 +53,7 @@ The summary line counts the Not verified items, `Verification: 2 not verified`, 
 - **Scenario invariants:** held, or each one broken.
 - **Timing comparison:** within the margins, or each statistic that moved.
 - **Profile diff:** only when the comparison found a difference in latency or lag, or the PR claims a performance effect. Then the relevant part of the run's profile diff (`OUT/profiles/diff.txt`), or of `make profile`'s. Otherwise leave it out.
-- **Scenario case:** a PR that fixes a bug that reached `main` adds the case that shows it to the traffic file (`docs/testing.md`, "Where a new check belongs"), re-records the baselines, and names the case here. The case is the defect's Closed by in the Trace.
+- **Traffic-file case:** a PR that fixes a defect that reached `main` adds the case that shows it to the traffic file (`docs/testing.md`, "Where a new check belongs"), with the baselines re-recorded from it ("How they are tied"), and names the case here. The case is the defect's Closed by in the Trace. If only a new scenario invariant can show the defect, that is a check change: it lands first, in its own PR (`CLAUDE.md`, "Checks change on their own"), and this PR names it.
 
 If the run didn't happen, or stopped before it finished, it goes under Not verified with the reason.
 
@@ -114,7 +113,7 @@ Write "None" under a heading with nothing to list. The summary counts both, `Tra
 - Does the Verification summary count match the Not verified list?
 - Does Verification give the scenario run's comparison, invariants and timing results, and a profile diff exactly when latency or lag differed or the PR claims a performance effect?
 - Is every baseline change in the diff explained by a requirement ID the PR adds or changes?
-- If the PR fixes a bug that reached `main`, does it add the scenario case that shows it, and name it in Verification and as the Trace's Closed by?
+- If the PR fixes a defect that reached `main`, does it add the traffic-file case that shows it, and name it in Verification and as the Trace's Closed by?
 - Does every review that ran have a row, including those with no findings?
 - Does the Trace list every defect the PR fixes with all four fields, and every "Raised by the human" comment on the issue?
 - Is anything in the main text that belongs in details?
