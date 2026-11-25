@@ -60,17 +60,17 @@ These catch decisions that look like decisions: a constant, a limit, a format. T
 
 ## The regeneration audit
 
-The audit runs ADR 0007's own test: regenerate Herald from the spec and see what differs. Every difference is either a defect in the regenerated build, or a decision the spec doesn't state.
+The audit runs ADR 0007's own test: regenerate Herald from the spec and see what differs. Every difference is a defect in the regenerated build, a decision the spec doesn't state, or a planned requirement the current build doesn't meet yet.
 
-It runs at the end of each milestone, and after a large change to the spec. Not on every PR: a full regeneration costs too much for that. The first runs right after the spec first covers today's behaviour (#109).
+It is optional, not a fixed step. It MAY be part of evaluating a milestone or a large feature change. A full regeneration costs too much in model usage to run on a schedule, and on a much larger codebase it isn't realistic at all, so the audit is scoped to the part that changed: regenerate that service or boundary from its requirements, and run that part's checks. A full regeneration is one option, not the default.
 
-To run it:
+The steps below are the way to run one. For a scoped audit, export only the inputs that part needs, ask the session to build only that part, and run only the checks that cover it.
 
 1. **Export the inputs.** Pick the commit to audit. Copy only the inputs into a new directory outside any Herald checkout, with `git archive <commit> <paths> | tar -x -C <dir>`: the spec; the shape files, which are the Tenant API's protos (`api/`), the OpenAPI spec (`docs/openapi/`), the golden responses (`internal/tenantapi/testdata/*.golden`), the handoff proto (`proto/`), and the telemetry schema and Postgres column list once each is a file (until then the column list is ADR 0007's table); `GLOSSARY.md` and `docs/adr/`. Run `git init` there, so neither the code nor its history comes along.
 2. **Generate.** Start a fresh Claude Code session in that directory, with permission rules that deny reading any Herald checkout and its git directory. Try one such read first, to confirm it is refused. Ask the session to build Herald from the inputs alone, with a `compose.yaml` that uses Herald's service names (fault injection restarts services by name) and takes its ports from the variables a checkout's `.env` sets. Until the spec states how Herald is deployed, the prompt says both.
 3. **Check.** In a new Herald worktree at the audited commit, replace `compose.yaml` with the regenerated build's, its build contexts pointing at the regenerated directory. Then run `make up`, `make e2e` and `make scenario-compare`. The harness comes from the checkout, and the stack it runs against is the regenerated build. `scenario-compare` checks the scenario invariants and compares the regenerated build's edge recording with the committed baseline, which is the current build's.
-4. **Classify.** Each failing test, broken invariant and difference in the recording is either a defect in the regenerated build or a decision the spec doesn't state. File each missing decision as an issue that names where the two builds differ.
-5. **Record.** Write the audit up on its own issue: the commit it ran against; the model, effort, Claude Code version and prompt that generated the build; and every difference with its classification. Across audits, the number of missing decisions shows whether the reviews are catching decisions earlier.
+4. **Classify.** Each failing test, broken invariant and difference in the recording is one of three things: a defect in the regenerated build; a decision the spec doesn't state; or a planned requirement the current build doesn't meet yet. File each missing decision as an issue that names where the two builds differ. A planned requirement is not a missing decision, and isn't counted as one.
+5. **Record.** Write the audit up on its own issue: the commit it ran against; the part it covered; the model, effort, Claude Code version and prompt that generated the build; how many implemented and how many planned requirements the part had; and every difference with its classification. A difference shows only where a check looks, and nothing checks a planned requirement, so the audit tests the implemented ones and the counts say how much it covered. Across audits, the number of missing decisions shows whether the reviews are catching decisions earlier.
 
 Until the end-to-end tests and the scenario harness stop importing Herald's own code (ADR 0007, Consequences), they decide what to expect with the current build's filter matching, retry schedule, telemetry constants and stores. Until then, the audit judges the regenerated build partly by the current code's logic: a difference there can be the test's coupling, and a match can hide a gap.
 
@@ -89,7 +89,7 @@ Until the end-to-end tests and the scenario harness stop importing Herald's own 
 | Every `.go` file edit | `goimports -w` (PostToolUse hook) | Cheap, local to one file, always safe |
 | Before every push | `make ci` | The full gate, run locally so problems never reach the PR |
 | Every PR | CI runs `make ci`, plus Docker image builds | The source of truth; `make ci` keeps local and CI identical |
-| End of each milestone, and after a large change to the spec | The regeneration audit | Finds the decisions the reviews didn't recognise; too costly for every PR |
+| Optional: when evaluating a milestone or a large feature change | The regeneration audit, scoped to the part that changed | Finds the decisions the reviews didn't recognise; too costly to run on a schedule or in full |
 
 Package-wide checks such as `go vet` don't run on every edit: mid-refactor, half-finished code fails them on purpose, and feeding that back to the agent makes it patch code it is about to rewrite.
 
