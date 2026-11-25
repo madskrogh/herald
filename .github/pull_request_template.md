@@ -92,12 +92,13 @@ deferring to a later issue counts as rejected, with that issue's number.
 </details>
 
 <details>
-<summary>Trace: D defects, H raised by the human</summary>
+<summary>Trace: # defects, # raised by the human</summary>
 
 <!--
-Never left out (CLAUDE.md, "What the history records"). Defects: each defect this PR fixes that was
-found after the pre-PR reviews. Raised by the human: each "Raised by the human" comment on the issue,
-before the PR and in review. "None" under a heading with nothing to list; 0 in the summary.
+Never left out. The fields are defined in CLAUDE.md, "What the history records". Defects: each defect
+this PR fixes that was found after the pre-PR reviews. Raised by the human: each "Raised by the human"
+comment on the issue, before the PR and in review. "None" under a heading with nothing to list; 0 in
+the summary.
 -->
 
 **Defects**
@@ -106,6 +107,6 @@ before the PR and in review. "None" under a heading with nothing to list; 0 in t
 
 **Raised by the human**
 
-- [_what was asked_](_comment link_): _what changed_, before the PR or in review
+- [_what was asked_](_comment link_): _what changed_, `_commit_`, _requirement ID or none_, _before the PR or in review_
 
 </details>

@@ -31,7 +31,7 @@ The reviewer works like a coach. They hold the context (the business, the users,
 
 ## Shape
 
-Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and if decisions were recorded there, say so; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Requirements, Verification, the Review notes and the Trace always stay: Requirements is the evidence for the spec, the other three for later changes to the agent setup.
+Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and if decisions were recorded there, say so; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Requirements, Verification, the Review notes and the Trace always stay: Requirements is the evidence for the spec; Verification, the Review notes and the Trace are the evidence for later changes to the agent setup.
 
 ## Requirements
 
@@ -84,8 +84,10 @@ Route rejected findings by the reason given:
 
 A collapsed section after the Review notes, never left out. The Review notes show what the reviews before the PR caught; the Trace shows what they didn't, and what only the human saw.
 
-- **Defects.** One line per defect the PR fixes that was found after the pre-PR reviews: `Regression from #<n>`, then Got through at (with its pointer), Found by and Closed by, as `CLAUDE.md`'s "What the history records" defines them. If the issue already traces it, complete it with Closed by rather than restating it differently.
-- **Raised by the human.** One line per "Raised by the human" comment on the issue, linked, with what changed and whether it came before the PR or in review.
+`CLAUDE.md`'s "What the history records" defines the fields of both lists; the template shows their shape.
+
+- **Defects.** One line per defect the PR fixes that was found after the pre-PR reviews, with all four fields. If the issue already traces it, complete it with Closed by rather than restating it differently.
+- **Raised by the human.** One line per "Raised by the human" comment on the issue, linked, with that comment's fields.
 
 Write "None" under a heading with nothing to list. The summary counts both, `Trace: 1 defect, 2 raised by the human`, so a PR with neither shows 0 rather than a missing section.
 

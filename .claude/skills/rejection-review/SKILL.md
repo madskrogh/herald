@@ -35,7 +35,7 @@ The brief: "For each rejection, read the code it concerns and answer **Upheld** 
 - **Upheld**: the finding stays rejected. If the reason rests on the issue, the spec, a non-goal or "not needed yet", the judge could check the issue's wording, not what the human meant: if it passes the gates in `CLAUDE.md`'s "Asking the human", ask the human before `make ci` and the push. If it fails them, it stays rejected, marked "settled by reading the issue".
 - **Disputed**: fix it, test-first like any other change. Only if you have an argument the judge didn't address, and it passes the same gates, ask the human instead, with both sides in one line each.
 
-Record each answer as a comment on the issue, as "Asking the human" says. Run `make ci` after any fixes.
+Record each answer as an `Agent, for the human:` comment on the issue, as "Asking the human" says. Run `make ci` after any fixes.
 
 ### 4. Record it
 

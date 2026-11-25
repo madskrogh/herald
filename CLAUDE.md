@@ -79,7 +79,7 @@ Wait for the answer before going on. Record each decision as an `Agent, for the 
 
 The human and the agent post as one GitHub account, and nothing else records who said what, or how a defect got past the steps meant to catch it. Record both as they happen; neither can be rebuilt later.
 
-- **Who posted.** Every comment you post on an issue or PR starts with one of two lines. `Agent:` for your own words: a finding, a question, a report, a reply to a review comment. `Agent, for the human:` for a comment that records the human's decision or answer: it says what they decided and where (the session, a PR comment), and is never written as their own words. A comment with neither line is the human's. A hook refuses `gh issue comment`, `gh pr comment` and `gh pr review` without one; it doesn't see `gh api`.
+- **Who posted.** Every comment you post on an issue or PR starts with one of two lines. `Agent:` for your own words: a finding, a question, a report, a reply to a review comment. `Agent, for the human:` for a comment that records the human's decision or answer: it says what they decided and where (the session, a PR comment), and is never written as their own words. A comment with neither line is the human's. A hook refuses `gh issue comment`, `gh pr comment` and `gh pr review` unless it can read a body that starts with one (a review with no body posts no text, and passes); it doesn't see `gh api`.
 - **Raised by the human.** When the human's question or objection exposes an assumption the two of you didn't share, or a mistake of yours, comment on the issue as it happens: `Agent:`, then one line headed "Raised by the human": what was asked, what changed, the commit, the requirement ID or "none", and whether it came before the PR or in review. A routine question that changed nothing needs none.
 - **Defect trace.** A defect found after the pre-PR reviews (in CI, in the human's review, in telemetry, or in later work) is traced on the issue that reports it, and in full on the PR that fixes it:
   - `Regression from #<n>`: the PR that shipped it.
@@ -88,6 +88,6 @@ The human and the agent post as one GitHub account, and nothing else records who
   - **Closed by:** the requirement, test, rule or check that would catch it next time, or "none".
 
   A missing test counts, as "tests", even when nothing behaved wrongly. A gap the human accepted at merge doesn't: its decision is on its issue.
-- **Raised by.** An issue that comes from a question says in its body who raised it and where: `Raised by: the human, in PR #<n>`.
+- **Raised by.** An issue that comes from a question says in its body who raised it and where, for example `Raised by: the human, in PR #<n>`.
 
 The PR's **Trace** lists the defect traces and the "Raised by the human" comments, with links (`write-pr`).
