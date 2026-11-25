@@ -1,9 +1,6 @@
 package scenario_test
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -142,44 +139,5 @@ func TestTimingRowString(t *testing.T) {
 				t.Errorf("String() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-// TestWriteTimingReport checks the report against
-// testdata/timing-report.golden; -update rewrites it.
-func TestWriteTimingReport(t *testing.T) {
-	t.Parallel()
-	baseRun := scenario.TimingRun{Label: "main at 15a7e84", Statistics: scenario.Statistics{
-		Timing: map[string]scenario.Distribution{
-			"handoff lag":     {N: 84, P50Ms: 100, P95Ms: 400},
-			"Attempt latency": {N: 120, P50Ms: 3, P95Ms: 9},
-		},
-	}}
-	candidate := scenario.TimingRun{Label: "PR at 0123abc", Statistics: scenario.Statistics{
-		Timing: map[string]scenario.Distribution{
-			"handoff lag": {N: 84, P50Ms: 161, P95Ms: 400},
-		},
-	}}
-	rows := []scenario.TimingRow{
-		{Key: lat50, Base: ms(3), Margin: 20},
-		{Key: lag50, Base: ms(100), Candidate: ms(161), Margin: 60},
-		{Key: lag95, Base: ms(400), Candidate: ms(400), Margin: 210, Within: true},
-	}
-	var b strings.Builder
-	if err := scenario.WriteTimingReport(&b, baseRun, candidate, rows); err != nil {
-		t.Fatal(err)
-	}
-	golden := filepath.Join("testdata", "timing-report.golden")
-	if *update {
-		if err := os.WriteFile(golden, []byte(b.String()), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if diff := cmp.Diff(string(want), b.String()); diff != "" {
-		t.Errorf("WriteTimingReport differs from %s (-want +got):\n%s", golden, diff)
 	}
 }

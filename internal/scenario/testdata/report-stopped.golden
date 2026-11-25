@@ -1,0 +1,22 @@
+# Scenario report
+
+The candidate's run stopped before it finished, so what follows is what it found until then:
+
+```
+Run: phase 2: pause NATS: exit status 1
+```
+
+- Behaviour comparison: not compared
+- Scenario invariants: not checked
+
+## Behaviour comparison
+
+What the Endpoints received, and the span counts, compared with the committed baselines (docs/testing.md, "Behaviour comparison"). Each difference is as make scenario-compare reports it.
+
+Not compared: the run stopped first.
+
+## Scenario invariants
+
+The rules that hold on any build, checked after the run (docs/testing.md, "Scenario invariants").
+
+Not checked: the run stopped first.

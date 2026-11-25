@@ -17,6 +17,8 @@ const (
 	ruleDuplicates = "duplicates"
 )
 
+var finalStateRules = []string{ruleFinalState, ruleOutbox, ruleDuplicates}
+
 // FinalState is where a run left its Messages in Postgres.
 type FinalState struct {
 	// Messages are every Message of the run's Tenant.
@@ -113,7 +115,7 @@ func CheckFinalState(obs Observations, state FinalState) []Violation {
 		}
 	}
 
-	return sortViolations(e.violations, ruleFinalState, ruleOutbox, ruleDuplicates)
+	return sortViolations(e.violations, finalStateRules...)
 }
 
 // answeredInTime reports whether an Endpoint answered a with a 2xx within

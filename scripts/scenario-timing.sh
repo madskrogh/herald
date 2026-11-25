@@ -3,6 +3,7 @@
 # compares the candidate's timing statistics with the base's
 # (docs/testing.md, "Timing margins"). The candidate's run is also its
 # behaviour comparison and its invariants, as in `make scenario-compare`.
+# One report holds all three.
 #
 # Run through `make scenario-timing`, which points it at this checkout's
 # stack (the candidate) and BASE's. Both stacks must be up (make up), and
@@ -32,10 +33,16 @@
 #
 # It writes:
 #
-#   OUT/report.md                 the comparison; when it fails, with the
-#                                 profile diff
+#   OUT/report.md                 the behaviour comparison, the
+#                                 invariants and the timing comparison,
+#                                 written whatever the runs found; when
+#                                 the timing fails, with the profile diff
 #   OUT/<build>/test.log          each run's test output
 #   OUT/<build>/statistics.json   each run's statistics
+#   OUT/candidate/result.json     what the candidate's run found, for the
+#                                 report
+#   OUT/candidate/report.md       the candidate's report without the
+#                                 timing, as make scenario-compare writes it
 #   OUT/<build>/spans.parquet     every span in each build's ClickHouse
 #   OUT/profiles/                 scripts/profile.sh's profiles and diff
 #
@@ -93,6 +100,10 @@ export_spans() {
 
 # Both runs use one test binary, built first, so neither waits on the
 # compiler while the other runs.
+# What an earlier run into the same OUT wrote, so that a run that writes
+# nothing, as one the test timeout ends, isn't reported with its findings.
+rm -f "$out/report.md" "$out"/{base,candidate}/{statistics.json,result.json,report.md}
+
 go test -race -c -o "$out/scenario.test" ./internal/scenario/
 go build -o "$out/scenario-timing" ./cmd/scenario-timing
 
@@ -117,17 +128,20 @@ wait "$profile_pid" || { echo "scenario-timing: profiling failed: $out/profiles.
 export_spans "$base_env" base
 export_spans "$candidate_env" candidate
 
-# scenario-timing exits 1 when a statistic is beyond its margin, and 2 when
-# it can't compare, as when a run wrote no statistics.
+# scenario-timing writes the report whatever the runs found. It exits 1
+# when a statistic is beyond its margin, and 2 when it can't compare, as
+# when a run wrote no statistics; the report then says why.
 timing=0
 "$out/scenario-timing" -base "$out/base" -candidate "$out/candidate" \
   -base-label "${BASE_LABEL:-base}" -candidate-label "${CANDIDATE_LABEL:-candidate}" \
   >"$out/report.md" 2>"$out/timing.log" || timing=$?
 {
-  if ((timing > 1)); then
-    echo "# Timing comparison"
+  # It wrote nothing when it couldn't start, such as on a flag it doesn't
+  # know: then the report is why.
+  if [[ ! -s $out/report.md ]]; then
+    echo "# Scenario report"
     echo
-    echo "The comparison couldn't run, so its statistics weren't compared:"
+    echo "The report couldn't be written; candidate/test.log has what the candidate's run found:"
     echo
     echo '```'
     cat "$out/timing.log"

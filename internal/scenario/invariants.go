@@ -17,13 +17,13 @@ import (
 // (docs/testing.md).
 type Violation struct {
 	// Rule names the invariant, such as "signature" or "fan-out".
-	Rule string
+	Rule string `json:"rule"`
 	// Subject names what broke it: a Delivery as "<message> to <endpoint>",
 	// an Endpoint, a Message, a span or a service. It is empty when the run
 	// has nothing for the rule to check.
-	Subject string
+	Subject string `json:"subject,omitempty"`
 	// Detail says how.
-	Detail string
+	Detail string `json:"detail"`
 }
 
 func (v Violation) String() string {
@@ -140,6 +140,9 @@ const (
 // Goroutines are read again until they keep the rules or settleTimeout
 // passes, and the violations of the last reading are returned. The error
 // is for a stack that can't be read.
+//
+// A check added here adds its rules to invariantRules, which the report
+// lists as held or broken.
 func CheckInvariants(ctx context.Context, stack *e2e.Stack, obs Observations, spans []e2e.Span, idle map[string]Goroutines) ([]Violation, error) {
 	vs := CheckEdge(obs)
 
