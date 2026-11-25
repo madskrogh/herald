@@ -1,32 +1,22 @@
 # What the workflow catches, and where
 
-Herald is built by coding agents, with a human who decides and merges. This is a check of one claim about that workflow against its own history.
+Herald is built by coding agents, with a human who decides and merges. This document tests one claim about that workflow against its own history:
 
 > The code the workflow produces holds up. What limits the pace is whether a human understands a change well enough to merge it. The spec and the tests are meant to give that understanding, so that over time review of the PR matters less, and effort moves to the spec and to production observability.
 
-The history supports part of it. It does not show the trend the claim predicts, and it cannot answer the "holds up" half cleanly. Both are said below.
+**The short answer:** the reviews before a PR opens do most of the catching, and little is found wrong after merge. But the history can't show that the code holds up on its own, it shows no trend towards less review, and it records nothing about whether the human understood a change.
 
-## What was read
+The history read is the 44 PRs merged from [#48][pr48] (the first with Review notes) to [#163][pr163], and the issues they close. "How this was counted" at the end says how each number was got.
 
-- The merged PRs from [#48][pr48] to [#163][pr163], as of 25 November 2026: 44 PRs. [#48][pr48] is where PRs began to carry Review notes, so earlier PRs are out.
-- 37 of them have a findings table: 750 findings. The other seven are small setup or documentation changes with no review (#53, #57, #64, #74, #90, #143, #156).
-- The issues those PRs close, and their comments, where the human's decisions are recorded.
+## 1. Reviews before the PR catch a lot, and most of it is small
 
-Only what these show is counted. Where they say nothing, the text says "not recorded". Every number is from the PR bodies and issues, counted by script.
-
-What is counted is the rows of each findings table, since only a row carries a finding's review, severity and outcome. The summary lines of the same 37 PRs add up to 762 findings, not 750. They disagree with their own tables in 9 PRs, both ways: [#93][pr93]'s summary says 26 and its table has 22 rows, [#141][pr141]'s says 29 and its table has 31. Some rows hold one finding that two reviews raised. A reviewer's severity is the reviewer's own, except for the bug review, whose findings the author rates from [#83][pr83] on (earlier ones say "unstated").
-
-## Finding 1: three reviews before the PR catch a lot, and most of it is small
-
-Each PR is reviewed three ways before it opens (standards, spec, bug), and a fourth review judges the findings the author rejected. Across the 37 PRs the findings tables hold 750 rows, about 20 per PR. 424 were fixed, 276 rejected, 13 disputed, and 37 ended in no change, a deferral or a replacement.
+Every PR runs two reviews before it opens: a design review with two axes (standards, and spec) and a bug review. A fourth step has a fresh reviewer judge each finding the author rejected. 37 of the 44 PRs have a findings table, with 750 rows: about 20 per PR.
 
 | Review | Findings | Fixed | Rejected | Disputed | Other |
 |---|---|---|---|---|---|
 | Standards | 253 | 173 | 74 | 3 | 3 |
 | Spec | 249 | 99 | 115 | 4 | 31 |
 | Bug (`/code-review`) | 248 | 152 | 87 | 6 | 3 |
-
-A row that two reviews raised is counted once, under the first one named.
 
 | Severity | Findings | Fixed | Rejected | Disputed | Other |
 |---|---|---|---|---|---|
@@ -36,108 +26,83 @@ A row that two reviews raised is counted once, under the first one named.
 | Unstated | 91 | 56 | 32 | 3 | 0 |
 | Two severities | 13 | 5 | 7 | 1 | 0 |
 
-"Two severities" is a row that two reviews raised and rated differently, such as "Medium; Low". The lower the severity, the more often the author rejected it: 18% of High, 27% of Medium, 41% of Low.
+- **High findings are rare, and only one is in service code.** 17 of 750. The one is on [#93][pr93]: an Attempt's span error could carry the Endpoint URL. The rest are in the scenario's checks ([#101][pr101], [#103][pr103], [#139][pr139], [#140][pr140], [#142][pr142]), the spec, the docs or the agent setup.
+- **Lower severity, more rejections:** the author rejected 18% of High, 27% of Medium and 41% of Low.
+- **The spec axis is the noisiest.** 40% of its findings were fixed, against 68% for standards and 61% for bugs.
+- **The rejection review rarely disagrees.** It disputed 11 of the 242 rejections it judged. The evaluation after the first milestone (M1) found 5 of about 140 ([#70][iss70]).
+- **No fall over time.** The first 18 PRs average 18 rows, the last 19 average 22. This isn't adjusted for the size of the change.
 
-What stands out:
+**Not recorded:** what the tests written first caught, since a failing test leaves no row. Overlap between reviews is recorded only where the author merged two findings into one row, so it can't be counted. Only three PRs ran their reviews on Sonnet 5.5 ([#62][pr62], [#65][pr65], [#163][pr163]), too few to compare with Opus 5.5.
 
-- **High findings are rare, and mostly not in service code.** 17 of 750. Two are defects in the services themselves, both on [#93][pr93]: an Attempt's span error could carry the Endpoint URL, and a nil tracer provider panicked. A third, on [#58][pr58], was a status code that disagreed with the decision on the issue. The rest are in the scenario's checks ([#101][pr101], [#103][pr103], [#139][pr139], [#140][pr140], [#142][pr142]), in the spec ([#141][pr141]) or in the setup.
-- **The Spec review is the noisiest.** 40% of its findings were fixed, against 68% for Standards and 61% for Bug.
-- **The rejection review disputes few rejections.** Its rows add up to 11 disputes of 242 rejections judged. The M1 evaluation found 5 of about 140 ([#70][iss70]). It found one wrong rejection that had cost a later fix ([#43][pr43], fixed in [#52][iss52]).
-- **The count per PR shows no downward trend.** It runs from 3 rows ([#95][pr95]) to 33 ([#56][pr56]), and the last PR read with a large diff, [#154][pr154], has 27.
+## 2. Little is found wrong after merge, and one flaky check slipped through
 
-Not recorded: which findings more than one review raised, so what each review catches that the others miss is unknown. Also not recorded: what the failing tests written first caught, since a red test leaves no row. Only three PRs ran their reviews on Sonnet 5.5 ([#62][pr62], [#65][pr65], [#163][pr163]): too few to compare with Opus 5.5.
-
-## Finding 2: little reaches `main` broken, and the history can't say who finds the rest
-
-After merge, the history shows four cases, each small:
-
-| Case | What | How it was found |
+| Issue | What | How it was found |
 |---|---|---|
-| [#52][iss52] | The relay's claim limit and "more waiting" decisions had no test (from [#43][pr43]). | Not recorded. |
-| [#66][iss66] | A Batch made only of Messages the dispatcher rejects is never parked. | Known at merge: the human accepted the gap in [#65][pr65], and it is listed there. Not an escape. |
-| [#104][iss104] | A run that dies mid-fault leaves Postgres capped, and the next run hangs. | Not recorded. |
-| [#157][iss157] | The "postgres slowed" phase is sometimes not late, so the scenario fails now and then. | By CI, once in about 12 runs, after [#154][pr154] ran the scenario on every PR. Fixed in [#163][pr163]. |
+| [#52][iss52] | Two decisions in the relay had no test (from [#43][pr43]). | Not recorded. |
+| [#66][iss66] | A Batch made only of bad Messages is never parked. | Known at merge: the human accepted the gap in [#65][pr65]. |
+| [#104][iss104] | A scenario run that dies mid-fault leaves Postgres slowed, and the next run hangs. | Not recorded. |
+| [#157][iss157] | The scenario fails now and then: its "postgres slowed" phase isn't always late. | CI, once in about 12 runs, after [#154][pr154] ran the scenario on every PR. Fixed in [#163][pr163]. |
 
-#157 is a flaky check that slipped through M2's own review. The check came in with [#101][pr101]. Its author measured that phase at 4.3 s or more, set the line at 3 s, and listed the flake rate beyond two runs as not verified. None of #101's 26 findings is about that margin. Five runs for [#163][pr163] then saw a first Attempt only 2.2 s late. When CI caught it on #154, the human decided to ship and file it rather than wait ([#81][iss81]).
+**#157 slipped through review.** The check came in with [#101][pr101]. Its author measured the phase at 4.3 s or more, drew the line at 3 s, and listed "the flake rate beyond two runs" as not verified. None of #101's 26 findings is about that margin. The failing CI run had all three Messages under 3 s. When it showed up on #154, the human chose to ship and file it ([#81][iss81]).
 
-No PR carries the `Regression from #<n>` marker the template asks for, so there is no count of shipped problems to compare with what the reviews caught.
+No PR carries the `Regression from #<n>` marker the PR template asks for. These four were found by reading the titles of all issues, so a defect fixed without an issue, or under a title that doesn't show it, would be missed.
 
-This does not show that the code holds up. The reviews fixed 424 findings before anyone merged, so the code that merges is the code after that work. There is no sample of code written without the workflow, and none of the first drafts is kept.
+**This doesn't show that the code holds up.** The code that merges is the code after 424 fixes. Nothing written another way is there to compare with, and first drafts aren't kept.
 
-## Finding 3: the human's part moved before the PR, and was never large on it
+## 3. The human's part is in decisions before the PR, not on the PR
 
-The claim says review of the PR matters less over time. The history shows it was already close to nothing in the period read:
+- **On GitHub, the PRs show almost no review.** None has a review. Three have comments, six in all ([#55][pr55], [#56][pr56], [#68][pr68]), all from before [#62][pr62] moved decisions to before the PR opens. None since.
+- **The decisions are on the issues:** at least 25 comments headed "Decision", on 19 issues. Some are written under other headings ([#112][iss112], [#114][iss114]), so this is a floor.
+- **12 review findings were settled by the human,** on 9 PRs: their outcome says so, or links the human's decision. All but one had been rejected first.
 
-- No PR has a GitHub review. Three have comments, six in all ([#55][pr55], [#56][pr56], [#68][pr68]), all on PRs merged on 16 and 17 November. [#62][pr62], merged on 17 November, moved the human's decisions to before the PR opens. No PR since has a comment.
-- The decisions are on the issues: at least 25 comments headed "Decision", on 19 issues, not counting this study's own issue. This is a lower bound, since some decisions are written as a question and its answer under another heading (for example [#112][iss112], [#114][iss114]).
+The decisions choose between acceptable options the issue left open. For example, a slowed Postgres gets a SHOULD for latency while other faults keep a MUST ([#112][iss112]). Services keep running while NATS or Postgres is down, and logs leave out Endpoint URLs ([#114][iss114]). A known flaky check ships rather than blocking every PR ([#81][iss81]).
 
-The decisions are choices between acceptable options that the issue left open. Examples:
+**Not recorded:** whether the human reads a PR before merging it. The human and the agent share one GitHub account, so comments don't show who wrote them. Nothing records the human's time. So "not visible on the PR" is all this shows, not "no review".
 
-- [#58][pr58]: the `https` rule returns `400`, not `422`.
-- [#112][iss112]: a slowed Postgres gets a SHOULD for latency, while every other fault keeps a MUST.
-- [#114][iss114]: services start and keep retrying while NATS or Postgres is down, and logs leave out Endpoint URLs.
-- [#81][iss81]: ship a known flaky check, rather than wait or stop blocking.
-- [#133][pr133]: the human declined a reason the author offered for ADR 0010, and the ADR now calls it an implementation choice.
+## 4. Writing the spec surfaced decisions, some with no reason
 
-Not recorded: whether the human reads a PR before merging it without commenting. The account is also shared with the agent, which writes its replies and records the human's answers under the same name, so the comments don't show who wrote them. Nothing records the human's time, either, so "the limit is understanding" cannot be tested here.
+When the rules moved from `docs/design.md` into the spec ([#134][pr134]), and when the operator requirements were added ([#141][pr141]), decisions that only the code held came out:
 
-## Finding 4: writing the spec surfaced decisions, some with no reason
+- **38 items listed as "Surfaced"**, in six PRs: 15 in [#134][pr134], 10 in [#141][pr141], 6 in [#138][pr138], 4 in [#139][pr139], 2 in [#133][pr133], 1 in [#140][pr140]. For example the 10% retry jitter, the 4 KiB of response body kept, and the 60 s lease.
+- **12 values had no reason** anywhere ([#109][iss109]). The human approved one for each. For four, the reason is "a round number with headroom".
+- **Some were changed, not copied** ([#114][iss114], [#141][pr141]). A 5-minute idle time with no reason became "any value" (a MAY). gRPC got the same connection limits as REST.
+- **The old document was wrong in places.** Parking wasn't in it, so "one Delivery per matching Endpoint" was false for a parked Message. It said retries run about 24 hours. The delays add up to about 22.
 
-Moving rules out of the old design document into the spec ([#134][pr134]) and adding the operator boundary ([#141][pr141]) found decisions that only the code held.
+**Not recorded:** how many of the 38 would have been found without the rule that every change states its decisions in the spec.
 
-- Six PRs list **38** such items under "Surfaced": 15 in [#134][pr134], 10 in [#141][pr141], 6 in [#138][pr138], 4 in [#139][pr139], 2 in [#133][pr133] and 1 in [#140][pr140]. Examples: the 10% retry jitter, the 4 KiB of response body kept, a NUL byte refused in an Application name, the 60 s lease.
-- **12 values had no reason** in the code, the issues or the ADRs ([#109][iss109]). Four of them got "a round number with headroom" as their reason. The human approved a reason for each, and for the page size default that any value would do.
-- **Some changes were decided, not copied** ([#114][iss114], [#141][pr141]): a 5-minute idle time with no reason became a MAY, and gRPC got the same connection bounds as REST. A dispatcher that exits when NATS is down at start is now specified (as planned) to keep running.
-- **The old document was wrong in places.** Parking was in the code but not the document, so "one Delivery per matching Endpoint" was false for a parked Message. It said retries run "about 24 hours", and the delays add up to about 22.
-- The rule can conflict with a decision. [#157][iss157] said a change to `lateAfter` goes through the spec, and the spec and bug reviews of [#163][pr163] asked for it. [#112][iss112] had decided it stays out, as a fact about the test harness, and the PR followed #112.
+## 5. The setup changed on evidence; whether the changes worked is unmeasured
 
-Not recorded: how many of the 38 would have been found without the rule that every change surfaces its decisions, since no PR before it was read for this.
+- [#48][pr48] started recording severities, the reviews that ran and what was verified, because that data "can't be rebuilt afterwards" ([#47][iss47]).
+- The M1 evaluation ([#70][iss70], [#83][pr83]) read the Review notes of PRs #13 to #68. It tightened four test and code rules, and asked the rejection judge whether a rule's purpose is met. Replays showed the new question didn't catch the mistake that prompted it; one of the new test rules did, in one run.
+- [#62][pr62] moved the human's decisions to before the PR, after questions on #50 had no place to be recorded ([#61][iss61]).
+- [#89][pr89] added a blocking wait for CI, after agents wrote polling loops that the setup refused ([#85][iss85]).
 
-## Finding 5: the setup changed on evidence, and the effect is mostly unmeasured
+A whole-codebase review of M1 was tried and dropped as too large ([#69][pr69]).
 
-Four changes show their evidence:
-
-- [#48][pr48] added the verification record, severities and the review table, because the data for an evaluation "can't be rebuilt afterwards" ([#47][iss47]).
-- The M1 evaluation read the Review notes of [#13–#68][iss70] and led to four Go rule changes and a sharper rejection review ([#83][pr83]). Its own replays showed the new sentence for the rejection judge did not catch #43's mistake; the new `RunOnce` rule did, in one run.
-- [#62][pr62] moved decisions before the PR, after the agent asked three questions on #50 with no place to record the answers ([#61][iss61]).
-- [#89][pr89] added `make wait-ci`, after agents wrote polling loops the guard refused ([#85][iss85]).
-
-An attempt at a whole-codebase review of M1 ([#69][pr69]) was dropped as too large.
-
-Not measured: whether any change worked. No PR was checked against the rules added in [#83][pr83], and the dispute counts before and after ([#70][iss70], this document) overlap in #48 to #68 and are too few to compare.
+**Not measured:** whether any change worked. The dispute counts before and after #83 overlap (#48 to #68) and are too small to compare.
 
 ## Where the data disagrees with the claim
 
-1. **No trend.** The claim expects PR review to matter less over time. The PR review was near zero at the start of the data, and the findings per PR did not fall.
-2. **"Holds up" has no baseline.** What merges has been through 20 findings a PR on average. Without code written another way, the data cannot say the workflow's code holds up, only that little was found wrong after the reviews.
-3. **Understanding is not counted.** Nothing here measures whether the human understood a change. The decisions on issues are the closest sign, and they are the human's own choices, not a count of confidence.
+1. **No trend.** The claim expects review of the PR to matter less over time. GitHub shows almost none from the start, and the findings per PR rose a little.
+2. **No baseline for "holds up".** Little was found wrong after the reviews. That is all the data can say.
+3. **Understanding isn't measured.** The decisions on issues are the closest sign, and they show choices, not confidence.
 
 ## The regeneration audit
 
-The audit regenerates Herald from the spec alone and sorts every difference into a defect or a decision the spec lacks ([ADR 0007](adr/0007-code-regenerated-from-the-spec.md)). It is an option, run when it is worth its cost and scoped to what changed ([#164][iss164]). It has not run yet. So this study's claims about the spec rest on the Review notes and the "Surfaced" lists above, not on a regeneration.
+The audit regenerates Herald from the spec alone and sorts each difference: a defect in the regenerated build, a decision the spec doesn't state, or a planned requirement the current build doesn't meet yet ([ADR 0007](adr/0007-code-regenerated-from-the-spec.md)). It is an option, scoped to what changed ([#164][iss164]), and hasn't run. So the claims above about the spec rest on the Review notes and the "Surfaced" lists, not on a regeneration.
 
-## Facts to check
+## How this was counted
 
-| Fact | Value | Source |
-|---|---|---|
-| Merged PRs read | 44 (#48 to #163) | `gh pr list` |
-| PRs with a findings table | 37 | PR bodies |
-| Finding rows | 750 (424 fixed, 276 rejected, 13 disputed, 37 other) | Review notes |
-| Findings by summary lines | 762 | Review notes |
-| High findings | 17 (13 fixed, 3 rejected, 1 decided in session) | Review notes |
-| Disputes by the rejection review | 11 of 242 judged | Review notes |
-| GitHub reviews on PRs | 0 | `gh pr view` |
-| PR comments | 6, on #55, #56, #68 | `gh pr view` |
-| Issue comments headed "Decision" | at least 25, on 19 issues | `gh issue list` |
-| Items listed as "Surfaced" | 38, in 6 PRs | PR bodies |
-| Values with no reason, given one | 12 | [#109][iss109] |
-| PRs with `Regression from #<n>` | 0 | PR bodies |
+- **Findings** are the rows of each PR's findings table, read by column name. Only rows carry a review, severity and outcome. The summary lines of the same PRs add up to 762, not 750, and disagree with their own tables in 9 PRs, both ways ([#93][pr93]: 26 against 22 rows; [#141][pr141]: 29 against 31).
+- **A row two reviews raised** counts once, under the first review named.
+- **Outcome:** a row marked disputed counts as disputed even when it was then fixed, so the fix rates are slightly low. "Other" is no change needed, deferred or superseded.
+- **Disputes:** 13 rows are marked disputed. The rejection review's own rows report 11 disputes of 242 judged. 289 rows are rejected or disputed, so 47 weren't judged; some PRs say why (cosmetic, or not in scope).
+- **Severity** is the reviewer's own, except the bug review's from [#83][pr83] on, which the author rates. Earlier bug findings say "unstated".
 
 [pr43]: https://github.com/madskrogh/herald/pull/43
 [pr48]: https://github.com/madskrogh/herald/pull/48
 [pr55]: https://github.com/madskrogh/herald/pull/55
 [pr56]: https://github.com/madskrogh/herald/pull/56
-[pr58]: https://github.com/madskrogh/herald/pull/58
 [pr62]: https://github.com/madskrogh/herald/pull/62
 [pr65]: https://github.com/madskrogh/herald/pull/65
 [pr68]: https://github.com/madskrogh/herald/pull/68
@@ -145,10 +110,8 @@ The audit regenerates Herald from the spec alone and sorts every difference into
 [pr83]: https://github.com/madskrogh/herald/pull/83
 [pr89]: https://github.com/madskrogh/herald/pull/89
 [pr93]: https://github.com/madskrogh/herald/pull/93
-[pr95]: https://github.com/madskrogh/herald/pull/95
 [pr101]: https://github.com/madskrogh/herald/pull/101
 [pr103]: https://github.com/madskrogh/herald/pull/103
-[pr116]: https://github.com/madskrogh/herald/pull/116
 [pr133]: https://github.com/madskrogh/herald/pull/133
 [pr134]: https://github.com/madskrogh/herald/pull/134
 [pr138]: https://github.com/madskrogh/herald/pull/138
