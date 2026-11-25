@@ -15,7 +15,7 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 |---|---|
 | `make up` | Start the local stack with `docker compose` (generates `.env` on first run) |
 | `make down` | Stop the stack and delete its volumes |
-| `make ci` | Everything CI runs on a PR: lint, tests with `-race`, buf checks, generated-code check |
+| `make ci` | What CI's `make ci` job runs on a PR: lint, tests with `-race`, buf checks, generated-code check |
 | `make wait-ci` | Wait for the CI run on `HEAD`'s pushed commit and exit with its result |
 | `make admin ARGS='…'` | Run herald-admin against this checkout's stack, e.g. `ARGS='tenant create --name Acme'` |
 | `make e2e` | Run the end-to-end tests against this checkout's stack (start it with `make up`). `RUN=<regexp>` selects tests, e.g. `make e2e RUN=TestSpanIsStoredInClickHouse` |
@@ -26,7 +26,7 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
 | `make scenario-traffic SEED=<n>` | Print synthetic traffic drawn from a seed, as a draft to start from. The scenario runs only the committed traffic file, which is written by a person or captured from real traffic; this never writes it. How the traffic file and the baseline relate: `docs/testing.md` |
 | `make worktree-rm NAME=x` | Stop a worktree's stack, remove the worktree and its branch (after its session has exited) |
 
-Run `make ci` before every push. It is exactly what CI runs.
+Run `make ci` before every push. It is exactly what CI's `make ci` job runs. CI also builds the images, runs the end-to-end tests and the scenario, and keeps check changes apart (`docs/testing.md`, "CI").
 
 ## Conventions
 
@@ -53,7 +53,7 @@ One GitHub issue = one branch = one worktree = one PR.
    - `git fetch origin`, then `git worktree add --detach <base> origin/main`, where `<base>` is a new temporary directory outside `.claude/worktrees/`. A detached checkout, as CI's, leaves no branch behind, and a session isolated in its worktree can't create a sibling one.
    - `make up` in the base and here, then `make scenario-timing BASE=<base>`. Set `BASE`: its default is the main checkout, which needn't be at `origin/main`. Nothing else may use either stack meanwhile.
    - Its `scenario-timing/<time>/report.md` goes in the PR's Verification (`write-pr`).
-   - Remove the base: `make down` in it, then `git worktree remove <base>`.
+   - Remove the base: `make down` in it, then `git worktree remove <base>`. Its stack holds one of the nine port slots until then. A base left by a session that stopped early shows in `git worktree list`; remove it the same way.
 
    Later pushes rely on CI's run. Then push, and open a PR. Write its description with the `write-pr` skill, which fills in [.github/pull_request_template.md](.github/pull_request_template.md). Its **Verification** says what you ran and what you didn't check. Its **Review notes** record every review that ran, even one that found nothing, and each finding from steps 3 and 4 with its severity and outcome (fixed, or rejected with the reason, the rejection review's verdict and the decision that settled it). The description links the issue and, if decisions were recorded there, says so; it doesn't repeat them. These are the evidence for later changes to the agent setup; `write-pr` says what goes in them. Its **Requirements** lists the requirement IDs the PR adds, changes or withdraws, and each decision it surfaced from existing code. Its **Trace** lists the defects it fixes and what the human's questions exposed (see "What the history records"). Once the PR is open, run `make wait-ci` (`write-pr` covers later pushes): it blocks until the run on the pushed commit finishes and exits with its result. Don't write your own wait or polling loop. When it fails, read only the failing job's log excerpt.
 7. After the PR opens, follow `write-pr`'s "After the PR opens": a commit that addresses review says what was wrong, and every review comment gets an `Agent:` reply.

@@ -118,7 +118,7 @@ Until the end-to-end tests and the scenario harness stop importing Herald's own 
 | Every issue or PR comment the agent posts with `gh` | The `Agent:` line (PreToolUse hook) | The comment can't be taken back once posted, and the history needs to tell agent from human |
 | Before every push | `make ci` | The full gate, run locally so problems never reach the PR |
 | Once, before the PR opens | `make scenario-timing` against `origin/main`: the behaviour comparison, the scenario invariants and the timing comparison | Shows the agent what its change did, and gives the PR its Verification; it takes about five minutes and two stacks, too much to run before every push |
-| Every PR | CI runs `make ci`, the Docker image builds, the end-to-end tests, `make scenario-timing` against `main`, and the check-changes job | The source of truth; `make ci` keeps local and CI identical |
+| Every PR | CI runs `make ci`, the Docker image builds, the end-to-end tests, `make scenario-timing` against `main`, and the check-changes job | The source of truth; `make ci` keeps local and CI identical for the checks that need no stack |
 | Optional: when evaluating a milestone or a large feature change | The regeneration audit, scoped to the part that changed | Finds the decisions the reviews didn't recognise; too costly to run on a schedule or in full |
 
 Package-wide checks such as `go vet` don't run on every edit: mid-refactor, half-finished code fails them on purpose, and feeding that back to the agent makes it patch code it is about to rewrite.
