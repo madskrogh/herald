@@ -1,6 +1,6 @@
 # Try it
 
-This walks one Message from the Tenant API to an Endpoint, makes the Endpoint fail so Herald retries, and then finds the Message's trace. Start the stack first with `make up` ([README](../README.md#try-it)). The commands are for bash or zsh.
+This walks one Message from the Tenant API to an Endpoint, makes the Endpoint fail so Herald retries, and then finds the Message's trace. Start the stack first with `make up` ([README](../README.md#try-it)). Run the commands from the repository's root, in bash or zsh.
 
 ## Send a Message
 
@@ -69,7 +69,14 @@ Waiting for Attempts. Stop with Ctrl-C.
 
 ## Watch it retry
 
-Now make the Endpoint fail. Stop `make endpoint` with Ctrl-C, send another Message (`"invoice": 43`), and watch herald-dispatcher retry it:
+Now make the Endpoint fail. Stop `make endpoint` with Ctrl-C, and send another Message:
+
+```sh
+curl -sS $API/v1/messages -H "Authorization: Bearer $KEY" \
+  -d '{"application_id": "'$APP'", "event_type": "invoice.paid", "payload": "{\"invoice\": 43}"}'
+```
+
+Watch herald-dispatcher retry it:
 
 ```sh
 docker compose logs -f herald-dispatcher
