@@ -46,8 +46,8 @@ One GitHub issue = one branch = one worktree = one PR.
 3. Tests green: run the `standards-review` skill against `origin/main`, and refactor on its findings.
 4. Run the built-in `/code-review` on the final diff for bugs.
 5. Run the `rejection-review` skill on every finding from steps 3 and 4 that you rejected. A disputed rejection gets fixed, unless you have an argument the reviewer didn't address: then ask the human, if it passes the gates. So does a rejection that rests on the issue's intent, even when upheld.
-6. `make ci`, push, and open a PR. Write its description with the `write-pr` skill, which fills in [.github/pull_request_template.md](.github/pull_request_template.md). Its **Verification** says what you ran and what you didn't check. Its **Review notes** record every review that ran, even one that found nothing, and each finding from steps 3 and 4 with its severity and outcome (fixed, or rejected with the reason, the rejection review's verdict and the decision that settled it). The description links the issue and, if decisions were recorded there, says so; it doesn't repeat them. These are the evidence for later changes to the agent setup; `write-pr` says what goes in them. Its **Requirements** lists the requirement IDs the PR adds, changes or withdraws, and each decision it surfaced from existing code. Once the PR is open, run `make wait-ci` (`write-pr` covers later pushes): it blocks until the run on the pushed commit finishes and exits with its result. Don't write your own wait or polling loop. When it fails, read only the failing job's log excerpt.
-7. After the PR opens, follow `write-pr`'s "After the PR opens": a commit that addresses review says what was wrong, and every review comment gets a reply.
+6. `make ci`, push, and open a PR. Write its description with the `write-pr` skill, which fills in [.github/pull_request_template.md](.github/pull_request_template.md). Its **Verification** says what you ran and what you didn't check. Its **Review notes** record every review that ran, even one that found nothing, and each finding from steps 3 and 4 with its severity and outcome (fixed, or rejected with the reason, the rejection review's verdict and the decision that settled it). The description links the issue and, if decisions were recorded there, says so; it doesn't repeat them. These are the evidence for later changes to the agent setup; `write-pr` says what goes in them. Its **Requirements** lists the requirement IDs the PR adds, changes or withdraws, and each decision it surfaced from existing code. Its **Trace** lists the defects it fixes and what the human's questions exposed (see "What the history records"). Once the PR is open, run `make wait-ci` (`write-pr` covers later pushes): it blocks until the run on the pushed commit finishes and exits with its result. Don't write your own wait or polling loop. When it fails, read only the failing job's log excerpt.
+7. After the PR opens, follow `write-pr`'s "After the PR opens": a commit that addresses review says what was wrong, and every review comment gets an `Agent:` reply.
 
 Setup defects (sandbox, hooks, worktrees, skills) that would affect anyone using this checkout are filed as issues labelled `agent-setup`. Problems with one machine's setup are not.
 
@@ -73,4 +73,21 @@ How to ask:
 - **Neutral alternatives.** Each option gets its consequence; none gets a defence. State your lean separately, in one sentence.
 - **No default-yes endings.** Never write "approve as is" or anything that turns thinking into a vote.
 
-Wait for the answer before going on. Record each decision as a comment on the issue, with the question or finding it answers. The issue, with its decisions, is what the change is checked against: `standards-review` reads it alongside the requirements the change touches. A point the human chooses to leave open is recorded as "left open, ships as the PR does it".
+Wait for the answer before going on. Record each decision as an `Agent, for the human:` comment on the issue (see "What the history records"), with the question or finding it answers. The issue, with its decisions, is what the change is checked against: `standards-review` reads it alongside the requirements the change touches. A point the human chooses to leave open is recorded as "left open, ships as the PR does it".
+
+## What the history records
+
+The human and the agent post as one GitHub account, and nothing else records who said what, or how a defect got past the steps meant to catch it. Record both as they happen; neither can be rebuilt later.
+
+- **Who posted.** Every comment you post on an issue or PR starts with one of two lines. `Agent:` for your own words: a finding, a question, a report, a reply to a review comment. `Agent, for the human:` for a comment that records the human's decision or answer: it says what they decided and where (the session, a PR comment), and is never written as their own words. A comment with neither line is the human's. A hook refuses every `gh issue comment`, `gh pr comment` and `gh pr review` in a command unless it can read a body that starts with one (a review with no body posts no text, and passes). It reads the command's text, so it also refuses a commit message that quotes such a command; it doesn't see `gh api`.
+- **Raised by the human.** When the human's question or objection exposes an assumption the two of you didn't share, or a mistake of yours, comment on the issue as it happens: `Agent:`, then one line headed "Raised by the human": what was asked, what changed, the commit, the requirement ID or "none", and whether it came before the PR or in review. A routine question that changed nothing needs none.
+- **Defect trace.** A defect found after the pre-PR reviews (in CI, in the human's review, in telemetry, or in later work) is traced on the issue that reports it, and in full on the PR that fixes it:
+  - `Regression from #<n>`: the PR that shipped it.
+  - **Got through at:** the earliest step where it could have been seen: the issue, the spec, the tests, the review or the implementation, with a pointer that shows why.
+  - **Found by:** CI, the human, the agent or telemetry.
+  - **Closed by:** the requirement, test, rule or check that would catch it next time, or "none".
+
+  A missing test counts, as "tests", even when nothing behaved wrongly. A gap the human accepted at merge doesn't: its decision is on its issue.
+- **Raised by.** An issue that comes from a question says in its body who raised it and where, for example `Raised by: the human, in PR #<n>`.
+
+The PR's **Trace** lists the defect traces and the "Raised by the human" comments, with links (`write-pr`).
