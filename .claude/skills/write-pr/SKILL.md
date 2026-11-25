@@ -25,8 +25,9 @@ The reviewer works like a coach. They hold the context (the business, the users,
 - Review findings and their outcomes, with the reason given for each and the rejection review's verdict.
 - Evidence for load-bearing claims: tests, file and line, logs, queries.
 - What you ran to verify the change, with results, and what you didn't check.
+- The `report.md` of the `make scenario-timing` run against `origin/main` before the PR opened (`CLAUDE.md`, Workflow step 6), and each baseline the diff re-records.
 - Each review that ran: its model, its effort if it takes one, and the setup commit it ran on.
-- Whether this fixes a defect found after the pre-PR reviews: the PR that shipped it, and its trace (`CLAUDE.md`, "What the history records").
+- Whether this fixes a defect found after the pre-PR reviews: the PR that shipped it, and its trace (`CLAUDE.md`, "What the history records"). A defect that reached `main` (labelled `bug`, or with a `Regression from #<n>` trace) also needs the traffic-file case that shows it.
 - The "Raised by the human" comments on the issue.
 
 ## Shape
@@ -45,6 +46,16 @@ A collapsed section with two lists, never left out:
 - **Not verified**: what wasn't checked, and why. No end-to-end run, retry timing checked only with a fake clock. If everything was checked, write "nothing".
 
 The summary line counts the Not verified items, `Verification: 2 not verified`, so a gap shows while the section is collapsed. Write 0 for "nothing".
+
+**The scenario run** is always under Verified, taken from its `report.md` (`docs/testing.md`, "The scenario report"):
+
+- **Behaviour comparison:** "no differences", or each difference with the baseline update that accepts it. Every baseline change in the diff that isn't new traffic (Herald behaving differently for the same traffic file) is explained by a requirement ID the PR adds or changes, or, for a defect fix, the requirement the fixed build now meets. A difference that no requirement explains is a gap in the spec: the baselines record what Herald does, the spec says what it must do. State it as a requirement in the same PR; prose alone doesn't explain it.
+- **Scenario invariants:** held, or each one broken.
+- **Timing comparison:** within the margins, or each statistic that moved.
+- **Profile diff:** only when the comparison found a difference in latency or lag, or the PR claims a performance effect. Then the relevant part of the run's profile diff (`OUT/profiles/diff.txt`), or of `make profile`'s. Otherwise leave it out.
+- **Traffic-file case:** a PR that fixes a defect that reached `main` adds the case that shows it to the traffic file (`docs/testing.md`, "Where a new check belongs"), with the baselines re-recorded from it ("How they are tied"), and names the case here. The case is the defect's Closed by in the Trace. If only a new scenario invariant can show the defect, that is a check change: it lands first, in its own PR (`CLAUDE.md`, "Checks change on their own"), and this PR names it. A defect the scenario can't reach at all (in `herald-admin`, a migration, a script) names the test that shows it instead, and says why the scenario can't.
+
+If the run didn't happen, or stopped before it finished, it goes under Not verified with the reason.
 
 ## The opening and plain explanation
 
@@ -100,6 +111,9 @@ Write "None" under a heading with nothing to list. The summary counts both, `Tra
 - Does every reassuring word have a pointer?
 - Does Verification say what wasn't checked, or "nothing"?
 - Does the Verification summary count match the Not verified list?
+- Does Verification give the scenario run's comparison, invariants and timing results, and a profile diff exactly when latency or lag differed or the PR claims a performance effect?
+- Is every baseline change in the diff that isn't new traffic explained by a requirement ID the PR adds or changes, or, for a defect fix, the one the fixed build now meets?
+- If the PR fixes a defect that reached `main`, does it add the traffic-file case that shows it (or name the test, when the scenario can't reach it), and name it in Verification and as the Trace's Closed by?
 - Does every review that ran have a row, including those with no findings?
 - Does the Trace list every defect the PR fixes with all four fields, and every "Raised by the human" comment on the issue?
 - Is anything in the main text that belongs in details?
@@ -110,4 +124,4 @@ Write "None" under a heading with nothing to list. The summary counts both, `Tra
 - A commit that addresses review says what was wrong, not only what changed: `Release the key when the insert fails` is a change; `Fix key leak when the insert fails` says what was wrong.
 - Every review comment gets a reply starting with `Agent:`: "Fixed in `<sha>`", the answer, or the reason it was rejected.
 - When a review comment from the human exposes an assumption you didn't share, or a mistake of yours, add a "Raised by the human" comment to the issue, marked "in review".
-- When fixes change what the description says, update it, including Verification (and its summary count), the Review notes and the Trace.
+- When fixes change what the description says, update it, including Verification (and its summary count), the Review notes and the Trace. A push that changes behaviour or re-records a baseline takes its scenario result from CI's report for that push, in place of the local run's.
