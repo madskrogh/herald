@@ -54,9 +54,9 @@ No PR carries the `Regression from #<n>` marker the PR template asks for. These 
 The PRs show almost no review. None has a GitHub review, and only three have comments, six in all, from 16 and 17 November ([#55][pr55], [#56][pr56], [#68][pr68]). The rest of the human's part is on the issues, or in the Review notes. The 39 issues these PRs close have 54 comments, on 25 of them:
 
 - **The largest group is decisions** on points the issue left open: at least 25 comments are headed "Decision", on 19 issues, all but one (#73's, below) posted before the PR opened. For example, a slowed Postgres gets a SHOULD for latency while other faults keep a MUST ([#112][iss112]), and services keep running while NATS or Postgres is down ([#114][iss114]).
-- **Five were posted while the PR was open.** The human raised four of them in review, by the comment's own words or as confirmed on this study's issue ([record][rec160]). The fifth says it was asked in review but not by whom.
+- **Five were posted while the PR was open, and the human raised all five in review**, by the comment's own words or as confirmed on this study's issue ([record][rec160]).
   - [#105][iss105], during [#106][pr106]: the ADR's goal, "rewrite Herald in another language", was the wrong one. The human had stated that goal earlier, and the agent took it too literally. What was meant is regeneration, as a test of how well the spec and the tests are defined. The goal became "Herald's code can be regenerated from its spec", and all the spec work since rests on it. #106's description says the reframing was decided "while writing", which is wrong.
-  - #105 again, "asked during PR review", the unattributed one: the scenario harness imported Herald's own code to decide what to expect. Now it never imports the implementation. #106's description lists this under Surprises.
+  - #105 again, "asked during PR review": the scenario harness imported Herald's own code to decide what to expect. Now it never imports the implementation. #106's description lists this under Surprises.
   - [#73][iss73], during [#99][pr99], "after trying the walkthrough in a worktree before merge": the README's commands failed outside the main checkout. The spec review had raised the hard-coded ports, and the rejection review had upheld the author's rejection. The human's try reversed it. So the agents caught this one, and the rejection step dismissed it.
   - [#108][iss108], during [#117][pr117]: the human asked whether every implemented MUST can have a meaningful vector. The answer kept the rule and left the question to later issues. [ADR 0013](adr/0013-vectors-are-input-for-tests.md) ([#135][iss135]) dropped the rule that evening.
   - [#113][iss113], during [#142][pr142]: the human clarified that morning's decision. The traffic file may also be captured from real traffic.
@@ -64,7 +64,7 @@ The PRs show almost no review. None has a GitHub review, and only three have com
 
 Separately, the Review notes of 9 PRs say the human settled 12 findings.
 
-What the human's four have in common is intent: what the work is for (#105), what "works" means to a reader (#73), and what a rule or a decision was meant to say (#108, #113). #105 is a misunderstanding the human's own words had started. The agents can check the work against the words, not against what was meant. Four points from 19 to 24 November are too few to show a trend either way.
+What the five have in common is intent: what the work is for (#105's goal), what it must not depend on (#105's harness), what "works" means to a reader (#73), and what a rule or a decision was meant to say (#108, #113). #105's goal is a misunderstanding the human's own words had started. The agents can check the work against the words, not against what was meant. Five points from 19 to 24 November are too few to show a trend either way.
 
 **Not recorded:** how long the human spent. 27 of the 44 PRs were merged within 30 minutes of opening, CI included, among them [#134][pr134] (about 1,000 lines added) after 6 minutes. But the human may read a branch before its PR opens, and the human and the agent share one GitHub account.
 
