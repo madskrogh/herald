@@ -25,6 +25,8 @@ The reviewer works like a coach. They hold the context (the business, the users,
 - Review findings and their outcomes, with the reason given for each and the rejection review's verdict.
 - Evidence for load-bearing claims: tests, file and line, logs, queries.
 - What you ran to verify the change, with results, and what you didn't check.
+- The `report.md` of the `make scenario-timing` run against `origin/main` before the PR opened (`CLAUDE.md`, Workflow step 6), and each baseline the diff re-records.
+- Whether this fixes a bug that reached `main` (labelled `bug`, or with a `Regression from #<n>` trace), and the scenario case that shows it.
 - Each review that ran: its model, its effort if it takes one, and the setup commit it ran on.
 - Whether this fixes a defect found after the pre-PR reviews: the PR that shipped it, and its trace (`CLAUDE.md`, "What the history records").
 - The "Raised by the human" comments on the issue.
@@ -45,6 +47,16 @@ A collapsed section with two lists, never left out:
 - **Not verified**: what wasn't checked, and why. No end-to-end run, retry timing checked only with a fake clock. If everything was checked, write "nothing".
 
 The summary line counts the Not verified items, `Verification: 2 not verified`, so a gap shows while the section is collapsed. Write 0 for "nothing".
+
+**The scenario run** is always under Verified, taken from its `report.md` (`docs/testing.md`, "The scenario report"):
+
+- **Behaviour comparison:** "no differences", or each difference with the baseline update that accepts it. Every baseline change in the diff is explained by a requirement ID the PR adds or changes. A difference that no requirement explains is a gap in the spec: the baselines record what Herald does, the spec says what it must do. State it as a requirement in the same PR; prose alone doesn't explain it.
+- **Scenario invariants:** held, or each one broken.
+- **Timing comparison:** within the margins, or each statistic that moved.
+- **Profile diff:** only when the comparison found a difference in latency or lag, or the PR claims a performance effect. Then the relevant part of the run's profile diff (`OUT/profiles/diff.txt`), or of `make profile`'s. Otherwise leave it out.
+- **Scenario case:** a PR that fixes a bug that reached `main` adds the case that shows it to the traffic file (`docs/testing.md`, "Where a new check belongs"), re-records the baselines, and names the case here. The case is the defect's Closed by in the Trace.
+
+If the run didn't happen, or stopped before it finished, it goes under Not verified with the reason.
 
 ## The opening and plain explanation
 
@@ -100,6 +112,9 @@ Write "None" under a heading with nothing to list. The summary counts both, `Tra
 - Does every reassuring word have a pointer?
 - Does Verification say what wasn't checked, or "nothing"?
 - Does the Verification summary count match the Not verified list?
+- Does Verification give the scenario run's comparison, invariants and timing results, and a profile diff exactly when latency or lag differed or the PR claims a performance effect?
+- Is every baseline change in the diff explained by a requirement ID the PR adds or changes?
+- If the PR fixes a bug that reached `main`, does it add the scenario case that shows it, and name it in Verification and as the Trace's Closed by?
 - Does every review that ran have a row, including those with no findings?
 - Does the Trace list every defect the PR fixes with all four fields, and every "Raised by the human" comment on the issue?
 - Is anything in the main text that belongs in details?
