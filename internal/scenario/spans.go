@@ -24,6 +24,8 @@ const (
 	ruleLateness = "lateness"
 )
 
+var spanRules = []string{ruleTrace, ruleParent, ruleSchema, ruleError, ruleLag, ruleLateness}
+
 // The span names, attribute keys and outcomes the rules read, as the span
 // schema in the spec names them (spec/span-schema.md).
 const (
@@ -115,7 +117,7 @@ func CheckSpans(obs Observations, spans []e2e.Span) []Violation {
 	c.checkErrors()
 	c.checkLag()
 	c.checkLateness()
-	return sortViolations(c.violations, ruleTrace, ruleParent, ruleSchema, ruleError, ruleLag, ruleLateness)
+	return sortViolations(c.violations, spanRules...)
 }
 
 // spanCheck is a run's spans arranged for CheckSpans.

@@ -24,6 +24,8 @@ const (
 	ruleRetrySchedule = "retry schedule"
 )
 
+var edgeRules = []string{ruleSignature, ruleWebhookID, rulePayload, ruleFanOut, ruleInFlight, ruleAfterSuccess, ruleAttempts, ruleRetrySchedule}
+
 // retryScale is the local stack's retry scale, HERALD_RETRY_SCALE in
 // compose.yaml, which every retry delay is multiplied by (R-76).
 const retryScale = 0.001
@@ -58,7 +60,7 @@ func CheckEdge(obs Observations) []Violation {
 	e.checkAfterSuccess()
 	e.checkAttemptCount()
 	e.checkRetrySchedule()
-	return sortViolations(e.violations, ruleSignature, ruleWebhookID, rulePayload, ruleFanOut, ruleInFlight, ruleAfterSuccess, ruleAttempts, ruleRetrySchedule)
+	return sortViolations(e.violations, edgeRules...)
 }
 
 // deliveryKey identifies a Delivery by the names of its Message and

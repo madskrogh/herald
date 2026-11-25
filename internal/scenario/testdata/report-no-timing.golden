@@ -1,0 +1,49 @@
+# Scenario report
+
+- Behaviour comparison: not compared: new baselines recorded
+- Scenario invariants: all 18 held
+- Timing comparison: **couldn't compare**
+
+## Behaviour comparison
+
+What the Endpoints received, and the span counts, compared with the committed baselines (docs/testing.md, "Behaviour comparison"). Each difference is as make scenario-compare reports it.
+
+Not compared: this run recorded new baselines.
+
+## Scenario invariants
+
+The rules that hold on any build, checked after the run (docs/testing.md, "Scenario invariants").
+
+| Invariant | |
+|---|---|
+| signature | held |
+| webhook-id | held |
+| payload | held |
+| fan-out | held |
+| in flight | held |
+| after success | held |
+| attempts | held |
+| retry schedule | held |
+| final state | held |
+| outbox | held |
+| duplicates | held |
+| trace | held |
+| parent | held |
+| schema | held |
+| error | held |
+| lag | held |
+| lateness | held |
+| goroutines | held |
+
+## Timing comparison
+
+The candidate's timing statistics, each compared with the base's, run on the same runner at the same time (docs/testing.md, "Timing margins"). In milliseconds.
+
+- Base: main at 15a7e84
+- Candidate: PR at 0123abc
+
+The comparison couldn't run, so the statistics weren't compared:
+
+```
+open candidate/statistics.json: no such file or directory
+```

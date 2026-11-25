@@ -55,6 +55,23 @@ jobs:
       # HEAD^1 is main before this merge.
       - run: make ci AGAINST=HEAD^1
 
+  # Fails a PR that changes a check file together with any other file, and
+  # lists both: whoever changes behaviour must not also change what judges
+  # it (docs/testing.md, "Check changes"). Only on PRs: on main, the change
+  # has merged. It runs the script, not a make target, so a change outside
+  # the check files can't switch it off.
+  checks-apart:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Two commits, so HEAD^1 is there: the main the PR's merge commit was
+      # made from, so the merge commit's change is the PR's.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - run: scripts/checks-apart.sh HEAD^1
+
   # Builds each binary's image, so a change that breaks one fails its PR.
   images:
     runs-on: ubuntu-latest

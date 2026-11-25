@@ -15,10 +15,11 @@ type Difference struct {
 	// Delivery names the Delivery that differs, as "<message> to
 	// <endpoint>", or the Message, or the fault, or nothing for the run as a
 	// whole.
-	Delivery string
+	Delivery string `json:"delivery,omitempty"`
 	// Field names what differs, such as "state" or "attempt 2: body".
-	Field     string
-	Want, Got string
+	Field string `json:"field"`
+	Want  string `json:"want"`
+	Got   string `json:"got"`
 }
 
 func (d Difference) String() string {

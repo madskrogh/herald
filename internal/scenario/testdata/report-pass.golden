@@ -1,0 +1,58 @@
+# Scenario report
+
+- Behaviour comparison: no differences
+- Scenario invariants: all 18 held
+- Timing comparison: every statistic within its margin
+
+## Behaviour comparison
+
+What the Endpoints received, and the span counts, compared with the committed baselines (docs/testing.md, "Behaviour comparison"). Each difference is as make scenario-compare reports it.
+
+What the Endpoints received, against testdata/baseline.json: no differences.
+
+Span counts, against testdata/counts.json: no differences.
+
+## Scenario invariants
+
+The rules that hold on any build, checked after the run (docs/testing.md, "Scenario invariants").
+
+| Invariant | |
+|---|---|
+| signature | held |
+| webhook-id | held |
+| payload | held |
+| fan-out | held |
+| in flight | held |
+| after success | held |
+| attempts | held |
+| retry schedule | held |
+| final state | held |
+| outbox | held |
+| duplicates | held |
+| trace | held |
+| parent | held |
+| schema | held |
+| error | held |
+| lag | held |
+| lateness | held |
+| goroutines | held |
+
+## Timing comparison
+
+The candidate's timing statistics, each compared with the base's, run on the same runner at the same time (docs/testing.md, "Timing margins"). In milliseconds.
+
+- Base: main at 15a7e84
+- Candidate: PR at 0123abc
+
+| Statistic | Base | Candidate | Margin | |
+|---|---|---|---|---|
+| Attempt latency p50 | 3 | 3 | ± 20 | within |
+| handoff lag p50 | 100 | 110 | ± 60 | within |
+| handoff lag p95 | 400 | 420 | ± 210 | within |
+
+Samples of each statistic:
+
+| Statistic | Base | Candidate |
+|---|---|---|
+| Attempt latency | 120 | 120 |
+| handoff lag | 84 | 84 |

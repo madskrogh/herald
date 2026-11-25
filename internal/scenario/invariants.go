@@ -17,13 +17,13 @@ import (
 // (docs/testing.md).
 type Violation struct {
 	// Rule names the invariant, such as "signature" or "fan-out".
-	Rule string
+	Rule string `json:"rule"`
 	// Subject names what broke it: a Delivery as "<message> to <endpoint>",
 	// an Endpoint, a Message, a span or a service. It is empty when the run
 	// has nothing for the rule to check.
-	Subject string
+	Subject string `json:"subject,omitempty"`
 	// Detail says how.
-	Detail string
+	Detail string `json:"detail"`
 }
 
 func (v Violation) String() string {

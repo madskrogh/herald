@@ -3,6 +3,7 @@
 # compares the candidate's timing statistics with the base's
 # (docs/testing.md, "Timing margins"). The candidate's run is also its
 # behaviour comparison and its invariants, as in `make scenario-compare`.
+# One report holds all three.
 #
 # Run through `make scenario-timing`, which points it at this checkout's
 # stack (the candidate) and BASE's. Both stacks must be up (make up), and
@@ -32,10 +33,16 @@
 #
 # It writes:
 #
-#   OUT/report.md                 the comparison; when it fails, with the
-#                                 profile diff
+#   OUT/report.md                 the behaviour comparison, the
+#                                 invariants and the timing comparison,
+#                                 written whatever the runs found; when
+#                                 the timing fails, with the profile diff
 #   OUT/<build>/test.log          each run's test output
 #   OUT/<build>/statistics.json   each run's statistics
+#   OUT/candidate/result.json     what the candidate's run found, for the
+#                                 report
+#   OUT/candidate/report.md       the candidate's report without the
+#                                 timing, as make scenario-compare writes it
 #   OUT/<build>/spans.parquet     every span in each build's ClickHouse
 #   OUT/profiles/                 scripts/profile.sh's profiles and diff
 #
@@ -117,22 +124,14 @@ wait "$profile_pid" || { echo "scenario-timing: profiling failed: $out/profiles.
 export_spans "$base_env" base
 export_spans "$candidate_env" candidate
 
-# scenario-timing exits 1 when a statistic is beyond its margin, and 2 when
-# it can't compare, as when a run wrote no statistics.
+# scenario-timing writes the report whatever the runs found. It exits 1
+# when a statistic is beyond its margin, and 2 when it can't compare, as
+# when a run wrote no statistics; the report then says why.
 timing=0
 "$out/scenario-timing" -base "$out/base" -candidate "$out/candidate" \
   -base-label "${BASE_LABEL:-base}" -candidate-label "${CANDIDATE_LABEL:-candidate}" \
   >"$out/report.md" 2>"$out/timing.log" || timing=$?
 {
-  if ((timing > 1)); then
-    echo "# Timing comparison"
-    echo
-    echo "The comparison couldn't run, so its statistics weren't compared:"
-    echo
-    echo '```'
-    cat "$out/timing.log"
-    echo '```'
-  fi
   echo
   echo "Every span in each build's ClickHouse is in base/spans.parquet and candidate/spans.parquet beside this report, for SQL over both runs:"
   echo

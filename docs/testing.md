@@ -82,6 +82,24 @@ The comparison rests on two committed files, an input and an output.
 - **Can't catch:** wrong behaviour that breaks no stated rule, which is what the comparison is for. Every check fails on missing data, so a check can't pass on nothing; but a rule nobody wrote down isn't checked.
 - **Run:** after every scenario run, in the same `make scenario-compare`, `make scenario-record` or `make scenario-timing` (on the candidate's run only), so on every PR.
 
+## The scenario report
+
+Every scenario run with `OUT` writes one report, `OUT/report.md`, with everything the run found, so a PR states its result from that file and CI shows it on the run's page:
+
+- **Behaviour comparison:** "no differences", or each difference by Delivery and field against the edge baseline, and by kind of span against the counts baseline, as `make scenario-compare` reports them.
+- **Scenario invariants:** each one, held or broken, and each violation of a broken one.
+- **Timing comparison** (`make scenario-timing` only): each statistic of both runs within its margin or not, and the profile diff when one isn't.
+
+A run that stops before it finishes still writes the report: it says why the run stopped, and what it found until then. `make scenario-compare OUT=<dir>` writes the same report without the timing comparison. The golden files in `internal/scenario/testdata/` show it for a run that passes, one with a difference, a broken invariant and a statistic beyond its margin, one that stopped, and one whose timing couldn't be compared.
+
+## Check changes
+
+A PR may re-record the committed baselines with the change that moves them, but a change to a check goes in a PR of its own: whoever changes behaviour must not also change what judges it. The case this guards against is the quiet one, a margin loosened beside the change that would have failed it.
+
+- **The check files** are the scenario's checks, comparisons, margins and invariants, the timing comparison, the queries the checks read with (so a renamed span attribute's queries are among them), the scripts that run them, this page, and the CI workflow, so a PR can't switch the job off. The three baselines (`baseline.json`, `counts.json` and `traffic.json` in `internal/scenario/testdata/`) are not check files, and neither are the end-to-end tests' Go files: a feature adds its end-to-end tests with its code. The list is kept in one place, `scripts/checks-apart.sh`.
+- **The job.** On every PR, CI runs `scripts/checks-apart.sh`, which fails when the PR changes a check file together with any other file, and lists both sets. A file renamed counts at both paths. Run it before pushing with `scripts/checks-apart.sh origin/main`.
+- **A change that needs both**, such as a feature that needs a new invariant, is two PRs: the check first, then the change.
+
 ## Load test
 
 - **Check:** the scenario scaled up, with several replicas of each service.
@@ -96,7 +114,7 @@ Not a test, and not a gate: CPU time on a small, I/O-bound scenario is noise. `m
 
 ## CI
 
-On every PR, and on `main` after each merge: `make ci` (`golangci-lint`, `go test -race` with the unit and integration tests, `buf lint`, `buf breaking` against `main`, and a check that the sqlc and protobuf generated code is up to date), a Docker image build for each service, the end-to-end tests against the compose stack, and `make scenario-timing`: the behaviour comparison and the scenario invariants on the candidate's stack, with the base build's stack running the scenario beside it for the timing comparison. On a failure, the services' logs, the comparison report, the profiles and both runs' spans are uploaded with the run. `.github/workflows/ci.yml` is the record.
+On every PR: the check-changes job (above), which keeps a change to a check out of a PR that changes anything else. On every PR, and on `main` after each merge: `make ci` (`golangci-lint`, `go test -race` with the unit and integration tests, `buf lint`, `buf breaking` against `main`, and a check that the sqlc and protobuf generated code is up to date), a Docker image build for each service, the end-to-end tests against the compose stack, and `make scenario-timing`: the behaviour comparison and the scenario invariants on the candidate's stack, with the base build's stack running the scenario beside it for the timing comparison. The scenario report (above) is on the run's page. On a failure, the services' logs, the report, the profiles and both runs' spans are uploaded with the run. `.github/workflows/ci.yml` is the record.
 
 ## Where a new check belongs
 

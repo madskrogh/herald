@@ -3,11 +3,9 @@ package scenario
 import (
 	"cmp"
 	"fmt"
-	"io"
 	"maps"
 	"slices"
 	"strconv"
-	"strings"
 )
 
 // Margin is how far a value may be from what it is compared with, either
@@ -123,37 +121,6 @@ func CompareTiming(base, candidate map[string]Distribution, margins map[TimingKe
 		rows = append(rows, row)
 	}
 	return rows
-}
-
-// TimingRun is one run of the timing comparison: which build it ran, and
-// its statistics.
-type TimingRun struct {
-	// Label says which build ran, such as its commit.
-	Label      string
-	Statistics Statistics
-}
-
-// WriteTimingReport writes the timing comparison of the candidate with the
-// base, compared as rows, to w, as Markdown.
-func WriteTimingReport(w io.Writer, base, candidate TimingRun, rows []TimingRow) error {
-	var b strings.Builder
-	b.WriteString("# Timing comparison\n\n")
-	b.WriteString(`The candidate's timing statistics, each compared with the base's, run on the same runner at the same time (docs/testing.md, "Timing margins"). In milliseconds.` + "\n\n")
-	fmt.Fprintf(&b, "- Base: %s\n- Candidate: %s\n\n", base.Label, candidate.Label)
-	b.WriteString("| Statistic | Base | Candidate | Margin | |\n|---|---|---|---|---|\n")
-	for _, r := range rows {
-		verdict := r.verdict()
-		if !r.Within {
-			verdict = "**" + verdict + "**"
-		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", r.Key, formatMs(r.Base), formatMs(r.Candidate), r.margin(), verdict)
-	}
-	b.WriteString("\nSamples of each statistic:\n\n| Statistic | Base | Candidate |\n|---|---|---|\n")
-	for _, name := range unionKeys(base.Statistics.Timing, candidate.Statistics.Timing) {
-		fmt.Fprintf(&b, "| %s | %d | %d |\n", name, base.Statistics.Timing[name].N, candidate.Statistics.Timing[name].N)
-	}
-	_, err := io.WriteString(w, b.String())
-	return err
 }
 
 // unionKeys returns the keys of a and b, sorted, each once.
