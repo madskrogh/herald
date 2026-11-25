@@ -179,3 +179,53 @@ func signed(url string, messageID uuid.UUID, at time.Time, body string, answer e
 		Answer: answer,
 	}
 }
+
+// TestNewRecordingLate checks where a fault phase counts as late: some
+// Delivery's first Attempt comes 1.5 s or more after its Message was sent.
+func TestNewRecordingLate(t *testing.T) {
+	t.Parallel()
+	const url = "http://host.docker.internal:50001/endpoints/0"
+	var (
+		id   = uuid.MustParse("0198a1b2-0000-7000-8000-000000000001")
+		epID = uuid.MustParse("0198a1b2-0000-7000-8000-0000000000e1")
+		d    = uuid.MustParse("0198a1b2-0000-7000-8000-0000000000d1")
+		t0   = time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	)
+	m := scenario.Message{Name: "m001", Application: "app-1", EventType: "invoice.paid", Payload: `{"message":"m001"}`}
+	for _, tc := range []struct {
+		name string
+		lag  time.Duration
+		want bool
+	}{
+		{"just under", 1499 * time.Millisecond, false},
+		{"at the limit", 1500 * time.Millisecond, true},
+		{"well over", 6 * time.Second, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := scenario.Observations{
+				Scenario: scenario.Scenario{
+					Applications: []scenario.Application{
+						{Name: "app-1", Endpoints: []scenario.Endpoint{{Name: "app-1/ep-1", Behaviour: scenario.Fail}}},
+					},
+					Phases: []scenario.Phase{{Fault: scenario.PostgresSlowed, Messages: []scenario.Message{m}}},
+				},
+				Sent:         map[string]scenario.Sent{"m001": {ID: id, At: t0}},
+				EndpointURLs: map[string]string{url: "app-1/ep-1"},
+				EndpointIDs:  map[uuid.UUID]string{epID: "app-1/ep-1"},
+				Deliveries:   []e2e.Delivery{{ID: d, MessageID: id, EndpointID: epID, State: e2e.StateSucceeded}},
+				Attempts: []endpointtest.Attempt{
+					signed(url, id, t0.Add(tc.lag), m.Payload, endpointtest.Status(http.StatusOK)),
+				},
+			}
+			got, err := scenario.NewRecording(scenario.TrafficFile{File: "traffic.json", SHA256: "a1a1"}, run)
+			if err != nil {
+				t.Fatalf("NewRecording: %v", err)
+			}
+			want := []scenario.FaultRecord{{Fault: scenario.PostgresSlowed, Late: tc.want}}
+			if diff := cmp.Diff(want, got.Faults); diff != "" {
+				t.Errorf("Faults after a first Attempt %v late (-want +got):\n%s", tc.lag, diff)
+			}
+		})
+	}
+}

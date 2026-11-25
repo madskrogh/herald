@@ -119,7 +119,16 @@ type AttemptRecord struct {
 // phase recorded as late shows that the fault took hold, so fault injection
 // that stopped working shows up in the comparison rather than passing
 // unnoticed (decided on #112).
-const lateAfter = 3 * time.Second
+//
+// With Postgres at fault-postgres-cpu, how late the first Attempts of the
+// phase's three Messages come varies from run to run. In five runs the
+// latest of them came 3.9 to 7.5 s late, and the earliest 2.2 s. A phase is
+// late when any one of them is, and a run with all three under 3 s failed
+// the comparison (#157). In the dispatcher restart, which isn't recorded as
+// late, the first Attempts came at most 0.7 s late in three runs. 1.5 s is
+// above that and below what Postgres at that share held back in the five
+// runs. A paused NATS holds Messages for natsPause, which is longer.
+const lateAfter = 1500 * time.Millisecond
 
 // NewRecording normalises obs, observed running the traffic in traffic. It
 // fails on an Attempt it can't place: one whose webhook-id is no Message's
