@@ -95,7 +95,7 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 
 - **Findings** are the rows of each PR's findings table, read by column name. Only rows carry a review, severity and outcome. The summary lines of the same PRs add up to 762, not 750, and disagree with their own tables in 9 PRs, both ways ([#93][pr93]: 26 against 22 rows; [#141][pr141]: 29 against 31).
 - **A row two reviews raised** counts once, under the first review named.
-- **Outcome:** a row marked disputed counts as disputed even when it was then fixed, so the fix rates are slightly low. "Other" is no change needed, deferred or superseded.
+- **Outcome:** a row that mentions a dispute counts as disputed, even when it was then fixed. Otherwise the outcome's first words decide: "Fixed", "Partly fixed" or "Addressed" is fixed, and "Rejected" is rejected, even when the human later had it fixed. So the fix rates are slightly low. "Other" is everything else: no change needed, deferred or superseded.
 - **Disputes:** 13 rows are marked disputed. The rejection review's own rows report 11 disputes of 242 judged. 289 rows are rejected or disputed, so 47 weren't judged; some PRs say why (cosmetic, or not in scope).
 - **Severity** is the reviewer's own, except the bug review's from [#83][pr83] on, which the author rates. Earlier bug findings say "unstated".
 
