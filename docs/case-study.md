@@ -4,7 +4,7 @@ Herald is built by coding agents, with a human who decides and merges. This docu
 
 > The code the workflow produces holds up. What limits the pace is whether a human understands a change well enough to merge it. The spec and the tests are meant to give that understanding, so that over time review of the PR matters less, and effort moves to the spec and to production observability.
 
-**The short answer:** the agent reviews before a PR opens catch most problems, and little is found wrong after merge. The human's review is recorded mostly on the issues and only thinly. Its clearest catch, during a PR, was that an ADR had the wrong goal. The history can't show that the code holds up on its own, and it records nothing about how well the human understood a change.
+**The short answer:** the agent reviews before a PR opens catch most problems, and little is found wrong after merge. The human's review is recorded mostly on the issues. What it catches is misread intent, the largest case being an ADR with the wrong goal. The history can't show that the code holds up on its own, and it records nothing about how well the human understood a change.
 
 The history read is the 44 PRs merged from [#48][pr48] (the first with Review notes) to [#163][pr163], and the issues they close. "How this was counted" at the end says how each number was got.
 
@@ -49,21 +49,22 @@ No PR carries the `Regression from #<n>` marker the PR template asks for. These 
 
 **This doesn't show that the code holds up.** The code that merges is the code after 424 fixes. Nothing written another way is there to compare with, and first drafts aren't kept.
 
-## 3. The human's review is mostly recorded on the issues, and it is thinly recorded
+## 3. The human's review is recorded mostly on the issues, and it catches misread intent
 
 The PRs show almost no review. None has a GitHub review, and only three have comments, six in all, from 16 and 17 November ([#55][pr55], [#56][pr56], [#68][pr68]). The rest of the human's part is on the issues, or in the Review notes. The 39 issues these PRs close have 54 comments, on 25 of them:
 
 - **The largest group is decisions** on points the issue left open: at least 25 comments are headed "Decision", on 19 issues, all but one (#73's, below) posted before the PR opened. For example, a slowed Postgres gets a SHOULD for latency while other faults keep a MUST ([#112][iss112]), and services keep running while NATS or Postgres is down ([#114][iss114]).
-- **Five were posted while the PR was open.** Only three say they came from the human's review, and the records don't always agree:
-  - [#105][iss105], during [#106][pr106], "raised in PR review": the ADR's goal, "rewrite Herald in another language", was the wrong one. It became "Herald's code can be regenerated from its spec", the goal all the spec work since rests on.
-  - #105 again, "asked during PR review": the scenario harness imported Herald's own code to decide what to expect. Now it never imports the implementation. #106's own description lists this under Surprises, and says the reframing was decided "while writing", so the PR and the issue tell it differently.
-  - [#73][iss73], during [#99][pr99], "after trying the walkthrough in a worktree before merge": the README's commands failed outside the main checkout. The spec review had raised the hard-coded ports, and the rejection review had upheld the author's rejection. Running the walkthrough reversed it. So the agents caught this one, and the rejection step dismissed it.
-  - The other two don't say who raised them. [#108][iss108] (during [#117][pr117]) asked whether every implemented MUST can have a meaningful vector. The answer kept the rule and left the question to later issues, and [ADR 0013](adr/0013-vectors-are-input-for-tests.md) ([#135][iss135]) dropped the rule that evening. [#113][iss113] (during [#142][pr142]) clarified that morning's decision: the traffic file may also be captured from real traffic.
+- **Five were posted while the PR was open.** The human raised four of them in review, by the comment's own words or as confirmed on this study's issue ([record][rec160]). The fifth says it was asked in review but not by whom.
+  - [#105][iss105], during [#106][pr106]: the ADR's goal, "rewrite Herald in another language", was the wrong one. The human had stated that goal earlier, and the agent took it too literally. What was meant is regeneration, as a test of how well the spec and the tests are defined. The goal became "Herald's code can be regenerated from its spec", and all the spec work since rests on it. #106's description says the reframing was decided "while writing", which is wrong.
+  - #105 again, "asked during PR review", the unattributed one: the scenario harness imported Herald's own code to decide what to expect. Now it never imports the implementation. #106's description lists this under Surprises.
+  - [#73][iss73], during [#99][pr99], "after trying the walkthrough in a worktree before merge": the README's commands failed outside the main checkout. The spec review had raised the hard-coded ports, and the rejection review had upheld the author's rejection. The human's try reversed it. So the agents caught this one, and the rejection step dismissed it.
+  - [#108][iss108], during [#117][pr117]: the human asked whether every implemented MUST can have a meaningful vector. The answer kept the rule and left the question to later issues. [ADR 0013](adr/0013-vectors-are-input-for-tests.md) ([#135][iss135]) dropped the rule that evening.
+  - [#113][iss113], during [#142][pr142]: the human clarified that morning's decision. The traffic file may also be captured from real traffic.
 - **The rest are records**, such as notes carried to a later issue ([#81][iss81] has three) and corrections found while running the work or in its review ([#79][iss79] has four).
 
 Separately, the Review notes of 9 PRs say the human settled 12 findings.
 
-The strongest of these is about intent rather than code: #105's goal is a question about what the work is for, which no reviewer can check against the issue's words. But three attributed points are too few to show a trend either way.
+What the human's four have in common is intent: what the work is for (#105), what "works" means to a reader (#73), and what a rule or a decision was meant to say (#108, #113). #105 is a misunderstanding the human's own words had started. The agents can check the work against the words, not against what was meant. Four points from 19 to 24 November are too few to show a trend either way.
 
 **Not recorded:** how long the human spent. 27 of the 44 PRs were merged within 30 minutes of opening, CI included, among them [#134][pr134] (about 1,000 lines added) after 6 minutes. But the human may read a branch before its PR opens, and the human and the agent share one GitHub account.
 
@@ -105,7 +106,7 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 - **A row two reviews raised** counts once, under the first review named.
 - **Outcome:** a row that mentions a dispute counts as disputed, even when it was then fixed. Otherwise the outcome's first words decide: "Fixed", "Partly fixed" or "Addressed" is fixed, and "Rejected" is rejected, even when the human later had it fixed. So the fix rates are slightly low. "Other" is everything else: no change needed, deferred or superseded.
 - **Disputes:** 13 rows are marked disputed. The rejection review's own rows report 11 disputes of 242 judged. 289 rows are rejected or disputed, so 47 weren't judged; some PRs say why (cosmetic, or not in scope).
-- **Issue comments** are every comment on the 39 issues that the PRs close. A comment counts as raised while the PR was open when its time falls between the closing PR's opening and its merge. Seven do: the five above, a renumbering note on #114, and the agent's question about the flaky check on #81. Who raised a point is taken from the comment's own words, since the account is shared.
+- **Issue comments** are every comment on the 39 issues that the PRs close. A comment counts as raised while the PR was open when its time falls between the closing PR's opening and its merge. Seven do: the five above, a renumbering note on #114, and the agent's question about the flaky check on #81. Who raised a point is taken from the comment's own words, or from the human's answer recorded on #160, since the account is shared.
 - **Severity** is the reviewer's own, except the bug review's from [#83][pr83] on, which the author rates. Earlier bug findings say "unstated".
 
 [pr43]: https://github.com/madskrogh/herald/pull/43
@@ -155,3 +156,4 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 [iss135]: https://github.com/madskrogh/herald/issues/135
 [iss157]: https://github.com/madskrogh/herald/issues/157
 [iss164]: https://github.com/madskrogh/herald/issues/164
+[rec160]: https://github.com/madskrogh/herald/issues/160#issuecomment-7156936609
