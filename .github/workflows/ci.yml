@@ -57,9 +57,10 @@ jobs:
 
   # Fails a PR that changes a check file together with any other file, and
   # lists both: whoever changes behaviour must not also change what judges
-  # it (docs/testing.md, "Check changes"). Only on PRs: on main, the change
-  # has merged. It runs the script, not a make target, so a change outside
-  # the check files can't switch it off.
+  # it (docs/testing.md, "Check changes"). It warns on a change to CI's
+  # workflows, which can change how the checks run, this job included. Only
+  # on PRs: on main, the change has merged. It runs the script, not a make
+  # target, so a change to the Makefile can't switch it off.
   checks-apart:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

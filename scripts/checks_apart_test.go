@@ -20,7 +20,9 @@ func TestChecksApart(t *testing.T) {
 		existing []string
 		// change runs in the branch's checkout, before its commit.
 		change func(t *testing.T, dir string)
-		fails  bool
+		// env is added to the script's environment.
+		env   []string
+		fails bool
 		// output holds what the output must hold, each in order.
 		output []string
 	}{
@@ -50,7 +52,6 @@ func TestChecksApart(t *testing.T) {
 					"scripts/checks-apart.sh",
 					"scripts/checks_apart_test.go",
 					"docs/testing.md",
-					".github/workflows/ci.yml",
 				)
 			},
 		},
@@ -119,6 +120,42 @@ func TestChecksApart(t *testing.T) {
 			output: []string{"check files:\n  internal/scenario/é \"q\".go\n", "other files:\n  README.md\n"},
 		},
 		{
+			// A CI change goes with any change, and is pointed out.
+			name: "a CI change with other files",
+			change: func(t *testing.T, dir string) {
+				write(t, dir, ".github/workflows/ci.yml", "internal/delivery/worker.go")
+			},
+			output: []string{"warning: this change changes CI:\n  .github/workflows/ci.yml\n"},
+		},
+		{
+			name: "a CI change with check files",
+			change: func(t *testing.T, dir string) {
+				write(t, dir, ".github/workflows/ci.yml", "internal/scenario/edge.go")
+			},
+			output: []string{"warning: this change changes CI:\n  .github/workflows/ci.yml\n"},
+		},
+		{
+			name: "a CI change with check files and other files",
+			change: func(t *testing.T, dir string) {
+				write(t, dir, ".github/workflows/ci.yml", "internal/scenario/edge.go", "README.md")
+			},
+			fails: true,
+			output: []string{
+				"check files:\n  internal/scenario/edge.go\n\n",
+				"other files:\n  README.md\n",
+				"warning: this change changes CI:\n  .github/workflows/ci.yml\n",
+			},
+		},
+		{
+			// On GitHub, the warning is an annotation on the file.
+			name: "a CI change on GitHub",
+			change: func(t *testing.T, dir string) {
+				write(t, dir, ".github/workflows/ci.yml", "README.md")
+			},
+			env:    []string{"GITHUB_ACTIONS=true"},
+			output: []string{"::warning file=.github/workflows/ci.yml,title=CI changed::"},
+		},
+		{
 			name: "no check files",
 			change: func(t *testing.T, dir string) {
 				write(t, dir, "internal/delivery/worker.go", "README.md")
@@ -142,7 +179,7 @@ func TestChecksApart(t *testing.T) {
 			commit(t, dir, "later on main")
 			git(t, dir, "checkout", "-q", "change")
 
-			out, err := runChecksApart(t, dir, "main")
+			out, err := runChecksApart(t, dir, "main", tt.env...)
 			var exit *exec.ExitError
 			switch {
 			case tt.fails && !errors.As(err, &exit):
@@ -179,7 +216,7 @@ func TestChecksApartFailsWithoutBase(t *testing.T) {
 	}
 }
 
-func runChecksApart(t *testing.T, dir, base string) (string, error) {
+func runChecksApart(t *testing.T, dir, base string, env ...string) (string, error) {
 	t.Helper()
 	script, err := filepath.Abs("checks-apart.sh")
 	if err != nil {
@@ -187,7 +224,7 @@ func runChecksApart(t *testing.T, dir, base string) (string, error) {
 	}
 	cmd := exec.CommandContext(t.Context(), script, base)
 	cmd.Dir = dir
-	cmd.Env = gitEnv()
+	cmd.Env = append(gitEnv(), env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -228,7 +265,7 @@ func git(t *testing.T, dir string, args ...string) {
 func gitEnv() []string {
 	var env []string
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_") {
+		if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "GITHUB_ACTIONS=") {
 			env = append(env, kv)
 		}
 	}

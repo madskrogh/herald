@@ -5,6 +5,11 @@
 # needs both, such as a feature that needs a new invariant, is two PRs: the
 # check first, then the change.
 #
+# A change to CI's workflows goes with either, and is pointed out with a
+# warning, as a GitHub annotation on the file when run there: it can change
+# how the checks run, but a tool version it pins can be tied to generated
+# code, which then has to change with it.
+#
 # Usage: scripts/checks-apart.sh <base>
 #
 # The change is what HEAD changed since its merge-base with BASE, so a
@@ -17,10 +22,10 @@ set -euo pipefail
 
 base=${1:?usage: scripts/checks-apart.sh <base>}
 
-# is_check_file says whether path $1 is a check file: one that holds a
-# check, a margin, an invariant or a span attribute a check reads, or that
-# decides whether they run.
-is_check_file() {
+# kind prints what path $1 is: check, ci or other. A check file holds a
+# check, a margin, an invariant or a span attribute a check reads, or runs
+# them.
+kind() {
   # In a case pattern, * matches / too: internal/e2e/*.sql is every .sql
   # file under internal/e2e, at any depth.
   case $1 in
@@ -28,25 +33,24 @@ is_check_file() {
     # them (docs/testing.md, "The traffic file and the baseline").
     internal/scenario/testdata/baseline.json | \
       internal/scenario/testdata/counts.json | \
-      internal/scenario/testdata/traffic.json) return 1 ;;
+      internal/scenario/testdata/traffic.json) echo other ;;
     # The scenario's checks, comparisons, margins and their tests.
-    internal/scenario/*) return 0 ;;
+    internal/scenario/*) echo check ;;
     # The timing comparison and its report.
-    cmd/scenario-timing/*) return 0 ;;
+    cmd/scenario-timing/*) echo check ;;
     # The queries the checks read spans and the final state with, and the
     # code sqlc generates from them. A renamed span attribute changes
     # them. The end-to-end tests' Go code isn't here: a feature adds its
     # end-to-end tests with its code.
-    internal/e2e/*.sql | internal/e2e/e2edb/*) return 0 ;;
+    internal/e2e/*.sql | internal/e2e/e2edb/*) echo check ;;
     # What runs the checks and the profiles, and this job.
     scripts/scenario-timing.sh | scripts/profile.sh | \
-      scripts/checks-apart.sh | scripts/checks_apart_test.go) return 0 ;;
+      scripts/checks-apart.sh | scripts/checks_apart_test.go) echo check ;;
     # The margins, and what the checks are.
-    docs/testing.md) return 0 ;;
-    # The workflow, so a PR can't switch this job off.
-    .github/workflows/ci.yml) return 0 ;;
+    docs/testing.md) echo check ;;
+    .github/workflows/*) echo ci ;;
+    *) echo other ;;
   esac
-  return 1
 }
 
 since=$(git merge-base "$base" HEAD 2>/dev/null) || {
@@ -56,26 +60,38 @@ since=$(git merge-base "$base" HEAD 2>/dev/null) || {
 
 checks=()
 others=()
+ci=()
 # Without rename detection, a file moved counts at its old path and its new.
 # Paths are NUL-terminated and unquoted, so that each is matched as it is.
 while IFS= read -r -d '' path; do
-  if is_check_file "$path"; then
-    checks+=("$path")
-  else
-    others+=("$path")
-  fi
+  case $(kind "$path") in
+    check) checks+=("$path") ;;
+    ci) ci+=("$path") ;;
+    *) others+=("$path") ;;
+  esac
 done < <(git -c core.quotePath=false diff -z --no-renames --name-only "$since" HEAD)
 
-if ((${#checks[@]} == 0 || ${#others[@]} == 0)); then
-  exit 0
+failed=0
+if ((${#checks[@]} > 0 && ${#others[@]} > 0)); then
+  failed=1
+  echo "checks-apart: this change changes check files together with other files."
+  echo "Change the checks in a PR of their own, then the rest (docs/testing.md, \"Check changes\")."
+  echo
+  echo "check files:"
+  printf '  %s\n' "${checks[@]}"
+  echo
+  echo "other files:"
+  printf '  %s\n' "${others[@]}"
+  echo
 fi
 
-echo "checks-apart: this change changes check files together with other files."
-echo "Change the checks in a PR of their own, then the rest (docs/testing.md, \"Check changes\")."
-echo
-echo "check files:"
-printf '  %s\n' "${checks[@]}"
-echo
-echo "other files:"
-printf '  %s\n' "${others[@]}"
-exit 1
+if ((${#ci[@]} > 0)); then
+  echo "warning: this change changes CI:"
+  printf '  %s\n' "${ci[@]}"
+  if [[ ${GITHUB_ACTIONS:-} == true ]]; then
+    for path in "${ci[@]}"; do
+      echo "::warning file=$path,title=CI changed::This PR changes CI. Check it doesn't change how the checks run (docs/testing.md, \"Check changes\")."
+    done
+  fi
+fi
+exit "$failed"
