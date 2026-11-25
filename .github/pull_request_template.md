@@ -6,8 +6,6 @@ Closes #
 
 <!-- If decisions were recorded on the issue, replace this comment with a line saying so; don't repeat them. Otherwise delete it. -->
 
-<!-- If this PR fixes a problem an earlier PR shipped, replace this comment with: Regression from #<n> -->
-
 ## Requirements
 
 <!--
@@ -90,5 +88,24 @@ deferring to a later issue counts as rejected, with that issue's number.
 | Finding | Severity | Review | Outcome |
 |---|---|---|---|
 | | | | |
+
+</details>
+
+<details>
+<summary>Trace: D defects, H raised by the human</summary>
+
+<!--
+Never left out (CLAUDE.md, "What the history records"). Defects: each defect this PR fixes that was
+found after the pre-PR reviews. Raised by the human: each "Raised by the human" comment on the issue,
+before the PR and in review. "None" under a heading with nothing to list; 0 in the summary.
+-->
+
+**Defects**
+
+- Regression from #_n_. Got through at: _issue, spec, tests, review or implementation_ (_pointer_). Found by: _CI, the human, the agent or telemetry_. Closed by: _requirement, test, rule or check_, or none.
+
+**Raised by the human**
+
+- [_what was asked_](_comment link_): _what changed_, before the PR or in review
 
 </details>
