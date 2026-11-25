@@ -45,7 +45,7 @@ Never left out. Verified: what was run, and the result. Not verified: what wasn'
 **Verified**
 
 - _What was run (`make ci` on the pushed commit, integration tests by seam, a Message sent to the running stack): the result_
-- `make scenario-timing` against `origin/main`: _behaviour comparison ("no differences", or each difference and the requirement that explains it), invariants, timing; a profile diff only when latency or lag differed or the PR claims a performance effect_
+- `make scenario-timing` against `origin/main`: _behaviour comparison ("no differences", or each difference with the baseline update that accepts it and the requirement that explains it), invariants, timing; a profile diff only when latency or lag differed or the PR claims a performance effect_
 
 **Not verified**
 
