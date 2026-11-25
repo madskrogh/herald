@@ -41,9 +41,10 @@ bare="([^\"' "$'\t\n'"]+)"
 file_re="$ws(--body-file(=|$ws+)|-F(=|$ws+)?)($dq|$sq|$bare)"
 body_re="$ws(--body(=|$ws+)|-b(=|$ws+)?)(\"|'|\\\$')?"
 
-# check_call ARGS SUB: ARGS is what follows the subcommand, up to the next command.
+# check_call ARGS SUB TAIL: ARGS is what follows the subcommand, up to the next
+# command; TAIL is all of it, for when the cut fell inside a quoted value.
 check_call() {
-  local args=$1 sub=$2 file_at=-1 body_at=-1 path rest dir
+  local args=$1 sub=$2 tail=$3 file_at=-1 body_at=-1 path rest dir
   if [[ "$args" =~ $file_re ]]; then
     local m=${BASH_REMATCH[0]}
     path=${BASH_REMATCH[5]}${BASH_REMATCH[6]}${BASH_REMATCH[7]}
@@ -72,8 +73,12 @@ check_call() {
     marked "${args#*"$b"}" || refuse "The body doesn't start with an Agent line."
     return
   fi
-  # gh pr review --approve or --request-changes without a body posts no text.
-  [[ "$sub" == pr*review ]] && return
+  # gh pr review --approve or --request-changes without a body posts no text. If a
+  # body flag shows up later in the command, the cut may have hidden it: refuse.
+  if [[ "$sub" == pr*review ]]; then
+    [[ "$tail" =~ $file_re || "$tail" =~ $body_re ]] && refuse "Can't tell whether this review has a body: run the gh call as a command of its own."
+    return
+  fi
   refuse "No body given: pass --body-file <path>."
 }
 
@@ -82,6 +87,6 @@ rest=$cmd
 while [[ "$rest" =~ $call_re ]]; do
   sub=${BASH_REMATCH[2]}
   rest=" ${rest#*"${BASH_REMATCH[0]}"}"
-  check_call "${rest%%[;|&]*}" "$sub"
+  check_call "${rest%%[;|&]*}" "$sub" "$rest"
 done
 exit 0
