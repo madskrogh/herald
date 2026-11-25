@@ -10,7 +10,7 @@ Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
 Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
 
-The Spec axis reads two sources. The GitHub issue is what the change is checked against: fetch it with `gh issue view <number> --comments`, because decisions the human made while the work was underway are recorded as comments. The spec (ADR 0007, `docs/adr/0007-code-regenerated-from-the-spec.md`) holds Herald's requirements; the review reads the ones the change touches.
+The Spec axis reads two sources. The GitHub issue is what the change is checked against: fetch it with `gh issue view <number> --comments`, because decisions the human made while the work was underway are recorded as comments: the human's own (no `Agent` line), or the agent's record of them (`Agent, for the human:`). A comment starting `Agent:` is the agent's own words, not a decision. The spec (ADR 0007, `docs/adr/0007-code-regenerated-from-the-spec.md`) holds Herald's requirements; the review reads the ones the change touches.
 
 ## Process
 

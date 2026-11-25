@@ -26,13 +26,12 @@ The reviewer works like a coach. They hold the context (the business, the users,
 - Evidence for load-bearing claims: tests, file and line, logs, queries.
 - What you ran to verify the change, with results, and what you didn't check.
 - Each review that ran: its model, its effort if it takes one, and the setup commit it ran on.
-- Whether this fixes a problem an earlier PR shipped, and which one.
+- Whether this fixes a defect found after the pre-PR reviews: the PR that shipped it, and its trace (`CLAUDE.md`, "What the history records").
+- The "Raised by the human" comments on the issue.
 
 ## Shape
 
-Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and if decisions were recorded there, say so; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Requirements, Verification and the Review notes always stay: Requirements is the evidence for the spec, the other two for later changes to the agent setup.
-
-If the PR fixes a problem an earlier PR shipped, replace the template's comment under `Closes #` with `Regression from #<n>`. Otherwise delete the comment.
+Fill in `.github/pull_request_template.md`. `gh pr create --body` doesn't apply it, so write the filled-in template to a file and pass it with `--body-file`. Link the issue, and if decisions were recorded there, say so; don't repeat them. Delete the template's comments and any section that would be empty. Never pad. Requirements, Verification, the Review notes and the Trace always stay: Requirements is the evidence for the spec; Verification, the Review notes and the Trace are the evidence for later changes to the agent setup.
 
 ## Requirements
 
@@ -81,6 +80,17 @@ Route rejected findings by the reason given:
 - **Justified by how the code works** (a transaction, a library's behaviour, a test's needs): stays in the Review notes.
 - **Justified by the issue, the spec, a non-goal or "not needed yet"**: agents can check their reading of the human's words, not the human's intent, however many reviewers agree. So the human is asked if it passes the three gates, even when the rejection review upheld it (see `CLAUDE.md`, "Asking the human"), and the Outcome cites the decision recorded on the issue. If it fails them, it stays in the Review notes, marked "settled by reading the issue", so the reviewer can still pull it up.
 
+## Trace
+
+A collapsed section after the Review notes, never left out. The Review notes show what the reviews before the PR caught; the Trace shows what they didn't, and what only the human saw.
+
+`CLAUDE.md`'s "What the history records" defines the fields of both lists; the template shows their shape.
+
+- **Defects.** One line per defect the PR fixes that was found after the pre-PR reviews, with all four fields. If the issue already traces it, complete it with Closed by rather than restating it differently.
+- **Raised by the human.** One line per "Raised by the human" comment on the issue, linked, with that comment's fields.
+
+Write "None" under a heading with nothing to list. The summary counts both, `Trace: 1 defect, 2 raised by the human`, so a PR with neither shows 0 rather than a missing section.
+
 ## Before publishing, check
 
 - Could someone new to the codebase understand the opening?
@@ -91,11 +101,13 @@ Route rejected findings by the reason given:
 - Does Verification say what wasn't checked, or "nothing"?
 - Does the Verification summary count match the Not verified list?
 - Does every review that ran have a row, including those with no findings?
+- Does the Trace list every defect the PR fixes with all four fields, and every "Raised by the human" comment on the issue?
 - Is anything in the main text that belongs in details?
 
 ## After the PR opens
 
 - After each push that addresses review, run `make wait-ci` to wait for CI.
 - A commit that addresses review says what was wrong, not only what changed: `Release the key when the insert fails` is a change; `Fix key leak when the insert fails` says what was wrong.
-- Every review comment gets a reply: "Fixed in `<sha>`", the answer, or the reason it was rejected.
-- When fixes change what the description says, update it, including Verification (and its summary count) and the Review notes.
+- Every review comment gets a reply starting with `Agent:`: "Fixed in `<sha>`", the answer, or the reason it was rejected.
+- When a review comment from the human exposes an assumption you didn't share, or a mistake of yours, add a "Raised by the human" comment to the issue, marked "in review".
+- When fixes change what the description says, update it, including Verification (and its summary count), the Review notes and the Trace.
