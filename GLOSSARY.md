@@ -60,6 +60,10 @@ _Avoid_: Try, call, request
 Starting a fresh retry schedule for an existing Delivery, whether it succeeded or failed, with the same webhook ID.
 _Avoid_: Resend, retry, redeliver
 
+**Retention**:
+How long Herald keeps a Message, with its Deliveries and their Attempts, counted from when the Message was accepted. After it, all of them are deleted together. A replay doesn't extend it.
+_Avoid_: TTL, expiry, cleanup, purge
+
 ### The spec
 
 **Spec**:
