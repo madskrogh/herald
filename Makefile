@@ -1,7 +1,7 @@
 # Targets for building, testing and running Herald. See docs/ai-workflow.md
 # for the worktree flow.
 
-.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e scenario-compare scenario-record scenario-traffic endpoint profile admin worktree-rm
+.PHONY: ci lint test breaking generate check-generated wait-ci up down e2e scenario-compare scenario-record scenario-timing scenario-traffic endpoint profile admin worktree-rm
 
 # Everything CI runs on a PR. Run it before every push.
 ci: lint test breaking check-generated
@@ -110,44 +110,40 @@ else
 HOST_ENDPOINT_IP = 127.0.0.1
 endif
 
-# Where the end-to-end tests and the scenario find this checkout's stack, as
-# variable assignments to prefix a command with after `. ./.env`. Without
-# them, both skip, as in `make test`.
-STACK_ENV = \
-	HERALD_E2E_API_URL="http://localhost:$$HERALD_API_HTTP_PORT" \
-	HERALD_E2E_DATABASE_URL="postgres://herald:herald@localhost:$$HERALD_POSTGRES_PORT/herald?sslmode=disable" \
-	HERALD_E2E_ENDPOINT_IP="$(HOST_ENDPOINT_IP)" \
-	HERALD_E2E_OTLP_URL="http://localhost:$$HERALD_OTLP_HTTP_PORT" \
-	HERALD_E2E_CLICKHOUSE_URL="http://herald:herald@localhost:$$HERALD_CLICKHOUSE_HTTP_PORT" \
-	HERALD_E2E_API_PPROF_URL="http://localhost:$$HERALD_API_PPROF_PORT" \
-	HERALD_E2E_DISPATCHER_PPROF_URL="http://localhost:$$HERALD_DISPATCHER_PPROF_PORT"
+# Runs what follows it in a recipe with the variables that say where the
+# end-to-end tests and the scenario find this checkout's stack
+# (scripts/stack-env.sh). Without them, both skip, as in `make test`.
+STACK_ENV = stackenv=$$(HOST_ENDPOINT_IP='$(HOST_ENDPOINT_IP)' ./scripts/stack-env.sh .) && env $$stackenv
 
 # Runs the end-to-end tests against this checkout's stack, started with
 # `make up`. RUN selects tests as go test's -run does; without it, all of
 # them run.
 # Usage: make e2e RUN=TestSpanIsStoredInClickHouse
 e2e: .env
-	@. ./.env && $(STACK_ENV) go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
+	@$(STACK_ENV) go test -race -count=1 $(if $(RUN),-run '$(RUN)') ./internal/e2e/
 
 # The scenario restarts herald-dispatcher, pauses NATS and slows Postgres
 # through this checkout's compose file, so nothing else may use the stack
 # while it runs. After the run, both targets check the scenario invariants
 # (docs/testing.md), reporting each by rule and what broke it.
 # It takes about five minutes.
-SCENARIO = . ./.env && $(STACK_ENV) HERALD_SCENARIO_COMPOSE_FILE="$(CURDIR)/compose.yaml" \
-	go test -race -count=1 -v -timeout 20m -run '^TestScenario$$' ./internal/scenario/
+SCENARIO = $(STACK_ENV) go test -race -count=1 -v -timeout 20m -run '^TestScenario$$' ./internal/scenario/ \
+	-args $(if $(OUT),-out '$(abspath $(OUT))')
 
 # Runs the scenario against this checkout's stack, started with `make up`,
-# and compares what its Endpoints received with the committed baseline,
-# reporting each difference by Delivery and field.
+# and compares what its Endpoints received, and its span counts, with the
+# committed baselines, reporting each difference by Delivery and field, or
+# by kind of span. With OUT, it also writes the run's statistics to
+# OUT/statistics.json.
+# Usage: make scenario-compare [OUT=<dir>]
 scenario-compare: .env
 	@$(SCENARIO)
 
 # Runs the scenario as scenario-compare does and records what its Endpoints
-# received as the new baseline, from the traffic file the baseline names
-# (internal/scenario/testdata/traffic.json).
+# received, and its span counts, as the new baselines, from the traffic file
+# the baseline names (internal/scenario/testdata/traffic.json).
 scenario-record: .env
-	@$(SCENARIO) -args -update
+	@$(SCENARIO) -update
 
 # Prints synthetic traffic drawn from SEED, as a traffic file: a draft to start
 # from. The scenario runs only the committed traffic file, which is written by
@@ -168,25 +164,34 @@ endpoint: .env
 		-url "http://host.docker.internal:$$HERALD_DEMO_ENDPOINT_PORT/" \
 		-secret '$(SECRET)'
 
-# The checkout whose stack is the base build for profile: by default the main
-# checkout, the first entry of `git worktree list`.
+# The checkout whose stack is the base build for profile and scenario-timing:
+# by default the main checkout, the first entry of `git worktree list`.
 BASE ?= $(shell git worktree list --porcelain | sed -n '1s/^worktree //p')
+
+# Fails unless BASE is a checkout other than this one; $(1) names the target.
+CHECK_BASE = \
+	test -d '$(BASE)' || { echo "$(1): the base checkout $(BASE) doesn't exist"; exit 1; }; \
+	test "$$(cd '$(BASE)' && pwd -P)" != "$$(pwd -P)" || { \
+		echo "$(1): the base is this checkout; set BASE to another checkout"; exit 1; }
+
+# Sets BASE_LABEL and CANDIDATE_LABEL to what BASE and this checkout are:
+# each one's commit, which is its stack's only if the stack was started
+# (make up) at that commit.
+LABELS = \
+	label() { \
+		echo "$$1 at $$(git -C "$$1" rev-parse --short HEAD 2>/dev/null || echo 'an unknown commit')$$( \
+			test -z "$$(git -C "$$1" status --porcelain 2>/dev/null)" || echo ', with uncommitted changes')"; }; \
+	BASE_LABEL=$$(label '$(BASE)') CANDIDATE_LABEL=$$(label '$(CURDIR)')
 
 # Profiles this checkout's stack (the candidate) and BASE's at the same time,
 # and prints how the candidate's profiles differ from the base's. Both stacks
 # must be up, and get the same traffic while it runs. scripts/profile.sh says
-# what it captures; DURATION and OUT pass through to it. Each build is labelled
-# with its checkout's commit, which is the stack's only if the stack was
-# started (make up) at that commit.
+# what it captures; DURATION and OUT pass through to it. Each build is
+# labelled with its checkout's commit.
 # Usage: make profile [BASE=<checkout>] [DURATION=<seconds>]
 profile: .env
-	@test -d '$(BASE)' || { echo "profile: the base checkout $(BASE) doesn't exist"; exit 1; }
-	@test "$$(cd '$(BASE)' && pwd -P)" != "$$(pwd -P)" || { \
-		echo "profile: the base is this checkout; set BASE to another checkout"; exit 1; }
-	@label() { \
-		echo "$$1 at $$(git -C "$$1" rev-parse --short HEAD 2>/dev/null || echo 'an unknown commit')$$( \
-			test -z "$$(git -C "$$1" status --porcelain 2>/dev/null)" || echo ', with uncommitted changes')"; }; \
-	BASE_LABEL=$$(label '$(BASE)') CANDIDATE_LABEL=$$(label '$(CURDIR)'); \
+	@$(call CHECK_BASE,profile)
+	@$(LABELS); \
 	port() { \
 		p=$$(sed -n "s/^$$2=//p" "$$1/.env" 2>/dev/null); \
 		test -n "$$p" || { echo "profile: $$1/.env has no $$2: run 'make up' there" >&2; exit 1; }; \
@@ -197,6 +202,21 @@ profile: .env
 	BASE_DISPATCHER=$$(port '$(BASE)' HERALD_DISPATCHER_PPROF_PORT) && \
 	export CANDIDATE_API CANDIDATE_DISPATCHER BASE_API BASE_DISPATCHER BASE_LABEL CANDIDATE_LABEL && \
 		./scripts/profile.sh
+
+# Runs the scenario on this checkout's stack (the candidate) and BASE's at
+# the same time, and compares the candidate's timing statistics with the
+# base's, each within its margin (docs/testing.md, "Timing margins"). The
+# candidate's run is also scenario-compare's. Both stacks must be up, and
+# nothing else may use either meanwhile. It profiles both builds while they
+# run, and when the timing comparison fails, its report holds the profile
+# diff. scripts/scenario-timing.sh says what it writes to OUT. It takes
+# about five minutes.
+# Usage: make scenario-timing [BASE=<checkout>] [OUT=<dir>]
+scenario-timing: .env
+	@$(call CHECK_BASE,scenario-timing)
+	@$(LABELS); \
+	export BASE_LABEL CANDIDATE_LABEL BASE='$(BASE)' OUT='$(OUT)' HOST_ENDPOINT_IP='$(HOST_ENDPOINT_IP)' && \
+		./scripts/scenario-timing.sh
 
 # Runs herald-admin against this checkout's stack.
 # Usage: make admin ARGS='tenant create --name Acme'

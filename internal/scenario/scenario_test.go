@@ -17,11 +17,17 @@ import (
 	"github.com/madskrogh/herald/internal/scenario"
 )
 
-var update = flag.Bool("update", false, "record a new baseline instead of comparing with it")
+var (
+	update   = flag.Bool("update", false, "record new baselines, and rewrite golden files, instead of comparing with them")
+	out      = flag.String("out", "", "write the run's statistics to `dir`/statistics.json, for the timing comparison")
+	baseOnly = flag.Bool("base", false, "run as the base build of the timing comparison: only run the scenario and write its statistics, neither comparing with the baselines nor checking the invariants")
+)
 
 const (
-	// baselineFile is the committed baseline.
+	// baselineFile is the committed baseline of what the Endpoints
+	// received, and countsFile of the span counts.
 	baselineFile = "testdata/baseline.json"
+	countsFile   = "testdata/counts.json"
 	// trafficFile is the committed traffic file, from the baseline's
 	// directory: what a new baseline is recorded from when there is none.
 	trafficFile = "traffic.json"
@@ -36,11 +42,13 @@ const (
 const runTimeout = 15 * time.Minute
 
 // TestScenario runs the scenario against the stack and compares what its
-// Endpoints received with the baseline, or records a new baseline with
-// -update. Either way, it then checks the scenario invariants. It restarts
-// herald-dispatcher, pauses NATS and slows Postgres, so nothing else may use
-// the stack meanwhile, and for the same reason it doesn't run in parallel.
-// Run it with make scenario-compare or make scenario-record.
+// Endpoints received, and its span counts, with the baselines, or records
+// new baselines with -update. Either way, it then checks the scenario
+// invariants. With -out, it also writes the run's statistics, and with
+// -base it does only that. It restarts herald-dispatcher, pauses NATS and
+// slows Postgres, so nothing else may use the stack meanwhile, and for the
+// same reason it doesn't run in parallel. Run it with make
+// scenario-compare, make scenario-record or make scenario-timing.
 func TestScenario(t *testing.T) {
 	if testing.Short() {
 		t.Skip("end-to-end")
@@ -87,13 +95,27 @@ func TestScenario(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	spans, err := scenario.SettledSpans(ctx, stack, obs)
+	if err != nil {
+		t.Fatalf("SettledSpans: %v", err)
+	}
+	stats := scenario.NewStatistics(obs, spans)
+	if *out != "" {
+		if err := writeJSON(filepath.Join(*out, "statistics.json"), stats); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if *baseOnly {
+		return
+	}
 	got, err := scenario.NewRecording(traffic, obs)
 	if err != nil {
 		t.Fatalf("NewRecording: %v", err)
 	}
+	counts := scenario.Counts{Traffic: traffic, Counts: stats.Counts}
 	// Checked once the run is compared or recorded, whichever this is.
 	defer func() {
-		violations, err := scenario.CheckInvariants(ctx, stack, obs, idle)
+		violations, err := scenario.CheckInvariants(ctx, stack, obs, spans, idle)
 		if err != nil {
 			t.Fatalf("CheckInvariants: %v", err)
 		}
@@ -103,37 +125,59 @@ func TestScenario(t *testing.T) {
 	}()
 
 	if *update {
-		data, err := json.MarshalIndent(got, "", "  ")
-		if err != nil {
+		if err := writeJSON(baselineFile, got); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Dir(baselineFile), 0o755); err != nil {
+		if err := writeJSON(countsFile, counts); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(baselineFile, append(data, '\n'), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("recorded %s from %s", baselineFile, traffic.File)
+		t.Logf("recorded %s and %s from %s", baselineFile, countsFile, traffic.File)
 		return
 	}
 	for _, d := range scenario.Compare(baseline, got) {
 		t.Error(d)
 	}
+	var wantCounts scenario.Counts
+	if err := readJSON(countsFile, &wantCounts); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range scenario.CompareCounts(wantCounts, counts) {
+		t.Errorf("%s: %v", countsFile, d)
+	}
 }
 
 func readBaseline() (scenario.Recording, error) {
 	var r scenario.Recording
-	data, err := os.ReadFile(baselineFile)
-	if err != nil {
+	if err := readJSON(baselineFile, &r); err != nil {
 		return r, err
-	}
-	if err := json.Unmarshal(data, &r); err != nil {
-		return r, fmt.Errorf("%s: %w", baselineFile, err)
 	}
 	if r.Traffic.File == "" {
 		return r, fmt.Errorf("%s: %w", baselineFile, errNoTrafficFile)
 	}
 	return r, nil
+}
+
+func readJSON(file string, v any) error {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("%s: %w", file, err)
+	}
+	return nil
+}
+
+// writeJSON writes v to file as indented JSON, making its directory.
+func writeJSON(file string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(file, append(data, '\n'), 0o644)
 }
 
 // errNoTrafficFile is a baseline naming no traffic file, such as one

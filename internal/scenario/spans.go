@@ -40,6 +40,7 @@ const (
 	attrAttempt    = "herald.attempt"
 	attrOutcome    = "herald.outcome"
 	attrStatusCode = "herald.status_code"
+	attrLatencyMs  = "herald.latency_ms"
 	attrLatenessMs = "herald.lateness_ms"
 	attrError      = "herald.error"
 

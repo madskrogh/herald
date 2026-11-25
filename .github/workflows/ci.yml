@@ -65,10 +65,9 @@ jobs:
       - uses: actions/checkout@v7
       - run: docker build --build-arg CMD=${{ matrix.cmd }} .
 
-  # The end-to-end suite against the compose stack, on main only, as
-  # docs/testing.md says. Locally, it is `make up` then `make e2e`.
+  # The end-to-end suite against the compose stack. Locally, it is `make up`
+  # then `make e2e`.
   e2e:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -86,3 +85,59 @@ jobs:
 
       - if: always()
         run: make down
+
+  # The behaviour comparison and the scenario invariants on this build's
+  # stack, with the base build's stack running the scenario beside it, on
+  # the same runner at the same time, for the timing comparison
+  # (docs/testing.md). Locally, it is `make up` in this checkout and the
+  # base's, then `make scenario-timing BASE=<checkout>`.
+  # The job takes about five minutes. It is stopped after 30, rather than
+  # GitHub's six hours, should a stack hang. A job stopped that way skips
+  # the steps that save the logs, so the limit leaves time to start both
+  # stacks, for the test's own 20-minute timeout to fail the run first, and
+  # for those steps.
+  scenario:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OUT: scenario-timing/ci
+    steps:
+      # Two commits, so HEAD^1 is there to be the base: on a PR, the main
+      # the merge commit was made from; on main, main before this merge.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - run: git worktree add --detach "$RUNNER_TEMP/base" HEAD^1
+
+      # Each build's spans say which build and run they are from.
+      - name: Start both stacks
+        run: |
+          HERALD_BUILD_VERSION=$(git -C "$RUNNER_TEMP/base" rev-parse --short HEAD) \
+            HERALD_RUN_ID=base make -C "$RUNNER_TEMP/base" up
+          HERALD_BUILD_VERSION=$(git rev-parse --short HEAD) HERALD_RUN_ID=candidate make up
+
+      - run: make scenario-timing BASE="$RUNNER_TEMP/base"
+
+      # The report on the run's page, so a reviewer reads it without
+      # downloading anything.
+      - if: always()
+        run: cat "$OUT/report.md" >>"$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      # The services' logs say why a Delivery didn't arrive.
+      - if: failure()
+        run: |
+          mkdir -p "$OUT"
+          docker compose logs >"$OUT/candidate-services.log" 2>&1 || true
+          (cd "$RUNNER_TEMP/base" && docker compose logs) >"$OUT/base-services.log" 2>&1 || true
+
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: scenario
+          path: ${{ env.OUT }}
+          if-no-files-found: ignore

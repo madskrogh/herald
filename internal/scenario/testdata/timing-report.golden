@@ -1,0 +1,19 @@
+# Timing comparison
+
+The candidate's timing statistics, each compared with the base's, run on the same runner at the same time (docs/testing.md, "Timing margins"). In milliseconds.
+
+- Base: main at 15a7e84
+- Candidate: PR at 0123abc
+
+| Statistic | Base | Candidate | Margin | |
+|---|---|---|---|---|
+| Attempt latency p50 | 3 | (none) | ± 20 | **no samples to compare** |
+| handoff lag p50 | 100 | 161 | ± 60 | **beyond the margin** |
+| handoff lag p95 | 400 | 400 | ± 210 | within |
+
+Samples of each statistic:
+
+| Statistic | Base | Candidate |
+|---|---|---|
+| Attempt latency | 120 | 0 |
+| handoff lag | 84 | 84 |
