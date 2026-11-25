@@ -8,8 +8,9 @@
 # Usage: scripts/checks-apart.sh <base>
 #
 # The change is what HEAD changed since its merge-base with BASE, so a
-# commit on BASE after the branch started isn't part of it. CI runs it on
-# every PR with BASE=HEAD^1, the main the PR's merge commit was made from.
+# commit on BASE after the branch started isn't part of it. CI runs the
+# base's copy of it on every PR with BASE=HEAD^1, the main the PR's merge
+# commit was made from, so a PR is judged by the list before it.
 #
 # This is the one list of check files.
 set -euo pipefail
@@ -20,6 +21,8 @@ base=${1:?usage: scripts/checks-apart.sh <base>}
 # check, a margin, an invariant or a span attribute a check reads, or that
 # decides whether they run.
 is_check_file() {
+  # In a case pattern, * matches / too: internal/e2e/*.sql is every .sql
+  # file under internal/e2e, at any depth.
   case $1 in
     # The baselines, which a PR re-records with the change that moves
     # them (docs/testing.md, "The traffic file and the baseline").

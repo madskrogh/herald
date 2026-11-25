@@ -38,12 +38,12 @@ func main() {
 }
 
 func run(args []string, out io.Writer) error {
-	fs := flag.NewFlagSet("scenario-timing", flag.ContinueOnError)
-	baseDir := fs.String("base", "", "the `dir` the base run wrote its statistics.json to")
-	candidateDir := fs.String("candidate", "", "the `dir` the candidate run wrote its statistics.json and result.json to")
-	baseLabel := fs.String("base-label", "base", "which build the base is, such as its commit")
-	candidateLabel := fs.String("candidate-label", "candidate", "which build the candidate is")
-	if err := fs.Parse(args); err != nil {
+	flags := flag.NewFlagSet("scenario-timing", flag.ContinueOnError)
+	baseDir := flags.String("base", "", "the `dir` the base run wrote its statistics.json to")
+	candidateDir := flags.String("candidate", "", "the `dir` the candidate run wrote its statistics.json and result.json to")
+	baseLabel := flags.String("base-label", "base", "which build the base is, such as its commit")
+	candidateLabel := flags.String("candidate-label", "candidate", "which build the candidate is")
+	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *baseDir == "" || *candidateDir == "" {

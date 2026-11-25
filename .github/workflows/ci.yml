@@ -70,7 +70,15 @@ jobs:
         with:
           fetch-depth: 2
 
-      - run: scripts/checks-apart.sh HEAD^1
+      # The base's copy of the script judges the PR, so a PR that changes
+      # the list of check files is judged by the list before it. A base
+      # without the script, before it was added, has the PR's run instead.
+      - run: |
+          if git cat-file -e HEAD^1:scripts/checks-apart.sh 2>/dev/null; then
+            git show HEAD^1:scripts/checks-apart.sh | bash -s HEAD^1
+          else
+            scripts/checks-apart.sh HEAD^1
+          fi
 
   # Builds each binary's image, so a change that breaks one fails its PR.
   images:

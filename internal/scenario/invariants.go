@@ -140,6 +140,9 @@ const (
 // Goroutines are read again until they keep the rules or settleTimeout
 // passes, and the violations of the last reading are returned. The error
 // is for a stack that can't be read.
+//
+// A check added here adds its rules to invariantRules, which the report
+// lists as held or broken.
 func CheckInvariants(ctx context.Context, stack *e2e.Stack, obs Observations, spans []e2e.Span, idle map[string]Goroutines) ([]Violation, error) {
 	vs := CheckEdge(obs)
 

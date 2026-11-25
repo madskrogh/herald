@@ -81,32 +81,21 @@ func WriteReport(w io.Writer, r Report) error {
 		writeBlock(&b, []string{c.Stopped})
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "- Behaviour comparison: %s\n", behaviourSummary(c))
-	fmt.Fprintf(&b, "- Scenario invariants: %s\n", invariantsSummary(c.Invariants))
+	behaviourSummary, behaviour := behaviourSection(c)
+	invariantsSummary, invariants := invariantsSection(c.Invariants)
+	fmt.Fprintf(&b, "- Behaviour comparison: %s\n", behaviourSummary)
+	fmt.Fprintf(&b, "- Scenario invariants: %s\n", invariantsSummary)
 	if r.Timing != nil {
 		fmt.Fprintf(&b, "- Timing comparison: %s\n", r.Timing.summary())
 	}
 
 	b.WriteString("\n## Behaviour comparison\n\n")
 	b.WriteString(`What the Endpoints received, and the span counts, compared with the committed baselines (docs/testing.md, "Behaviour comparison"). Each difference is as make scenario-compare reports it.` + "\n\n")
-	switch {
-	case c.Recorded:
-		b.WriteString("Not compared: this run recorded new baselines.\n")
-	case c.Behaviour == nil:
-		b.WriteString("Not compared: the run stopped first.\n")
-	default:
-		writeDifferences(&b, "What the Endpoints received", "testdata/baseline.json", c.Behaviour.Edge)
-		b.WriteString("\n")
-		writeDifferences(&b, "Span counts", "testdata/counts.json", c.Behaviour.Counts)
-	}
+	b.WriteString(behaviour)
 
 	b.WriteString("\n## Scenario invariants\n\n")
 	b.WriteString(`The rules that hold on any build, checked after the run (docs/testing.md, "Scenario invariants").` + "\n\n")
-	if c.Invariants == nil {
-		b.WriteString("Not checked: the run stopped first.\n")
-	} else {
-		writeInvariants(&b, c.Invariants.Violations)
-	}
+	b.WriteString(invariants)
 
 	if r.Timing != nil {
 		b.WriteString("\n")
@@ -116,25 +105,36 @@ func WriteReport(w io.Writer, r Report) error {
 	return err
 }
 
-func behaviourSummary(c Result) string {
+// behaviourSection returns the behaviour comparison's line in the summary,
+// and its section's body.
+func behaviourSection(c Result) (summary, body string) {
 	switch {
 	case c.Recorded:
-		return "not compared: new baselines recorded"
+		return "not compared: new baselines recorded", "Not compared: this run recorded new baselines.\n"
 	case c.Behaviour == nil:
-		return "not compared"
+		return "not compared", "Not compared: the run stopped first.\n"
 	}
-	return count(len(c.Behaviour.Edge)+len(c.Behaviour.Counts), "no differences", "**%d difference**", "**%d differences**")
+	var b strings.Builder
+	writeDifferences(&b, "What the Endpoints received", "testdata/baseline.json", c.Behaviour.Edge)
+	b.WriteString("\n")
+	writeDifferences(&b, "Span counts", "testdata/counts.json", c.Behaviour.Counts)
+	n := len(c.Behaviour.Edge) + len(c.Behaviour.Counts)
+	return count(n, "no differences", "**%d difference**", "**%d differences**"), b.String()
 }
 
-func invariantsSummary(inv *Invariants) string {
+// invariantsSection returns the invariants' line in the summary, and their
+// section's body.
+func invariantsSection(inv *Invariants) (summary, body string) {
 	if inv == nil {
-		return "not checked"
+		return "not checked", "Not checked: the run stopped first.\n"
 	}
-	broken := len(brokenRules(inv.Violations))
-	if broken == 0 {
-		return fmt.Sprintf("all %d held", len(invariantRules))
+	var b strings.Builder
+	writeInvariants(&b, inv.Violations)
+	summary = fmt.Sprintf("all %d held", len(invariantRules))
+	if broken := len(brokenRules(inv.Violations)); broken > 0 {
+		summary = fmt.Sprintf("**%d of %d broken**", broken, len(invariantRules))
 	}
-	return fmt.Sprintf("**%d of %d broken**", broken, len(invariantRules))
+	return summary, b.String()
 }
 
 // count formats n with zero, one or many, the last two holding a %d.

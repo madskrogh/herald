@@ -90,14 +90,14 @@ Every scenario run with `OUT` writes one report, `OUT/report.md`, with everythin
 - **Scenario invariants:** each one, held or broken, and each violation of a broken one.
 - **Timing comparison** (`make scenario-timing` only): each statistic of both runs within its margin or not, and the profile diff when one isn't.
 
-A run that stops before it finishes still writes the report: it says why the run stopped, and what it found until then. `make scenario-compare OUT=<dir>` writes the same report without the timing comparison. The golden files in `internal/scenario/testdata/` show it for a run that passes, one with a difference, a broken invariant and a statistic beyond its margin, one that stopped, and one whose timing couldn't be compared.
+A run that stops before it finishes still writes the report: it says why the run stopped, and what it found until then. A run the test's 20-minute timeout ends writes nothing; `make scenario-timing`'s report then says the candidate's run wrote no result, beside the timing. `make scenario-compare OUT=<dir>` writes the same report without the timing comparison. The golden files in `internal/scenario/testdata/` show it for a run that passes, one with a difference, a broken invariant and a statistic beyond its margin, one that stopped, and one whose timing couldn't be compared.
 
 ## Check changes
 
 A PR may re-record the committed baselines with the change that moves them, but a change to a check goes in a PR of its own: whoever changes behaviour must not also change what judges it. The case this guards against is the quiet one, a margin loosened beside the change that would have failed it.
 
 - **The check files** are the scenario's checks, comparisons, margins and invariants, the timing comparison, the queries the checks read with (so a renamed span attribute's queries are among them), the scripts that run them, this page, and the CI workflow, so a PR can't switch the job off. The three baselines (`baseline.json`, `counts.json` and `traffic.json` in `internal/scenario/testdata/`) are not check files, and neither are the end-to-end tests' Go files: a feature adds its end-to-end tests with its code. The list is kept in one place, `scripts/checks-apart.sh`.
-- **The job.** On every PR, CI runs `scripts/checks-apart.sh`, which fails when the PR changes a check file together with any other file, and lists both sets. A file renamed counts at both paths. Run it before pushing with `scripts/checks-apart.sh origin/main`.
+- **The job.** On every PR, CI runs `scripts/checks-apart.sh`, which fails when the PR changes a check file together with any other file, and lists both sets. A file renamed counts at both paths. CI runs `main`'s copy of the script, so a PR that changes the list is judged by the list before it. Run it before pushing with `scripts/checks-apart.sh origin/main`.
 - **A change that needs both**, such as a feature that needs a new invariant, is two PRs: the check first, then the change.
 
 ## Load test
