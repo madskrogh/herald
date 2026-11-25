@@ -155,7 +155,7 @@ scenario-traffic:
 
 # Serves an Endpoint for this checkout's stack that prints each Attempt it
 # receives. Given the Endpoint's signing secret, it also says whether each
-# signature verifies. The README walks through it.
+# signature verifies. docs/try-it.md walks through it.
 # Usage: make endpoint [SECRET=whsec_...]
 endpoint: .env
 	@test -n '$(HOST_ENDPOINT_IP)' || { echo "endpoint: no host address to listen on: is Docker running?"; exit 1; }

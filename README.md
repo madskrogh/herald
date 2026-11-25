@@ -2,9 +2,41 @@
 
 [![CI](https://github.com/madskrogh/herald/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/madskrogh/herald/actions/workflows/ci.yml?query=branch%3Amain)
 
-Herald delivers webhooks on behalf of SaaS products: signed, retried, and observable. A Tenant submits a Message once. Herald works out which of the Application's Endpoints want it, signs every Attempt with [Standard Webhooks](https://www.standardwebhooks.com/), and retries failures for about a day.
+Herald is two things. It is a webhook delivery service, built to production standards: a Tenant submits a Message once, and Herald works out which Endpoints want it, signs every Attempt with [Standard Webhooks](https://www.standardwebhooks.com/), and retries failures for about a day. And it is a working lab for agent-assisted development with guardrails: coding agents build it, and a human decides and merges.
 
-## Architecture
+The lab tests a claim: the code the workflow produces holds up, and what limits the pace is whether a human understands a change well enough to merge it. The spec and observability are meant to give that understanding, so that effort moves from reading PRs to maintaining the spec and watching production. It is a hypothesis, and the history can't confirm it yet.
+
+## Highlights
+
+**Delivery guarantees.** Delivery is at-least-once, with duplicate protection on every hop ([ADR 0001](docs/adr/0001-at-least-once-delivery.md)). herald-api writes a Message and its Deliveries in one transaction: the outbox. The handoff to herald-dispatcher is safe to repeat: a batch is marked handed off only once the dispatcher has committed it, and a resent batch inserts nothing new ([ADR 0002](docs/adr/0002-two-services-outbox-nats-handoff.md)). A request repeated with the same `Idempotency-Key` returns the original Message, and every Attempt of a Delivery carries the same `webhook-id`, so Endpoints can drop repeats. A slow Endpoint doesn't hold up deliveries to others ([isolation](spec/delivery.md#isolation)). And Herald refuses to connect to private addresses, judging the address it actually dials, so an Endpoint can't make it a proxy into its own network ([Endpoint addresses](spec/security.md#endpoint-addresses)).
+
+**The spec as the source of truth.** Every decision someone at Herald's boundaries could notice is a numbered requirement in [the spec](spec/README.md), with its status and its reason, and the ones easy to misread have test vectors. The aim is that Herald's code can be regenerated from the spec ([ADR 0007](docs/adr/0007-code-regenerated-from-the-spec.md)), so a reviewer checks a PR against the requirements it names instead of reading every line. Whether the spec is complete is untested. The regeneration audit would test it, scoped to what a milestone or a large change touched ([#164](https://github.com/madskrogh/herald/issues/164)), and it hasn't run.
+
+**Behaviour comparison.** A change is trusted when its behaviour can be seen. Every PR runs a scenario of committed traffic, with faults injected, and compares what its Endpoints received with a committed baseline, and its telemetry with a run of `main` on the same runner. Then it checks the scenario's invariants, rules that hold on any build ([testing](docs/testing.md)). In production, the same telemetry shows whether a feature works. [#75](https://github.com/madskrogh/herald/issues/75), still open, is to check each change against the scenario and its telemetry before it is pushed.
+
+**The workflow and its evidence.** Each issue is built test-first in its own worktree, and reviewed for standards, spec and bugs before its PR opens ([how it's set up](docs/ai-workflow.md)). The [case study](docs/case-study.md) tests the claim against 44 merged PRs. The reviews raise about 20 findings per PR, and four problems were filed after merge. But nothing counts what the reviews missed, or how well the human understood a change, so the history can't confirm the hypothesis yet. [What would settle it](docs/case-study.md#what-would-settle-it) names the missing records. [#174](https://github.com/madskrogh/herald/issues/174), still open, is to start two of them: where each defect got in, and which corrections come from the human. Once it lands, the claim gets evidence from then on.
+
+## Try it
+
+You need Go and Docker.
+
+```sh
+make up    # build and start the local stack
+make e2e   # run the end-to-end tests against it
+```
+
+The end-to-end tests take about a minute and a half. They show that Herald:
+
+- delivers a Message to its Endpoint, signed;
+- retries a failed Attempt, and a timed-out one, with the same `webhook-id`;
+- marks a Delivery failed when its retry schedule runs out;
+- makes one Delivery when a request is repeated with the same `Idempotency-Key`;
+- doesn't let a slow Endpoint delay another;
+- records a Message as one trace, from the Tenant API call to every Attempt.
+
+To send a Message by hand, watch it retry and find its trace, follow [Try it](docs/try-it.md). `make down` stops the stack and deletes its data.
+
+## How it works
 
 ```
        Tenant                                                                    Endpoint
@@ -31,162 +63,13 @@ Herald delivers webhooks on behalf of SaaS products: signed, retried, and observ
    └──────────────┘
 ```
 
-Two services, each with its own schema. herald-api accepts a Message and writes it together with its Deliveries in one transaction. A relay hands them over to herald-dispatcher in batches over NATS, and marks them handed off only once the dispatcher has committed them. Delivery is at-least-once, and every hop is safe to repeat. A request repeated with the same `Idempotency-Key` returns the original Message, a resent batch inserts nothing new, and every Attempt of a Delivery carries the same `webhook-id`, so Endpoints can drop repeats.
+Two services, each with its own schema. herald-api accepts a Message and writes it with its Deliveries in one transaction. A relay hands them to herald-dispatcher in batches over NATS. The dispatcher's workers make the Attempts, at most four at a time to one Endpoint, and retry failures. Every Message is one trace, from the Tenant API call to its last Attempt, stored in ClickHouse.
 
-## Status
+Herald runs locally with `docker compose`, and later on a local Kubernetes cluster, and depends on no particular cloud provider. It is built to be run and read, not hosted. It has no Tenant self-service (Tenants are created with the `herald-admin` CLI), no portal for Applications (Tenants show signing secrets and delivery history in their own products), no ordered delivery, content-based routing or payload transforms, and no releases, hosting or marketing site.
 
-Milestone M1, the core delivery path, is complete. M2, observability and behaviour comparison, is in progress. Later milestones and their issues are on [GitHub](https://github.com/madskrogh/herald/milestones).
+## Status and roadmap
 
-Herald is built to be run and read, not hosted. It is meant to:
-
-- deliver every Message at least once, with duplicate protection on every hop;
-- keep one misbehaving Endpoint from affecting deliveries to anyone else;
-- run locally with `docker compose`, and later on a local Kubernetes cluster;
-- depend on no particular cloud provider.
-
-It has no Tenant self-service (Tenants are created with the `herald-admin` CLI), no portal for Applications (Tenants show signing secrets and delivery history in their own products), no ordered delivery, content-based routing or payload transforms, and no releases, hosting or marketing site.
-
-## Try it
-
-You need Go and Docker. The commands are for bash or zsh.
-
-### Check it works
-
-```sh
-make up    # build and start the local stack
-make e2e   # run the end-to-end tests against it
-```
-
-The end-to-end tests take about a minute and a half. They show that Herald:
-
-- delivers a Message to its Endpoint, signed;
-- retries a failed Attempt, and a timed-out one, with the same `webhook-id`;
-- marks a Delivery failed when its retry schedule runs out;
-- makes one Delivery when a request is repeated with the same `Idempotency-Key`;
-- doesn't let a slow Endpoint delay another;
-- records a Message as one trace, from the Tenant API call to every Attempt.
-
-`make down` stops the stack and deletes its data.
-
-### Watch it work
-
-With the stack up, read the stack's ports from `.env`. Each checkout of the repo gets ports of its own; in the main checkout, the Tenant API is on 8080 and the Endpoint below on 9000.
-
-```sh
-. ./.env
-API=localhost:$HERALD_API_HTTP_PORT
-ENDPOINT_URL=http://host.docker.internal:$HERALD_DEMO_ENDPOINT_PORT/
-```
-
-Create a Tenant and an API key:
-
-```sh
-TENANT=$(make admin ARGS='tenant create --name Acme')
-KEY=$(make admin ARGS="apikey create --tenant $TENANT")
-```
-
-Create an Application, and copy its `id` from the response:
-
-```sh
-curl -sS $API/v1/applications -H "Authorization: Bearer $KEY" -d '{"name": "Globex"}'
-```
-
-```json
-{"application":{"id":"01a1f3d8-9882-75ee-9024-f3a2fb016df0", "name":"Globex", "created_at":"2026-11-19T12:47:00.738307Z"}}
-```
-
-```sh
-APP=01a1f3d8-9882-75ee-9024-f3a2fb016df0
-```
-
-Register an Endpoint for it, and copy its `signing_secret` from the response:
-
-```sh
-curl -sS $API/v1/applications/$APP/endpoints -H "Authorization: Bearer $KEY" \
-  -d '{"url": "'$ENDPOINT_URL'"}'
-```
-
-```json
-{"endpoint":{"id":"01a1f3d8-aaa6-7bd0-9bcf-f4e6ac096503", "application_id":"01a1f3d8-9882-75ee-9024-f3a2fb016df0", "url":"http://host.docker.internal:9000/", "filter":[], "created_at":"2026-11-19T12:47:05.382887Z"}, "signing_secret":"whsec_oEhCmeiYNyR2FEdjWvHZhpDBLfoFIQKs"}
-```
-
-In a second terminal, serve that Endpoint. `make endpoint` prints each Attempt it receives and, given the signing secret, checks its signature. Like a real Endpoint, it rejects an Attempt whose signature doesn't verify, with 401, and Herald retries it:
-
-```sh
-make endpoint SECRET=whsec_oEhCmeiYNyR2FEdjWvHZhpDBLfoFIQKs
-```
-
-Back in the first terminal, send a Message:
-
-```sh
-curl -sS $API/v1/messages -H "Authorization: Bearer $KEY" \
-  -d '{"application_id": "'$APP'", "event_type": "invoice.paid", "payload": "{\"invoice\": 42}"}'
-```
-
-The Attempt arrives at the Endpoint. Its `webhook-id` is the Message's ID:
-
-```
-Serving an Endpoint at http://host.docker.internal:9000/
-Waiting for Attempts. Stop with Ctrl-C.
-
-13:47:15.652 POST / webhook-id 01a1f3d8-d1dd-7e34-a179-d14e56907eb1: signature valid
-{"invoice": 42}
-```
-
-Now make the Endpoint fail. Stop `make endpoint` with Ctrl-C, send another Message (`"invoice": 43`), and watch herald-dispatcher retry it:
-
-```sh
-docker compose logs -f herald-dispatcher
-```
-
-Each Attempt is a log line. With nothing listening, each fails without a status code:
-
-```json
-{"time":"2026-11-19T12:47:28.722643763Z","level":"INFO","msg":"attempt","service":"herald-dispatcher","delivery_id":"01a1f3d9-050d-715e-8e26-0775428d17d7","message_id":"01a1f3d9-050c-740c-a24e-1c403ad913e6","endpoint_id":"01a1f3d8-aaa6-7bd0-9bcf-f4e6ac096503","attempt":1,"status_code":0,"latency_ms":1,"state":"pending","attempt_error":"Post \"http://host.docker.internal:9000/\": dial tcp 192.168.65.254:9000: connect: connection refused","trace_id":"a55de8a61dd86f47e70640abec636640","span_id":"05906d6eaeecc84f"}
-```
-
-Within a minute, start `make endpoint` again, with the same secret. (Miss it, and the eighth Attempt fails too: the Delivery's state becomes `failed`, and Herald gives up on it. Send another Message to try again.) The next retry arrives with the same `webhook-id`, and the Delivery succeeds:
-
-```
-13:48:07.430 POST / webhook-id 01a1f3d9-050c-740c-a24e-1c403ad913e6: signature valid
-{"invoice": 43}
-```
-
-Two settings make this local stack unlike a real deployment. Its retry schedule is compressed from about a day to about 80 seconds, so a Delivery is retried, and given up on, while you watch. And `HERALD_ALLOW_INSECURE_ENDPOINTS` lets it deliver over plain http to private addresses such as `host.docker.internal`, which a real deployment refuses.
-
-### Where to look
-
-Every Message is one trace, stored in ClickHouse: the Tenant API call, the handoff from herald-api to herald-dispatcher over NATS, the storing of its Deliveries, and each Attempt. Each span's parent is in `ParentSpanId`. To see the second Message's trace, put its ID in this query:
-
-```sh
-docker compose exec clickhouse clickhouse-client --user herald --password herald --query "
-  SELECT Timestamp, ServiceName, SpanName, SpanId, ParentSpanId,
-         SpanAttributes['herald.attempt'] AS attempt,
-         SpanAttributes['herald.status_code'] AS status,
-         SpanAttributes['herald.outcome'] AS outcome
-  FROM otel.otel_traces
-  WHERE TraceId IN (SELECT TraceId FROM otel.otel_traces
-                    WHERE SpanAttributes['herald.message_id'] = '01a1f3d9-050c-740c-a24e-1c403ad913e6')
-  ORDER BY Timestamp
-  FORMAT PrettyCompactMonoBlock"
-```
-
-```
-    ┌─────────────────────Timestamp─┬─ServiceName───────┬─SpanName─────────┬─SpanId───────────┬─ParentSpanId─────┬─attempt─┬─status─┬─outcome────┐
- 1. │ 2026-11-19 12:47:28.522267305 │ herald-api        │ tenant_api.call  │ 1061bc1ecfab2910 │                  │         │        │ OK         │
- 2. │ 2026-11-19 12:47:28.589176513 │ herald-api        │ handoff          │ 7a1f0d17616305dd │ 1061bc1ecfab2910 │         │        │ handed_off │
- 3. │ 2026-11-19 12:47:28.589752263 │ herald-dispatcher │ store_deliveries │ afcf45e6d798da90 │ 7a1f0d17616305dd │         │        │ stored     │
- 4. │ 2026-11-19 12:47:28.720205972 │ herald-dispatcher │ attempt          │ 05906d6eaeecc84f │ afcf45e6d798da90 │ 1       │ 0      │ pending    │
- 5. │ 2026-11-19 12:47:29.223982139 │ herald-dispatcher │ attempt          │ 61b78775b2ee468b │ afcf45e6d798da90 │ 2       │ 0      │ pending    │
- 6. │ 2026-11-19 12:47:29.730473833 │ herald-dispatcher │ attempt          │ e3cfce98dd09b081 │ afcf45e6d798da90 │ 3       │ 0      │ pending    │
- 7. │ 2026-11-19 12:47:30.737931250 │ herald-dispatcher │ attempt          │ f1f45cc733fbc885 │ afcf45e6d798da90 │ 4       │ 0      │ pending    │
- 8. │ 2026-11-19 12:47:34.755330669 │ herald-dispatcher │ attempt          │ b00e338bdf71cb3e │ afcf45e6d798da90 │ 5       │ 0      │ pending    │
- 9. │ 2026-11-19 12:47:46.806718799 │ herald-dispatcher │ attempt          │ aed5f3bb91837c72 │ afcf45e6d798da90 │ 6       │ 0      │ pending    │
-10. │ 2026-11-19 12:48:07.422528712 │ herald-dispatcher │ attempt          │ d8a354c3a128836c │ afcf45e6d798da90 │ 7       │ 200    │ succeeded  │
-    └───────────────────────────────┴───────────────────┴──────────────────┴──────────────────┴──────────────────┴─────────┴────────┴────────────┘
-```
-
-The services' logs are JSON lines, read with `docker compose logs herald-api herald-dispatcher`. Each line about a Message carries the `trace_id` of its trace. The Delivery API, which will show a Message's Deliveries and Attempts without going to either, comes in M3.
+M1, the core delivery path, and M2, observability and behaviour comparison, are done. M3, the Delivery API and replay, is next. The Delivery API comes first because it replaces the test harness's direct reads of Herald's database: the end-to-end tests and the scenario then check Herald through its API, as a Tenant would. Later milestones are [GitHub milestones](https://github.com/madskrogh/herald/milestones), and the [`later`](https://github.com/madskrogh/herald/issues?q=is%3Aopen+label%3Alater) label marks planned work that isn't scheduled.
 
 ## Built with
 
@@ -198,4 +81,5 @@ Go, with the standard library first: `net/http` with Go 1.22+ routing patterns, 
 - [Architecture decisions](docs/adr/): the architecture, and the trade-offs behind it.
 - [Testing](docs/testing.md): the kinds of tests, and where a new check belongs.
 - [Glossary](GLOSSARY.md): the domain language used throughout the code.
-- [Working with coding agents](docs/ai-workflow.md): Herald is also a lab for agent-assisted development. This is how it's set up.
+- [Working with coding agents](docs/ai-workflow.md): how the lab is set up.
+- [Case study](docs/case-study.md): what the workflow catches, and where.
