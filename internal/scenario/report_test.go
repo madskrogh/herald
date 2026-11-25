@@ -64,6 +64,9 @@ func TestWriteReport(t *testing.T) {
 						{Rule: "fan-out", Subject: "m012 to billing/ep-1", Detail: "received, but the Endpoint's filter doesn't match the Message"},
 						{Rule: "fan-out", Subject: "m013 to billing/ep-1", Detail: "received, but the Endpoint's filter doesn't match the Message"},
 						{Rule: "goroutines", Subject: "herald-dispatcher", Detail: "2 more goroutines than idle"},
+						// A rule the report doesn't know of still gets
+						// its row.
+						{Rule: "ordering", Subject: "m020 to orders/ep-1", Detail: "attempt 2 before attempt 1"},
 					}},
 				},
 				Timing: &scenario.TimingReport{

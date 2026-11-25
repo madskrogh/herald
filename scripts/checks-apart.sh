@@ -57,13 +57,14 @@ since=$(git merge-base "$base" HEAD 2>/dev/null) || {
 checks=()
 others=()
 # Without rename detection, a file moved counts at its old path and its new.
-while IFS= read -r path; do
+# Paths are NUL-terminated and unquoted, so that each is matched as it is.
+while IFS= read -r -d '' path; do
   if is_check_file "$path"; then
     checks+=("$path")
   else
     others+=("$path")
   fi
-done < <(git diff --no-renames --name-only "$since" HEAD)
+done < <(git -c core.quotePath=false diff -z --no-renames --name-only "$since" HEAD)
 
 if ((${#checks[@]} == 0 || ${#others[@]} == 0)); then
   exit 0

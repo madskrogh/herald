@@ -109,6 +109,16 @@ func TestChecksApart(t *testing.T) {
 			output: []string{"check files:\n  internal/scenario/margins.go\n", "other files:\n  README.md\n"},
 		},
 		{
+			// git quotes such a path unless told not to, and a quoted
+			// path matches no pattern.
+			name: "a check file whose name git would quote",
+			change: func(t *testing.T, dir string) {
+				write(t, dir, "internal/scenario/é \"q\".go", "README.md")
+			},
+			fails:  true,
+			output: []string{"check files:\n  internal/scenario/é \"q\".go\n", "other files:\n  README.md\n"},
+		},
+		{
 			name: "no check files",
 			change: func(t *testing.T, dir string) {
 				write(t, dir, "internal/delivery/worker.go", "README.md")

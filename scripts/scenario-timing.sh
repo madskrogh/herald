@@ -100,6 +100,10 @@ export_spans() {
 
 # Both runs use one test binary, built first, so neither waits on the
 # compiler while the other runs.
+# What an earlier run into the same OUT wrote, so that a run that writes
+# nothing, as one the test timeout ends, isn't reported with its findings.
+rm -f "$out/report.md" "$out"/{base,candidate}/{statistics.json,result.json,report.md}
+
 go test -race -c -o "$out/scenario.test" ./internal/scenario/
 go build -o "$out/scenario-timing" ./cmd/scenario-timing
 
@@ -132,6 +136,17 @@ timing=0
   -base-label "${BASE_LABEL:-base}" -candidate-label "${CANDIDATE_LABEL:-candidate}" \
   >"$out/report.md" 2>"$out/timing.log" || timing=$?
 {
+  # It wrote nothing when it couldn't start, such as on a flag it doesn't
+  # know: then the report is why.
+  if [[ ! -s $out/report.md ]]; then
+    echo "# Scenario report"
+    echo
+    echo "The report couldn't be written; candidate/test.log has what the candidate's run found:"
+    echo
+    echo '```'
+    cat "$out/timing.log"
+    echo '```'
+  fi
   echo
   echo "Every span in each build's ClickHouse is in base/spans.parquet and candidate/spans.parquet beside this report, for SQL over both runs:"
   echo

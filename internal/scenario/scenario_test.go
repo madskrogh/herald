@@ -66,12 +66,24 @@ func TestScenario(t *testing.T) {
 	// it, saying why.
 	var result scenario.Result
 	if *out != "" && !*baseOnly {
+		// An earlier run's, so that a run the test timeout ends, which
+		// writes nothing, isn't reported with its findings.
+		for _, f := range []string{"result.json", "report.md"} {
+			if err := os.Remove(filepath.Join(*out, f)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+		}
 		defer writeResult(t, *out, &result)
 	}
+	// The first reason is the one reported: a later one, such as the
+	// invariants failing after the comparison stopped, follows from it.
 	stop := func(format string, args ...any) {
 		t.Helper()
-		result.Stopped = fmt.Sprintf(format, args...)
-		t.Fatal(result.Stopped)
+		reason := fmt.Sprintf(format, args...)
+		if result.Stopped == "" {
+			result.Stopped = reason
+		}
+		t.Fatal(reason)
 	}
 	composeFile := os.Getenv("HERALD_SCENARIO_COMPOSE_FILE")
 	if composeFile == "" {
@@ -169,6 +181,12 @@ func TestScenario(t *testing.T) {
 // comparison's report, and its report to dir/report.md.
 func writeResult(t *testing.T, dir string, result *scenario.Result) {
 	t.Helper()
+	// A run that ended without stop, as on a panic or a helper's t.Fatal,
+	// still says it stopped.
+	unfinished := result.Invariants == nil || (result.Behaviour == nil && !result.Recorded)
+	if result.Stopped == "" && unfinished {
+		result.Stopped = "the run stopped before it finished: test.log says why"
+	}
 	if err := writeJSON(filepath.Join(dir, "result.json"), result); err != nil {
 		t.Error(err)
 		return

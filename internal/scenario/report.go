@@ -128,11 +128,12 @@ func invariantsSection(inv *Invariants) (summary, body string) {
 	if inv == nil {
 		return "not checked", "Not checked: the run stopped first.\n"
 	}
+	rules := reportedRules(inv.Violations)
 	var b strings.Builder
-	writeInvariants(&b, inv.Violations)
-	summary = fmt.Sprintf("all %d held", len(invariantRules))
+	writeInvariants(&b, rules, inv.Violations)
+	summary = fmt.Sprintf("all %d held", len(rules))
 	if broken := len(brokenRules(inv.Violations)); broken > 0 {
-		summary = fmt.Sprintf("**%d of %d broken**", broken, len(invariantRules))
+		summary = fmt.Sprintf("**%d of %d broken**", broken, len(rules))
 	}
 	return summary, b.String()
 }
@@ -162,12 +163,12 @@ func writeDifferences(b *strings.Builder, what, baseline string, diffs []Differe
 	writeBlock(b, lines)
 }
 
-// writeInvariants writes whether each invariant held, then each Violation,
-// by rule in the order they are checked.
-func writeInvariants(b *strings.Builder, vs []Violation) {
+// writeInvariants writes whether each of rules held, then each Violation,
+// by rule in the order of rules.
+func writeInvariants(b *strings.Builder, rules []string, vs []Violation) {
 	broken := brokenRules(vs)
 	b.WriteString("| Invariant | |\n|---|---|\n")
-	for _, rule := range invariantRules {
+	for _, rule := range rules {
 		verdict := "held"
 		if n := broken[rule]; n > 0 {
 			verdict = fmt.Sprintf("**broken**: %s", count(n, "", "%d violation", "%d violations"))
@@ -179,7 +180,7 @@ func writeInvariants(b *strings.Builder, vs []Violation) {
 	}
 	vs = slices.Clone(vs)
 	slices.SortStableFunc(vs, func(a, b Violation) int {
-		return ruleIndex(a.Rule) - ruleIndex(b.Rule)
+		return slices.Index(rules, a.Rule) - slices.Index(rules, b.Rule)
 	})
 	b.WriteString("\nEach violation:\n\n")
 	lines := make([]string, len(vs))
@@ -198,13 +199,16 @@ func brokenRules(vs []Violation) map[string]int {
 	return broken
 }
 
-// ruleIndex is where rule is in invariantRules, and after them all for a
-// rule that isn't one, so that its Violations are still reported.
-func ruleIndex(rule string) int {
-	if i := slices.Index(invariantRules, rule); i >= 0 {
-		return i
+// reportedRules returns invariantRules, then each rule of vs that isn't one,
+// in the order vs has them, so that its Violations are still reported.
+func reportedRules(vs []Violation) []string {
+	rules := slices.Clone(invariantRules)
+	for _, v := range vs {
+		if !slices.Contains(rules, v.Rule) {
+			rules = append(rules, v.Rule)
+		}
 	}
-	return len(invariantRules)
+	return rules
 }
 
 // writeBlock writes lines as a fenced block, so that what they quote, such
