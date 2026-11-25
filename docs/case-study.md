@@ -10,7 +10,7 @@ The history read is the 44 PRs merged from [#48][pr48] (the first with Review no
 
 ## 1. Reviews before the PR catch a lot, and most of it is small
 
-Every PR runs two reviews before it opens: a design review with two axes (standards, and spec) and a bug review. A fourth step has a fresh reviewer judge each finding the author rejected. 37 of the 44 PRs have a findings table, with 750 rows: about 20 per PR.
+Every PR is reviewed before it opens on three axes: standards and spec (two halves of one design review), and bugs. Then a fresh reviewer judges each finding the author rejected. 37 of the 44 PRs have a findings table, with 750 rows: about 20 per PR.
 
 | Review | Findings | Fixed | Rejected | Disputed | Other |
 |---|---|---|---|---|---|
@@ -26,13 +26,13 @@ Every PR runs two reviews before it opens: a design review with two axes (standa
 | Unstated | 91 | 56 | 32 | 3 | 0 |
 | Two severities | 13 | 5 | 7 | 1 | 0 |
 
-- **High findings are rare, and only one is in service code.** 17 of 750. The one is on [#93][pr93]: an Attempt's span error could carry the Endpoint URL. The rest are in the scenario's checks ([#101][pr101], [#103][pr103], [#139][pr139], [#140][pr140], [#142][pr142]), the spec, the docs or the agent setup.
-- **Lower severity, more rejections:** the author rejected 18% of High, 27% of Medium and 41% of Low.
-- **The spec axis is the noisiest.** 40% of its findings were fixed, against 68% for standards and 61% for bugs.
+- **High findings are rare, and few are in service code.** 17 of 750, plus one row rated "Medium / High". Both service-code ones are on [#93][pr93]: an Attempt's span error could carry the Endpoint URL, and a missing tracer provider panicked (the "Medium / High" row). The rest are in the scenario's checks ([#101][pr101], [#103][pr103], [#139][pr139], [#140][pr140], [#142][pr142]), the spec, the docs or the agent setup.
+- **Lower severity, more rejections:** the author rejected (or rejected, then had disputed) 18% of High, 29% of Medium and 42% of Low.
+- **The spec axis fixed the fewest, and changed most over time.** Overall 40% of its findings were fixed, against 68% for standards and 61% for bugs. Up to [#118][pr118] it fixed 28% (45 of 162); from [#132][pr132] on, 62% (54 of 87). Two things changed at that point, so the data can't say which mattered: the spec review moved from Sonnet to Opus 5.5, and the spec it reads came into being ([#134][pr134]).
 - **The rejection review rarely disagrees.** It disputed 11 of the 242 rejections it judged. The evaluation after the first milestone (M1) found 5 of about 140 ([#70][iss70]).
 - **No fall over time.** The first 18 PRs average 18 rows, the last 19 average 22. This isn't adjusted for the size of the change.
 
-**Not recorded:** what the tests written first caught, since a failing test leaves no row. Overlap between reviews is recorded only where the author merged two findings into one row, so it can't be counted. Only three PRs ran their reviews on Sonnet 5.5 ([#62][pr62], [#65][pr65], [#163][pr163]), too few to compare with Opus 5.5.
+**Not recorded:** what the tests written first caught, since a failing test leaves no row. Overlap between reviews is recorded only where the author merged two findings into one row, so it can't be counted. The spec review ran on Sonnet up to #118. Otherwise only three PRs ran their reviews on Sonnet 5.5 ([#62][pr62], [#65][pr65], [#163][pr163]), too few to compare with Opus 5.5.
 
 ## 2. Little is found wrong after merge, and one flaky check slipped through
 
@@ -51,7 +51,7 @@ No PR carries the `Regression from #<n>` marker the PR template asks for. These 
 
 ## 3. The human's part is in decisions before the PR, not on the PR
 
-- **On GitHub, the PRs show almost no review.** None has a review. Three have comments, six in all ([#55][pr55], [#56][pr56], [#68][pr68]), all from before [#62][pr62] moved decisions to before the PR opens. None since.
+- **On GitHub, the PRs show almost no review.** None has a review. Three have comments, six in all ([#55][pr55], [#56][pr56], [#68][pr68]), all from 16 and 17 November. [#62][pr62] moved decisions to before the PR opens on 17 November; #68's two comments came three hours later, and are a note and its answer about a missing test. No PR merged since has a comment.
 - **The decisions are on the issues:** at least 25 comments headed "Decision", on 19 issues. Some are written under other headings ([#112][iss112], [#114][iss114]), so this is a floor.
 - **12 review findings were settled by the human,** on 9 PRs: their outcome says so, or links the human's decision. All but one had been rejected first.
 
@@ -75,11 +75,11 @@ When the rules moved from `docs/design.md` into the spec ([#134][pr134]), and wh
 - [#48][pr48] started recording severities, the reviews that ran and what was verified, because that data "can't be rebuilt afterwards" ([#47][iss47]).
 - The M1 evaluation ([#70][iss70], [#83][pr83]) read the Review notes of PRs #13 to #68. It tightened four test and code rules, and asked the rejection judge whether a rule's purpose is met. Replays showed the new question didn't catch the mistake that prompted it; one of the new test rules did, in one run.
 - [#62][pr62] moved the human's decisions to before the PR, after questions on #50 had no place to be recorded ([#61][iss61]).
-- [#89][pr89] added a blocking wait for CI, after agents wrote polling loops that the setup refused ([#85][iss85]).
+- [#64][pr64] told agents to wait for CI with a blocking command. They still wrote polling loops that the setup refused ([#85][iss85]), so [#89][pr89] added a command that does the waiting. A written rule didn't hold; a tool did.
 
 A whole-codebase review of M1 was tried and dropped as too large ([#69][pr69]).
 
-**Not measured:** whether any change worked. The dispute counts before and after #83 overlap (#48 to #68) and are too small to compare.
+**Not measured:** whether the rule changes worked. The rejection review disputed 2 of 62 rejections before #83 and 9 of 180 after: too few to tell.
 
 ## Where the data disagrees with the claim
 
@@ -104,6 +104,7 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 [pr55]: https://github.com/madskrogh/herald/pull/55
 [pr56]: https://github.com/madskrogh/herald/pull/56
 [pr62]: https://github.com/madskrogh/herald/pull/62
+[pr64]: https://github.com/madskrogh/herald/pull/64
 [pr65]: https://github.com/madskrogh/herald/pull/65
 [pr68]: https://github.com/madskrogh/herald/pull/68
 [pr69]: https://github.com/madskrogh/herald/pull/69
@@ -112,6 +113,8 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 [pr93]: https://github.com/madskrogh/herald/pull/93
 [pr101]: https://github.com/madskrogh/herald/pull/101
 [pr103]: https://github.com/madskrogh/herald/pull/103
+[pr118]: https://github.com/madskrogh/herald/pull/118
+[pr132]: https://github.com/madskrogh/herald/pull/132
 [pr133]: https://github.com/madskrogh/herald/pull/133
 [pr134]: https://github.com/madskrogh/herald/pull/134
 [pr138]: https://github.com/madskrogh/herald/pull/138
