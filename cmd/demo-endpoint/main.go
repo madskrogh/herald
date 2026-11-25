@@ -1,6 +1,6 @@
 // Command demo-endpoint serves an Endpoint for trying Herald out against the
 // local stack: it prints each Attempt it receives, and whether its signature
-// verifies. Run it with `make endpoint`; the README walks through it.
+// verifies. Run it with `make endpoint`; docs/try-it.md walks through it.
 package main
 
 import (
