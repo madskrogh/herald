@@ -1,10 +1,10 @@
 # What the workflow catches, and where
 
-Herald is built by coding agents, with a human who decides and merges. This document tests one claim about that workflow against its own history:
+Herald is built by coding agents, with a human who decides and merges. This document tests one claim about that workflow, a hypothesis, against its own history:
 
 > The code the workflow produces holds up. What limits the pace is whether a human understands a change well enough to merge it. The spec and the tests are meant to give that understanding, so that over time review of the PR matters less, and effort moves to the spec and to production observability.
 
-**The short answer:** the agent reviews before a PR opens catch most problems, and little is found wrong after merge. The human's review is recorded mostly on the issues. What it catches is misread intent, the largest case being an ADR with the wrong goal. The history can't show that the code holds up on its own, and it records nothing about how well the human understood a change.
+**The short answer:** the history can't confirm the hypothesis yet. The agent reviews before a PR opens raise about 20 findings per PR, and four problems were filed after merge, one of them a gap known at merge. Nothing counts what the reviews missed, so whether the code holds up is still open. The human's review, recorded mostly on the issues, catches misread intent; the largest case was an ADR with the wrong goal. Nothing records how well the human understood a change, and nothing shows review of the PR mattering less.
 
 The history read is the 44 PRs merged from [#48][pr48] (the first with Review notes) to [#163][pr163], and the issues they close. "How this was counted" at the end says how each number was got.
 
@@ -55,7 +55,7 @@ The PRs show almost no review. None has a GitHub review, and only three have com
 
 - **The largest group is decisions** on points the issue left open: at least 25 comments are headed "Decision", on 19 issues, all but one (#73's, below) posted before the PR opened. For example, a slowed Postgres gets a SHOULD for latency while other faults keep a MUST ([#112][iss112]), and services keep running while NATS or Postgres is down ([#114][iss114]).
 - **Five were posted while the PR was open, and the human raised all five in review**, by the comment's own words or as confirmed on this study's issue ([record][rec160]).
-  - [#105][iss105], during [#106][pr106]: the ADR's goal, "rewrite Herald in another language", was the wrong one. The human had stated that goal earlier, and the agent took it too literally. What was meant is regeneration, as a test of how well the spec and the tests are defined. The goal became "Herald's code can be regenerated from its spec", and all the spec work since rests on it. #106's description says the reframing was decided "while writing", which is wrong.
+  - [#105][iss105], during [#106][pr106]: the ADR's goal, "rewrite Herald in another language", was the wrong one. The human had stated that goal earlier, and the agent took it too literally. What was meant is regeneration, as a test of how well the spec and the tests are defined. The goal became "Herald's code can be regenerated from its spec", and all the spec work since rests on it. #106's description said the reframing was decided "while writing"; it now carries a [correction][pr106].
   - #105 again, "asked during PR review": the scenario harness imported Herald's own code to decide what to expect. Now it never imports the implementation. #106's description lists this under Surprises.
   - [#73][iss73], during [#99][pr99], "after trying the walkthrough in a worktree before merge": the README's commands failed outside the main checkout. The spec review had raised the hard-coded ports, and the rejection review had upheld the author's rejection. The human's try reversed it. So the agents caught this one, and the rejection step dismissed it.
   - [#108][iss108], during [#117][pr117]: the human asked whether every implemented MUST can have a meaningful vector. The answer kept the rule and left the question to later issues. [ADR 0013](adr/0013-vectors-are-input-for-tests.md) ([#135][iss135]) dropped the rule that evening.
@@ -81,19 +81,14 @@ When the rules moved from `docs/design.md` into the spec ([#134][pr134]), and wh
 
 ## 5. The setup changed on evidence; whether the changes worked is unmeasured
 
-- [#48][pr48] started recording severities, the reviews that ran and what was verified, because that data "can't be rebuilt afterwards" ([#47][iss47]).
-- The M1 evaluation ([#70][iss70], [#83][pr83]) read the Review notes of PRs #13 to #68. It tightened four test and code rules, and asked the rejection judge whether a rule's purpose is met. Replays showed the new question didn't catch the mistake that prompted it; one of the new test rules did, in one run.
-- [#62][pr62] moved the human's decisions to before the PR, after questions on #50 had no place to be recorded ([#61][iss61]).
-- [#64][pr64] told agents to wait for CI with a blocking command. They still wrote polling loops that the setup refused ([#85][iss85]), so [#89][pr89] added a command that does the waiting. A written rule didn't hold; a tool did.
-
-A whole-codebase review of M1 was tried and dropped as too large ([#69][pr69]).
+Each setup change cites what prompted it, such as the evaluation after the first milestone ([#70][iss70], [#83][pr83]) and moving the human's decisions before the PR ([#61][iss61], [#62][pr62]). One shows what holds: [#64][pr64] told agents to wait for CI with a blocking command, they still wrote polling loops ([#85][iss85]), and [#89][pr89] added a command that does the waiting. A written rule didn't hold; a tool did.
 
 **Not measured:** whether the rule changes worked. The rejection review disputed 2 of 62 rejections before #83 and 9 of 180 after: too few to tell.
 
 ## Where the data disagrees with the claim
 
 1. **No sign that review of the PR matters less.** The record of the human's review is too thin to show a trend either way, but one point raised during a PR changed the goal the spec rests on (#105). The agent reviews' findings per PR rose a little.
-2. **No baseline for "holds up".** Little was found wrong after the reviews. That is all the data can say.
+2. **No baseline for "holds up".** Four problems were filed after merge, and nothing counts what the reviews missed. That is all the data can say.
 3. **Understanding isn't measured.** Nothing shows how well the human understood what merged without a comment.
 
 ## The regeneration audit
@@ -117,7 +112,6 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 [pr64]: https://github.com/madskrogh/herald/pull/64
 [pr65]: https://github.com/madskrogh/herald/pull/65
 [pr68]: https://github.com/madskrogh/herald/pull/68
-[pr69]: https://github.com/madskrogh/herald/pull/69
 [pr83]: https://github.com/madskrogh/herald/pull/83
 [pr89]: https://github.com/madskrogh/herald/pull/89
 [pr93]: https://github.com/madskrogh/herald/pull/93
@@ -137,7 +131,6 @@ The audit regenerates Herald from the spec alone and sorts each difference: a de
 [pr142]: https://github.com/madskrogh/herald/pull/142
 [pr154]: https://github.com/madskrogh/herald/pull/154
 [pr163]: https://github.com/madskrogh/herald/pull/163
-[iss47]: https://github.com/madskrogh/herald/issues/47
 [iss52]: https://github.com/madskrogh/herald/issues/52
 [iss61]: https://github.com/madskrogh/herald/issues/61
 [iss66]: https://github.com/madskrogh/herald/issues/66
