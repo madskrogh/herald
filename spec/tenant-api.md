@@ -1,6 +1,6 @@
 # Tenant API
 
-How Tenants call Herald, and what it accepts. The operations, their fields and their REST paths are the protobuf package `herald.tenant.v1` in `api/` ([ADR 0004](../docs/adr/0004-protobuf-first-api.md)). Each error is given as its gRPC code and, after a slash, its REST status.
+How Tenants call Herald, and what it accepts. The operations, their fields and their REST paths are the protobuf package `herald.tenant.v1` in [`api/herald/tenant/v1/`](../api/herald/tenant/v1/) ([ADR 0004](../docs/adr/0004-protobuf-first-api.md)). Each error is given as its gRPC code and, after a slash, its REST status.
 
 ## Calls
 
