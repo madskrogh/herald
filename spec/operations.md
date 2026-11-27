@@ -111,7 +111,7 @@ Why: at `0.001`, the whole schedule runs in about 80 s (#16), so a Delivery fail
 
 ### R-58 · implemented
 
-A change to the handoff package `herald.handoff.v1` MUST keep its wire encoding compatible with the version before it, so a herald-api and a herald-dispatcher one release apart hand Messages off to each other.
+A change to the handoff package `herald.handoff.v1` ([`handoff.proto`](../proto/herald/handoff/v1/handoff.proto)) MUST keep its wire encoding compatible with the version before it, so a herald-api and a herald-dispatcher one release apart hand Messages off to each other.
 
 Why: the two services are rolled out one after the other, so for a while each runs beside the other's previous version ([ADR 0002](../docs/adr/0002-two-services-outbox-nats-handoff.md)). The handoff is internal and never served to Tenants, so only its encoding matters, not its names.
 
