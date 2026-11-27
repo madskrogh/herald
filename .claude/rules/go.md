@@ -15,7 +15,8 @@ Follow Effective Go and the Go Code Review Comments wiki. On top of those:
 - Define interfaces where they are consumed, keep them small, and return concrete types.
 - Standard library first. A new dependency needs a reason the standard library can't meet; the chosen stack is listed in the README's "Built with".
 - Log with `log/slog`. Pass the logger in; don't use the global default in library code.
-- Data access goes through sqlc queries in `.sql` files; never build SQL strings in Go (ADR 0005). Three exceptions, each with a comment saying why:
+- Checks that read spans from ClickHouse run `.sql` files over its HTTP interface with `net/http`, passing values as ClickHouse query parameters; never build SQL strings in Go (ADR 0006). sqlc doesn't support ClickHouse, so the rule below covers Postgres only.
+- Postgres access goes through sqlc queries in `.sql` files; never build SQL strings in Go (ADR 0005). Three exceptions, each with a comment saying why:
   - DDL on identifiers in test helpers (`CREATE DATABASE` for a test's own database). Identifiers can't be query parameters.
   - Fixed bootstrap statements in the migrate step (`CREATE SCHEMA`, the advisory lock around the migrations): literals with no values in them.
   - A test that checks how a row is stored when the package's API deliberately can't show it (only a hash of an API key is stored): a fixed, read-only `SELECT`.
